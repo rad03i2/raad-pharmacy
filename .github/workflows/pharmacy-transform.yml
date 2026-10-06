@@ -1,0 +1,91 @@
+name: Pharmacy Transformation Validation
+
+on:
+  push:
+    branches:
+      - feat/pharmacy-transformation
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  transform-test-build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout transformation branch
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: feat/pharmacy-transformation
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+
+      - name: Apply pharmacy transformation
+        run: python3 tools/pharmacy_transform.py
+
+      - name: Verify current app identity cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE 'دفتر الغاز|قناني|قنينة|GasLedger|com\.radwan\.abosmra'             app/src/main app/src/test README.md docs             --exclude-dir=legacy; then
+            echo "Current product still contains predecessor identity."
+            exit 1
+          fi
+          grep -q 'applicationId = "com.radwan.raadpharmacy"' app/build.gradle.kts
+          grep -q 'namespace = "com.radwan.raadpharmacy"' app/build.gradle.kts
+          grep -q '<string name="app_name">دفتر صيدلية رعد</string>' app/src/main/res/values/strings.xml
+
+      - name: Run unit, Room and Compose tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Run release lint
+        run: gradle :app:lintRelease --stacktrace
+
+      - name: Build optimized pharmacy APK
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Generate APK checksum
+        run: sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/app-release.apk.sha256
+
+      - name: Upload QA reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raad-pharmacy-v3.0.0-transformation-qa
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/lint-results-release.html
+            app/build/reports/lint-results-release.xml
+          if-no-files-found: ignore
+
+      - name: Upload validated APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: raad-pharmacy-v3.0.0-apk
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/app-release.apk.sha256
+
+      - name: Commit validated transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm --ignore-unmatch .github/workflows/pharmacy-transform.yml tools/pharmacy_transform.py
+          git add -A
+          git commit -m "refactor: transform ledger into Raad Pharmacy [skip ci]"
+          git push origin HEAD:feat/pharmacy-transformation
