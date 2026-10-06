@@ -893,11 +893,13 @@ write(repo_rel, repo)
 # Remove remaining user-facing bottle terminology from current sources without renaming legacy DB/API fields.
 for p in (ROOT / "app/src/main").rglob("*.kt"):
     s = p.read_text(encoding="utf-8")
+    s = s.replace("إدارة الزبائن والديون والتحصيلات لموزّع قناني الغاز.", "إدارة حسابات وديون زبائن الصيدلية.")
     s = s.replace("حسب القناني", "مبلغ مباشر")
     s = s.replace("تفاصيل القناني", "تفاصيل المشتريات")
     s = s.replace("عدد القناني", "عدد العناصر")
     s = s.replace("سعر القنينة", "سعر الوحدة")
     s = s.replace("القناني", "العناصر")
+    s = s.replace("قناني", "عناصر")
     s = s.replace("قنينة", "عنصر")
     s = s.replace("للقنينة", "للوحدة")
     p.write_text(s, encoding="utf-8")
