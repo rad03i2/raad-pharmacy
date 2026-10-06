@@ -204,9 +204,16 @@ write("app/src/main/res/values/themes.xml", '''<?xml version="1.0" encoding="utf
     </style>
 </resources>
 ''')
-for rel in ["app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml", "app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml"]:
-    s = read(rel).replace("@color/gas_green", "@color/pharmacy_blue")
-    write(rel, s)
+for rel in [
+    "app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
+    "app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml",
+    "app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml",
+    "app/src/main/res/mipmap-anydpi-v33/ic_launcher_round.xml",
+]:
+    p = ROOT / rel
+    if p.exists():
+        s = read(rel).replace("@color/gas_green", "@color/pharmacy_blue")
+        write(rel, s)
 
 # Clean medical cross + capsule placeholder identity.
 logo = '''<?xml version="1.0" encoding="utf-8"?>
