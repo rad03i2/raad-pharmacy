@@ -265,8 +265,14 @@ backup = read(backup_rel)
 backup = backup.replace('const val FORMAT = "abosmra-backup"', 'const val FORMAT = "raad-pharmacy-backup"\n    private const val LEGACY_FORMAT = "abosmra-backup"')
 backup = backup.replace('put("app", "دفتر صيدلية رعد")', 'put("app", "دفتر صيدلية رعد")')
 backup = backup.replace(
-    'val modern = root.optString("backupFormat") == FORMAT\\n        val legacy = !modern && root.has("customers") && root.has("entries")\\n        require(modern || legacy) {',
-    'val format = root.optString("backupFormat")\\n        val modern = format == FORMAT\\n        val legacyFormat = format == LEGACY_FORMAT\\n        val legacy = format.isBlank() && root.has("customers") && root.has("entries")\\n        require(modern || legacyFormat || legacy) {'
+    '''val modern = root.optString("backupFormat") == FORMAT
+        val legacy = !modern && root.has("customers") && root.has("entries")
+        require(modern || legacy) {''',
+    '''val format = root.optString("backupFormat")
+        val modern = format == FORMAT
+        val legacyFormat = format == LEGACY_FORMAT
+        val legacy = format.isBlank() && root.has("customers") && root.has("entries")
+        require(modern || legacyFormat || legacy) {'''
 )
 backup = backup.replace('val schema = if (modern) root.optInt("schemaVersion", 0) else 0', 'val schema = if (modern || legacyFormat) root.optInt("schemaVersion", 0) else 0')
 backup = backup.replace('if (modern) {', 'if (modern || legacyFormat) {', 1)
