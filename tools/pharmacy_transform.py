@@ -105,7 +105,7 @@ for p in ROOT.rglob("*"):
         continue
     if legacy in p.parents:
         continue
-    if ".git" in p.parts:
+    if ".git" in p.parts or ".github" in p.parts:
         continue
     s = p.read_text(encoding="utf-8")
     for old, new in literal_replacements:
