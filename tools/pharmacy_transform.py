@@ -82,6 +82,8 @@ literal_replacements = [
     ("GasLedgerDao", "PharmacyLedgerDao"),
     ("GasLedgerTheme", "PharmacyLedgerTheme"),
     ("GasLedgerApp", "PharmacyLedgerApp"),
+    ("GasGreenDark", "MedicalBlueDark"),
+    ("GasGreen", "MedicalBlue"),
     ("Theme.Abosmra", "Theme.RaadPharmacy"),
     ("gas_ledger_data", "raad_pharmacy_data"),
     ("gas_ledger.db", "raad_pharmacy_ledger.db"),
@@ -260,7 +262,7 @@ write("app/src/main/res/values/strings.xml", '''<?xml version="1.0" encoding="ut
 # Backup format: write the new identity but continue accepting the old app format and legacy JSON.
 backup_rel = "app/src/main/java/com/radwan/raadpharmacy/data/BackupJson.kt"
 backup = read(backup_rel)
-backup = backup.replace('const val FORMAT = "abosmra-backup"', 'const val FORMAT = "raad-pharmacy-backup"\\n    private const val LEGACY_FORMAT = "abosmra-backup"')
+backup = backup.replace('const val FORMAT = "abosmra-backup"', 'const val FORMAT = "raad-pharmacy-backup"\n    private const val LEGACY_FORMAT = "abosmra-backup"')
 backup = backup.replace('put("app", "دفتر صيدلية رعد")', 'put("app", "دفتر صيدلية رعد")')
 backup = backup.replace(
     'val modern = root.optString("backupFormat") == FORMAT\\n        val legacy = !modern && root.has("customers") && root.has("entries")\\n        require(modern || legacy) {',
