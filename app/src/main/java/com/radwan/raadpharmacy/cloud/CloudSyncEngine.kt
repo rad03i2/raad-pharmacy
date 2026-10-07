@@ -28,6 +28,7 @@ class CloudSyncEngine(context: Context) {
     private val journal = CloudSyncJournal(appContext)
     private val deviceStore = CloudDeviceStore(appContext)
     private val mediaStore = CloudMediaStore(appContext)
+    private val syncPrefs = appContext.getSharedPreferences("raad_cloud_sync_state_v2", Context.MODE_PRIVATE)
 
     suspend fun unregisterPushToken() = globalSyncMutex.withLock {
         client.auth.awaitInitialization()
@@ -82,7 +83,7 @@ class CloudSyncEngine(context: Context) {
     suspend fun pullRemoteNow() = globalSyncMutex.withLock {
         client.auth.awaitInitialization()
         if (client.auth.currentSessionOrNull() == null) return@withLock
-        pullRemoteSnapshot()
+        pullRemoteDelta()
     }
 
     fun startRealtime(scope: CoroutineScope): Boolean {
@@ -249,6 +250,32 @@ class CloudSyncEngine(context: Context) {
         val remoteTransactions = fetchTransactions()
         applyRemoteSnapshot(remoteCustomers, remoteTransactions)
         mediaStore.reconcileCustomerPhotos(remoteCustomers)
+        syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, System.currentTimeMillis()).apply()
+    }
+
+    private suspend fun pullRemoteDelta() {
+        val lastPullAt = syncPrefs.getLong(KEY_LAST_REMOTE_PULL_AT, 0L)
+        if (lastPullAt <= 0L) {
+            pullRemoteSnapshot()
+            return
+        }
+
+        val since = Instant.ofEpochMilli(
+            (lastPullAt - DELTA_SAFETY_WINDOW_MS).coerceAtLeast(0L)
+        ).toString()
+
+        val changedCustomers = client.from("customers")
+            .select { filter { gte("updated_at", since) } }
+            .decodeList<CloudCustomerRow>()
+        val changedTransactions = client.from("transactions")
+            .select { filter { gte("updated_at", since) } }
+            .decodeList<CloudTransactionRow>()
+
+        changedCustomers.forEach { applyCustomerRealtime(it) }
+        changedTransactions.forEach { applyTransactionRealtime(it) }
+        mediaStore.reconcileCustomerPhotos(changedCustomers)
+
+        syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, System.currentTimeMillis()).apply()
     }
 
     private fun transactionRow(action: PostgresAction): CloudTransactionRow? =
@@ -413,6 +440,8 @@ class CloudSyncEngine(context: Context) {
 
     companion object {
         private const val TAG = "CloudSyncEngine"
+        private const val KEY_LAST_REMOTE_PULL_AT = "last_remote_pull_at"
+        private const val DELTA_SAFETY_WINDOW_MS = 5_000L
         private val globalSyncMutex = Mutex()
     }
 }
