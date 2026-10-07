@@ -212,33 +212,61 @@ class CloudSyncEngine(context: Context) {
         remoteCustomers: List<CloudCustomerRow>,
         remoteTransactions: List<CloudTransactionRow>
     ) {
-        val localIds = dao.getEntries().mapTo(hashSetOf()) { it.id }
+        val localById = dao.getEntries().associateBy { it.id }
         val cutoff = System.currentTimeMillis() - 30_000L
         val customerNames = remoteCustomers.associate { it.id to it.name }
 
         remoteTransactions
             .asSequence()
-            .filter { it.deletedAt == null }
-            .filter { it.id !in localIds }
-            .filter { parseIso(it.createdAt) >= cutoff }
-            .sortedBy { parseIso(it.createdAt) }
+            .filter {
+                val eventTime = parseIso(it.deletedAt ?: it.updatedAt)
+                eventTime >= cutoff
+            }
+            .sortedBy { parseIso(it.deletedAt ?: it.updatedAt) }
             .toList()
             .takeLast(5)
             .forEach { row ->
+                val local = localById[row.id]
                 val customerName = customerNames[row.customerId] ?: "الزبون"
                 val amount = row.amount.toLong()
-                val title = if (row.type == "PAYMENT") "تحصيل جديد من جهاز آخر" else "دين جديد من جهاز آخر"
-                val body = if (row.type == "PAYMENT") {
-                    "تم تسجيل تحصيل " + amount + " د.ع لحساب " + customerName
-                } else {
-                    "تم تسجيل دين " + amount + " د.ع على حساب " + customerName
+
+                when {
+                    row.deletedAt != null && local != null -> {
+                        CloudNotificationCenter.post(
+                            context = appContext,
+                            title = "تم حذف حركة من جهاز آخر",
+                            body = "تم حذف حركة بقيمة " + amount + " د.ع من حساب " + customerName,
+                            customerId = row.customerId
+                        )
+                    }
+                    row.deletedAt == null && local == null -> {
+                        val title = if (row.type == "PAYMENT") "تحصيل جديد من جهاز آخر" else "دين جديد من جهاز آخر"
+                        val body = if (row.type == "PAYMENT") {
+                            "تم تسجيل تحصيل " + amount + " د.ع لحساب " + customerName
+                        } else {
+                            "تم تسجيل دين " + amount + " د.ع على حساب " + customerName
+                        }
+                        CloudNotificationCenter.post(
+                            context = appContext,
+                            title = title,
+                            body = body,
+                            customerId = row.customerId
+                        )
+                    }
+                    row.deletedAt == null && local != null && (
+                        local.customerId != row.customerId ||
+                            local.type != row.type ||
+                            local.amount != amount ||
+                            local.details != row.notes.orEmpty()
+                    ) -> {
+                        CloudNotificationCenter.post(
+                            context = appContext,
+                            title = "تم تعديل حركة من جهاز آخر",
+                            body = "تم تحديث حركة بقيمة " + amount + " د.ع في حساب " + customerName,
+                            customerId = row.customerId
+                        )
+                    }
                 }
-                CloudNotificationCenter.post(
-                    context = appContext,
-                    title = title,
-                    body = body,
-                    customerId = row.customerId
-                )
             }
     }
     private suspend fun applyRemoteSnapshot(
