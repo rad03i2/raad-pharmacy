@@ -67,6 +67,7 @@ data class CloudTransactionWrite(
     val type: String,
     val amount: Long,
     val notes: String? = null,
+    @SerialName("device_id") val deviceId: String? = null,
     @SerialName("occurred_at") val occurredAt: String,
     @SerialName("created_at") val createdAt: String,
     @SerialName("deleted_at") val deletedAt: String? = null
