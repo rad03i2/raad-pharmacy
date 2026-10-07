@@ -57,9 +57,9 @@ fun CloudActivityBannerHost(
         CloudUiEvents.events.collectLatest { event ->
             current = event
             visible = true
-            delay(4_200L)
+            delay(3_000L)
             visible = false
-            delay(260L)
+            delay(150L)
             if (current == event) current = null
         }
     }
@@ -84,13 +84,13 @@ fun CloudActivityBannerHost(
             AnimatedVisibility(
                 visible = visible,
                 enter = slideInVertically(
-                    animationSpec = tween(260),
+                    animationSpec = tween(130),
                     initialOffsetY = { -it }
-                ) + fadeIn(tween(180)),
+                ) + fadeIn(tween(100)),
                 exit = slideOutVertically(
-                    animationSpec = tween(220),
+                    animationSpec = tween(120),
                     targetOffsetY = { -it }
-                ) + fadeOut(tween(160))
+                ) + fadeOut(tween(100))
             ) {
                 CloudActivityBanner(
                     event = event,
@@ -128,8 +128,8 @@ private fun CloudActivityBanner(
             ),
         shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp,
-        shadowElevation = 10.dp
+        tonalElevation = 10.dp,
+        shadowElevation = 14.dp
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
