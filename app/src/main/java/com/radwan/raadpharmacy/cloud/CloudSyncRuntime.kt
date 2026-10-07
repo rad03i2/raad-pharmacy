@@ -1,6 +1,8 @@
 package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.radwan.raadpharmacy.notifications.PixabaySoundAssets
 import io.github.jan.supabase.auth.auth
@@ -20,6 +22,7 @@ object CloudSyncRuntime {
     private val notificationRealtimeStarted = AtomicBoolean(false)
     private val authObserverStarted = AtomicBoolean(false)
     private val presenceLoopStarted = AtomicBoolean(false)
+    private val connectivityObserverStarted = AtomicBoolean(false)
     private val fastSyncRunning = AtomicBoolean(false)
     private val fastSyncRequested = AtomicBoolean(false)
     private val lastBackgroundAt = AtomicLong(0L)
@@ -30,6 +33,7 @@ object CloudSyncRuntime {
         CloudDeviceStore(app).refreshFcmToken(app)
         PixabaySoundAssets.prefetch(app)
         startPresenceLoop(app)
+        startConnectivityObserver(app)
 
         scope.launch {
             fullSyncAndCatchUp(app)
@@ -138,6 +142,21 @@ object CloudSyncRuntime {
             val inbox = CloudNotificationInbox(context.applicationContext)
             if (inbox.startRealtime(scope)) notificationRealtimeStarted.set(true)
         }
+    }
+
+    private fun startConnectivityObserver(context: Context) {
+        if (!connectivityObserverStarted.compareAndSet(false, true)) return
+        val manager = context.getSystemService(ConnectivityManager::class.java)
+        manager.registerDefaultNetworkCallback(
+            object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    scope.launch {
+                        fullSyncAndCatchUp(context)
+                        startRealtimeIfPossible(context)
+                    }
+                }
+            }
+        )
     }
 
     private fun startPresenceLoop(context: Context) {
