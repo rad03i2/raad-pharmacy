@@ -92,11 +92,11 @@ object FinancialOperationFeedback {
     fun postNotification(context: Context, receipt: FinancialOperationReceipt) {
         if (!canPostNotifications(context)) return
         // This is the app/system notification that follows the in-app operation confirmation.
-        // It intentionally uses the cloud notification sound, independent from the operation-complete toggle.
-        PixabaySoundAssets.playNotification(context)
+        // Its sound is independent from the operation-complete toggle.
         val notification = buildNotification(context, receipt)
         try {
             NotificationManagerCompat.from(context).notify(nextNotificationId(), notification)
+            PixabaySoundAssets.playNotification(context)
         } catch (_: SecurityException) {
             // Permission can be revoked between the check and posting.
         }
