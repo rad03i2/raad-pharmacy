@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import java.util.concurrent.TimeUnit
 
 class CloudSyncWorker(
@@ -22,6 +23,7 @@ class CloudSyncWorker(
             CloudSyncEngine(applicationContext).syncOnce()
             Result.success()
         }.getOrElse {
+            FirebaseCrashlytics.getInstance().recordException(it)
             Result.retry()
         }
 }
