@@ -58,8 +58,10 @@ object CloudNotificationCenter {
             .setSilent(true)
             .build()
 
-        runCatching {
+        try {
             NotificationManagerCompat.from(app).notify(id, notification)
+        } catch (_: SecurityException) {
+            // Notification permission can be revoked after the explicit permission check.
         }
     }
 
@@ -99,7 +101,11 @@ object CloudNotificationCenter {
                 .setGroup(GROUP_KEY)
                 .setSilent(true)
                 .build()
-            runCatching { NotificationManagerCompat.from(app).notify(id, child) }
+            try {
+                NotificationManagerCompat.from(app).notify(id, child)
+            } catch (_: SecurityException) {
+                // Notification permission can be revoked after the explicit permission check.
+            }
         }
 
         if (audible) PixabaySoundAssets.playNotification(app)
@@ -126,8 +132,10 @@ object CloudNotificationCenter {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        runCatching {
+        try {
             NotificationManagerCompat.from(app).notify(SUMMARY_ID, summary)
+        } catch (_: SecurityException) {
+            // Notification permission can be revoked after the explicit permission check.
         }
     }
 
