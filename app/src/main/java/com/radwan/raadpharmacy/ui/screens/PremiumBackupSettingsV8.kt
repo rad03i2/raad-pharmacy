@@ -20,13 +20,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
@@ -469,7 +469,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
             item { SectionTitle("الحساب السحابي") }
             item {
                 V8SettingsRow(
-                    Icons.Rounded.Logout,
+                    Icons.AutoMirrored.Rounded.Logout,
                     "تسجيل الخروج",
                     "إيقاف مزامنة هذا الحساب على الجهاز والعودة لشاشة الدخول",
                     enabled = !working
