@@ -264,7 +264,13 @@ class CloudSyncEngine(context: Context) {
             }.getOrNull()
             ?: "الزبون"
 
-        val actorName = actorNameFor(row.createdBy)
+        val actorUserId = when {
+            row.deletedAt != null -> row.deletedBy ?: row.updatedBy ?: row.createdBy
+            local == null -> row.createdBy ?: row.updatedBy
+            else -> row.updatedBy ?: row.createdBy
+        }
+        val actorName = actorNameFor(actorUserId)
+
         val event = when {
             row.deletedAt != null && local != null -> CloudUiEvent(
                 title = "تم حذف حركة من جهاز آخر",
