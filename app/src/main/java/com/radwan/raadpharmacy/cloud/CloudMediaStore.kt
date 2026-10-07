@@ -33,6 +33,21 @@ class CloudMediaStore(context: Context) {
         return path
     }
 
+    suspend fun reconcileCustomerPhotos(rows: List<CloudCustomerRow>) {
+        rows.asSequence()
+            .filter { it.deletedAt == null }
+            .forEach { row ->
+                val remote = row.photoPath
+                val local = customerPhotos.file(row.id)
+                when {
+                    !remote.isNullOrBlank() -> runCatching { syncCustomerPhoto(row) }
+                    local?.isFile == true -> runCatching {
+                        uploadCustomerPhoto(row.id, local)
+                    }
+                }
+            }
+    }
+
     suspend fun syncCustomerPhoto(row: CloudCustomerRow) {
         val path = row.photoPath ?: return
         if (!customerPhotos.needsRemote(row.id, path)) return
