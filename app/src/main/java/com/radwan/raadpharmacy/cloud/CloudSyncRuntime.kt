@@ -30,6 +30,7 @@ object CloudSyncRuntime {
     fun start(context: Context) {
         val app = context.applicationContext
         CloudSyncScheduler.ensurePeriodic(app)
+        CloudSyncScheduler.ensureNetworkCatchUp(app)
         CloudDeviceStore(app).refreshFcmToken(app)
         PixabaySoundAssets.prefetch(app)
         startPresenceLoop(app)
