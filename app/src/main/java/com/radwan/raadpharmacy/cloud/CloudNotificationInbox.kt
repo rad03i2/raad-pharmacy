@@ -19,7 +19,11 @@ class CloudNotificationInbox(context: Context) {
     private val client = SupabaseProvider.client
     private val dao = PharmacyLedgerDatabase.get(appContext).dao()
     private val deviceStore = CloudDeviceStore(appContext)
-    private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).also { store ->
+        if (!store.contains(KEY_FEATURE_START_AT)) {
+            store.edit().putLong(KEY_FEATURE_START_AT, System.currentTimeMillis()).apply()
+        }
+    }
 
     suspend fun catchUp() {
         client.auth.awaitInitialization()
@@ -32,15 +36,18 @@ class CloudNotificationInbox(context: Context) {
             }
             .decodeList<CloudNotificationEventRow>()
 
+        val featureStartAt = prefs.getLong(KEY_FEATURE_START_AT, System.currentTimeMillis())
+
         if (!prefs.getBoolean(KEY_INITIALIZED, false)) {
-            rememberSeen(rows.map { it.id })
+            val historical = rows.filter { parseIso(it.createdAt) < featureStartAt }
+            rememberSeen(historical.map { it.id })
             prefs.edit().putBoolean(KEY_INITIALIZED, true).apply()
-            return
         }
 
         val unseen = rows
             .asSequence()
             .filterNot { isSeen(it.id) }
+            .filter { parseIso(it.createdAt) >= featureStartAt }
             .sortedBy { it.createdAt }
             .toList()
 
@@ -203,6 +210,13 @@ class CloudNotificationInbox(context: Context) {
         else -> CloudUiEvent.Kind.INFO
     }
 
+    private fun parseIso(value: String): Long =
+        runCatching { java.time.Instant.parse(value).toEpochMilli() }
+            .recoverCatching {
+                java.time.OffsetDateTime.parse(value).toInstant().toEpochMilli()
+            }
+            .getOrDefault(0L)
+
     private fun isSeen(id: String): Boolean =
         prefs.getStringSet(KEY_SEEN, emptySet()).orEmpty().contains(id)
 
@@ -221,6 +235,7 @@ class CloudNotificationInbox(context: Context) {
         private const val PREFS = "raad_cloud_notification_inbox_v1"
         private const val KEY_INITIALIZED = "initialized"
         private const val KEY_SEEN = "seen_ids"
+        private const val KEY_FEATURE_START_AT = "feature_start_at"
         private const val MAX_SEEN = 300
     }
 }
