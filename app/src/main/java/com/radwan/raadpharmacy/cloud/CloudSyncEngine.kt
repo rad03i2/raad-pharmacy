@@ -6,6 +6,7 @@ import com.radwan.raadpharmacy.data.CustomerEntity
 import com.radwan.raadpharmacy.data.LedgerEntryEntity
 import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.realtime.PrimaryKey
 import io.github.jan.supabase.realtime.channel
@@ -26,6 +27,7 @@ class CloudSyncEngine(context: Context) {
     private val deviceStore = CloudDeviceStore(appContext)
 
     suspend fun syncOnce() = globalSyncMutex.withLock {
+        client.auth.awaitInitialization()
         val session = client.auth.currentSessionOrNull() ?: return@withLock
         val userId = session.user?.id ?: return@withLock
         val profile = client.from("profiles")
@@ -64,6 +66,13 @@ class CloudSyncEngine(context: Context) {
             channel.subscribe()
         }
         scope.launch {
+            client.auth.sessionStatus.collect { status ->
+                if (status is SessionStatus.Authenticated) {
+                    runCatching { channel.updateAuth(status.session.accessToken) }
+                }
+            }
+        }
+        scope.launch {
             combine(customers, transactions) { customerRows, transactionRows ->
                 customerRows to transactionRows
             }.collect { (customerRows, transactionRows) ->
@@ -77,21 +86,23 @@ class CloudSyncEngine(context: Context) {
     private suspend fun bootstrap(profile: CloudProfileRow) {
         val remoteCustomers = fetchCustomers()
         val remoteTransactions = fetchTransactions()
+        val localCustomers = dao.getCustomers()
+        val localEntries = dao.getEntries()
 
-        if (remoteCustomers.isEmpty() && remoteTransactions.isEmpty()) {
-            val localCustomers = dao.getCustomers()
-            val localEntries = dao.getEntries()
+        val knownRemoteCustomerIds = remoteCustomers.mapTo(hashSetOf()) { it.id }
+        val missingCustomers = localCustomers.filter { it.id !in knownRemoteCustomerIds }
+        if (missingCustomers.isNotEmpty()) {
+            client.from("customers").upsert(
+                missingCustomers.map { it.toCloud(profile.pharmacyId) }
+            ) { onConflict = "id" }
+        }
 
-            if (localCustomers.isNotEmpty()) {
-                client.from("customers").upsert(
-                    localCustomers.map { it.toCloud(profile.pharmacyId) }
-                ) { onConflict = "id" }
-            }
-            if (localEntries.isNotEmpty()) {
-                client.from("transactions").upsert(
-                    localEntries.map { it.toCloud(profile.pharmacyId) }
-                ) { onConflict = "id" }
-            }
+        val knownRemoteTransactionIds = remoteTransactions.mapTo(hashSetOf()) { it.id }
+        val missingTransactions = localEntries.filter { it.id !in knownRemoteTransactionIds }
+        if (missingTransactions.isNotEmpty()) {
+            client.from("transactions").upsert(
+                missingTransactions.map { it.toCloud(profile.pharmacyId) }
+            ) { onConflict = "id" }
         }
 
         applyRemoteSnapshot(fetchCustomers(), fetchTransactions())
@@ -134,7 +145,11 @@ class CloudSyncEngine(context: Context) {
         }
 
         journal.snapshot().customerDeletes.forEach { id ->
-            client.from("customers").update(DeletedAtPatch(nowIso())) {
+            val deletedAt = nowIso()
+            client.from("transactions").update(DeletedAtPatch(deletedAt)) {
+                filter { eq("customer_id", id) }
+            }
+            client.from("customers").update(DeletedAtPatch(deletedAt)) {
                 filter { eq("id", id) }
             }
             journal.clearCustomerDelete(id)
