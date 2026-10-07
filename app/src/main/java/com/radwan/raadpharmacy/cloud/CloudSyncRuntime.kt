@@ -29,6 +29,7 @@ object CloudSyncRuntime {
 
     fun start(context: Context) {
         val app = context.applicationContext
+        CloudNotificationCenter.ensureChannels(app)
         CloudSyncScheduler.ensurePeriodic(app)
         CloudSyncScheduler.ensureNetworkCatchUp(app)
         CloudDeviceStore(app).refreshFcmToken(app)

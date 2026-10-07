@@ -37,12 +37,12 @@ class LedgerNotificationChannelsTest {
     }
 
     @Test
-    fun fixedChannelsAreHeadsUpButSystemSoundIsDisabled() {
+    fun fixedChannelsUseBundledSoundWithoutInternet() {
         LedgerNotificationType.entries.forEach { type ->
             val id = LedgerNotificationChannels.ensure(context, type)
             val channel = manager.getNotificationChannel(id)
             assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
-            assertNull(channel.sound)
+            assertTrue(channel.sound.toString().contains("pixabay_notification_037"))
         }
     }
 

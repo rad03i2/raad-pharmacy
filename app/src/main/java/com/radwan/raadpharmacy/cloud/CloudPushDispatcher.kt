@@ -51,11 +51,9 @@ object CloudPushDispatcher {
                 }
                 .decodeList<PendingPushRow>()
 
-            pending
-                .mapNotNull { it.transactionId }
-                .distinct()
-                .forEach { transactionId ->
-                    runCatching { dispatchNow(transactionId) }
+            pending.forEach { event ->
+                    val transactionId = event.transactionId ?: return@forEach
+                    runCatching { dispatchNow(transactionId, event.id) }
                         .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
                 }
         }.onFailure {
@@ -63,7 +61,7 @@ object CloudPushDispatcher {
         }
     }
 
-    private suspend fun dispatchNow(transactionId: String) {
+    private suspend fun dispatchNow(transactionId: String, eventId: String? = null) {
         val auth = SupabaseProvider.client.auth
         auth.awaitInitialization()
         val token = auth.currentSessionOrNull()?.accessToken ?: return
@@ -75,12 +73,13 @@ object CloudPushDispatcher {
             header("Authorization", "Bearer $token")
             header("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
             contentType(ContentType.Application.Json)
-            setBody("""{"transaction_id":"$transactionId"}""")
+            setBody("""{"transaction_id":"$transactionId","event_id":"${eventId.orEmpty()}"}""")
         }
     }
 
     @Serializable
     private data class PendingPushRow(
+        val id: String,
         @SerialName("transaction_id") val transactionId: String? = null,
         @SerialName("push_attempts") val pushAttempts: Int = 0
     )

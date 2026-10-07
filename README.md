@@ -53,3 +53,13 @@
 
 ## ملاحظات تاريخية
 ملاحظات إصدارات التطبيق السابق نُقلت إلى docs/legacy للحفاظ على التاريخ التقني دون تقديمها كتوصيف للمنتج الحالي.
+
+## Update 3.3.2
+- Bundled Pixabay notification sound in Android channels; independent audible alerts in foreground and background.
+- Sequential missed-event delivery with cross-path deduplication and paginated catch-up.
+- FCM data callbacks persist delivery work instead of fetching missed events synchronously.
+- Search opens the keyboard immediately and uses the name/phone hint.
+- Home wallet opens all customer movements with day, last-7-days, month and all filters.
+- English digits with Arabic 12-hour morning/evening labels.
+
+Backend push still requires a valid Firebase service account JSON configured as `FIREBASE_SERVICE_ACCOUNT_JSON`. Client `google-services.json` is not that credential. Server SQL grants are recorded in `supabase/push-access.sql`; only the backend can update dispatch metadata.

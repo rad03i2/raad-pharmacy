@@ -96,7 +96,6 @@ object FinancialOperationFeedback {
         val notification = buildNotification(context, receipt)
         try {
             NotificationManagerCompat.from(context).notify(nextNotificationId(), notification)
-            PixabaySoundAssets.playNotification(context)
         } catch (_: SecurityException) {
             // Permission can be revoked between the check and posting.
         }

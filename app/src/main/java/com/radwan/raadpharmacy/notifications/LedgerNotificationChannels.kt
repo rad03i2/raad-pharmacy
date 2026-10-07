@@ -1,5 +1,7 @@
 package com.radwan.raadpharmacy.notifications
 
+import android.media.AudioAttributes
+import com.radwan.raadpharmacy.R
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationChannelGroup
@@ -18,7 +20,7 @@ object LedgerNotificationChannels {
     private const val GROUP_ID = "ledger_alerts"
 
     fun channelId(type: LedgerNotificationType, preset: NotificationSoundPreset): String =
-        "ledger_${type.prefix}_heads_up_v4_fixed"
+        "ledger_${type.prefix}_heads_up_v5_audible"
 
     fun ensure(
         context: Context,
@@ -39,8 +41,10 @@ object LedgerNotificationChannels {
         manager.createNotificationChannelGroup(NotificationChannelGroup(GROUP_ID, "إشعارات دفتر صيدلية رعد"))
         manager.createNotificationChannel(NotificationChannel(id, type.title, importance).apply {
             group = GROUP_ID
-            description = "التنبيه نفسه صامت؛ أصوات التطبيق تُدار داخل التطبيق بصوتي Pixabay المعتمدين."
-            setSound(null, null)
+            description = "إشعار خارجي بصوت التطبيق حتى عند عدم الاتصال بالإنترنت."
+            setSound(soundResourceUri(context, R.raw.pixabay_notification_037),
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
             enableVibration(true)
             vibrationPattern = longArrayOf(0L, 90L, 60L, 90L)
             lockscreenVisibility = Notification.VISIBILITY_PRIVATE

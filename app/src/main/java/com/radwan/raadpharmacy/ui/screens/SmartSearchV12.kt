@@ -32,6 +32,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -63,6 +68,8 @@ fun SmartSearchScreenV12(
     onPayment: (String) -> Unit
 ) {
     val focusManager = LocalFocusManager.current
+    val searchFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     val customers by vm.customers.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
@@ -95,12 +102,17 @@ fun SmartSearchScreenV12(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
+                LaunchedEffect(Unit) {
+                    withFrameNanos { }
+                    searchFocus.requestFocus()
+                    keyboard?.show()
+                }
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
                     singleLine = true,
-                    placeholder = { Text("اكتب الاسم، رقم الهاتف، المنطقة أو العنوان") },
+                    placeholder = { Text("اكتب الاسم أو رقم الهاتف") },
                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
                     shape = CircleShape,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),

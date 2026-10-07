@@ -47,19 +47,7 @@ object PixabaySoundAssets {
     fun playNotification(context: Context, silent: Boolean = false) {
         if (silent) return
         val app = context.applicationContext
-        val file = notificationFile(app)
-        if (file.isFile) {
-            FeedbackSoundPlayer.playFile(app, file, notification = true)
-        } else {
-            scope.launch {
-                runCatching { ensureCached(app) }
-                    .onSuccess {
-                        notificationFile(app).takeIf { it.isFile }?.let { cached ->
-                            FeedbackSoundPlayer.playFile(app, cached, notification = true)
-                        }
-                    }
-            }
-        }
+        FeedbackSoundPlayer.play(app, com.radwan.raadpharmacy.R.raw.pixabay_notification_037, notification = true)
     }
 
     fun playOperation(context: Context) {

@@ -17,6 +17,10 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.RaadPharmacy">
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="raad_cloud_alerts_v6_audible" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
         <service
             android:name=".cloud.PharmacyMessagingService"
             android:exported="false">

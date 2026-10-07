@@ -66,6 +66,7 @@ import com.radwan.raadpharmacy.ui.screens.FollowUpScreenV4
 import com.radwan.raadpharmacy.ui.screens.HomeScreenV3
 import com.radwan.raadpharmacy.ui.screens.ReportsScreenV11
 import com.radwan.raadpharmacy.ui.screens.SettingsScreenV10
+import com.radwan.raadpharmacy.ui.screens.AllActivityScreen
 import com.radwan.raadpharmacy.ui.screens.SmartSearchScreenV12
 import com.radwan.raadpharmacy.ui.screens.SearchIntentV12
 import com.radwan.raadpharmacy.ui.screens.StatementScreenV7
@@ -74,6 +75,7 @@ import com.radwan.raadpharmacy.ui.theme.PharmacyLedgerTheme
 
 object Routes {
     const val HOME = "home"
+    const val ACTIVITY = "activity"
     const val CUSTOMERS = "customers"
     const val ADD_CUSTOMER = "add_customer"
     const val CUSTOMER = "customer/{customerId}"
@@ -304,6 +306,7 @@ fun PharmacyLedgerApp(
                         HomeScreenV3(
                             vm = vm,
                             onCustomers = { safeNavigate(Routes.CUSTOMERS) },
+                            onActivity = { safeNavigate(Routes.ACTIVITY) },
                             onAddCustomer = { safeNavigate(Routes.ADD_CUSTOMER) },
                             onSearch = { navController.navigate(Routes.search("open")) { launchSingleTop = true } },
                             onQuickDebt = { navController.navigate(Routes.search("debt")) { launchSingleTop = true } },
@@ -315,6 +318,11 @@ fun PharmacyLedgerApp(
                             onFollowUp = { safeNavigate(Routes.FOLLOWUP) },
                             onCustomer = { safeNavigate(Routes.customer(it)) }
                         )
+                    }
+                    composable(Routes.ACTIVITY) {
+                        AllActivityScreen(vm, navController::popBackStack) {
+                            safeNavigate(Routes.customer(it))
+                        }
                     }
                     composable(Routes.CUSTOMERS) {
                         CustomersScreenV3(

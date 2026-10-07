@@ -95,6 +95,7 @@ import java.util.Locale
 fun HomeScreenV3(
     vm: PharmacyLedgerViewModel,
     onCustomers: () -> Unit,
+    onActivity: () -> Unit,
     onAddCustomer: () -> Unit,
     onSearch: () -> Unit,
     onQuickDebt: () -> Unit,
@@ -154,7 +155,7 @@ fun HomeScreenV3(
         contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 28.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { V3Header(today, vm) }
+        item { V3Header(today, vm, onActivity) }
         item {
             V3DebtHero(
                 totalDebt = vm.totalDebt(),
@@ -275,7 +276,8 @@ fun HomeScreenV3(
 @Composable
 private fun V3Header(
     today: String,
-    vm: PharmacyLedgerViewModel
+    vm: PharmacyLedgerViewModel,
+    onActivity: () -> Unit
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -290,12 +292,12 @@ private fun V3Header(
             Surface(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(48.dp).clickable(onClick = onActivity)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Rounded.Wallet,
-                        contentDescription = null,
+                        contentDescription = "سجل جميع الحركات",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )

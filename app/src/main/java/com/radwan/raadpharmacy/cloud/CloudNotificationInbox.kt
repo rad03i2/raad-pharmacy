@@ -2,7 +2,6 @@ package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
 import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
-import com.radwan.raadpharmacy.notifications.PixabaySoundAssets
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.postgrest.from
@@ -13,6 +12,9 @@ import io.github.jan.supabase.realtime.decodeRecordOrNull
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class CloudNotificationInbox(context: Context) {
     private val appContext = context.applicationContext
@@ -25,53 +27,36 @@ class CloudNotificationInbox(context: Context) {
         }
     }
 
-    suspend fun catchUp() {
+    suspend fun catchUp() = catchUpMutex.withLock {
         client.auth.awaitInitialization()
-        if (client.auth.currentSessionOrNull() == null) return
-
-        val rows = client.from("notification_events")
-            .select {
-                order("created_at", Order.DESCENDING)
-                limit(100)
-            }
-            .decodeList<CloudNotificationEventRow>()
-
-        val featureStartAt = prefs.getLong(KEY_FEATURE_START_AT, System.currentTimeMillis())
-
-        if (!prefs.getBoolean(KEY_INITIALIZED, false)) {
-            val historical = rows.filter { parseIso(it.createdAt) < featureStartAt }
-            rememberSeen(historical.map { it.id })
-            prefs.edit().putBoolean(KEY_INITIALIZED, true).apply()
-        }
-
-        val unseen = rows
-            .asSequence()
-            .filterNot { isSeen(it.id) }
-            .filter { parseIso(it.createdAt) >= featureStartAt }
-            .sortedBy { it.createdAt }
-            .toList()
-
-        if (unseen.isEmpty()) return
-
-        val mine = unseen.filter { it.actorDeviceId == deviceStore.deviceId() }
-        rememberSeen(mine.map { it.id })
-
-        val remote = unseen.filter { it.actorDeviceId != deviceStore.deviceId() }
-        if (remote.isEmpty()) return
-
-        deliver(remote, catchUp = true)
-        rememberSeen(remote.map { it.id })
+        if (client.auth.currentSessionOrNull() == null) return@withLock
+        val startAt = prefs.getLong(KEY_CURSOR_AT,
+            prefs.getLong(KEY_FEATURE_START_AT, System.currentTimeMillis()))
+        val snapshotEnd = java.time.Instant.now().toString()
+        var offset = 0L
+        var allDelivered = true
+        var latestAt = startAt
+        do {
+            val rows = client.from("notification_events").select {
+                filter {
+                    gte("created_at", java.time.Instant.ofEpochMilli(startAt).toString())
+                    lte("created_at", snapshotEnd)
+                }
+                order("created_at", Order.ASCENDING)
+                order("id", Order.ASCENDING)
+                range(offset..(offset + 99L))
+            }.decodeList<CloudNotificationEventRow>()
+            if (rows.isEmpty()) break
+            deliver(rows)
+            allDelivered = allDelivered && rows.all { isSeen(it.id) }
+            latestAt = maxOf(latestAt, rows.maxOf { parseIso(it.createdAt) })
+            offset += rows.size
+        } while (rows.size == 100)
+        if (allDelivered) prefs.edit().putLong(KEY_CURSOR_AT, latestAt).apply()
     }
 
     suspend fun deliverPush(row: CloudNotificationEventRow) {
-        if (isSeen(row.id)) return
-        if (row.actorDeviceId == deviceStore.deviceId()) {
-            rememberSeen(listOf(row.id))
-            return
-        }
-
-        deliver(listOf(row), catchUp = false)
-        rememberSeen(listOf(row.id))
+        deliver(listOf(row))
     }
 
     fun startRealtime(scope: CoroutineScope): Boolean {
@@ -86,15 +71,7 @@ class CloudNotificationInbox(context: Context) {
             launch {
                 inserts.collect { action ->
                     val row = action.decodeRecordOrNull<CloudNotificationEventRow>() ?: return@collect
-                    if (isSeen(row.id)) return@collect
-                    if (row.actorDeviceId == deviceStore.deviceId()) {
-                        rememberSeen(listOf(row.id))
-                        return@collect
-                    }
-                    runCatching {
-                        deliver(listOf(row), catchUp = false)
-                        rememberSeen(listOf(row.id))
-                    }
+                    runCatching { deliverPush(row) }
                 }
             }
             runCatching { channel.subscribe() }
@@ -110,50 +87,34 @@ class CloudNotificationInbox(context: Context) {
         return true
     }
 
-    private suspend fun deliver(rows: List<CloudNotificationEventRow>, catchUp: Boolean) {
-        val external = rows.map { row ->
-            val customerName = row.customerId
-                ?.let { dao.getCustomerById(it)?.name }
-                ?: "الزبون"
-            row.toExternal(customerName)
-        }
-
-        if (CloudUiEvents.isAppForeground()) {
-            PixabaySoundAssets.playNotification(appContext)
-
-            if (catchUp && rows.size > 1) {
-                CloudUiEvents.emit(
-                    CloudUiEvent(
-                        title = "وصلت ${rows.size} عمليات جديدة",
-                        message = "تمت مزامنة العمليات التي حدثت أثناء عدم اتصال هذا الهاتف.",
-                        kind = CloudUiEvent.Kind.REFRESH
-                    )
+    private suspend fun deliver(rows: List<CloudNotificationEventRow>) {
+        for ((index, row) in rows.withIndex()) {
+            deliveryMutex.withLock {
+                if (isSeen(row.id)) return@withLock
+                if (row.actorDeviceId == deviceStore.deviceId()) {
+                    rememberSeen(listOf(row.id))
+                    return@withLock
+                }
+                val name = row.customerId?.let { dao.getCustomerById(it)?.name } ?: "الزبون"
+                val item = row.toExternal(name)
+                val wait = 3_000L - (android.os.SystemClock.elapsedRealtime() - lastAlertAt)
+                if (wait > 0L) delay(wait)
+                val posted = CloudNotificationCenter.post(
+                    appContext, item.title, item.body, item.customerId, true, item.id
                 )
-            } else {
-                val row = rows.last()
-                val item = external.last()
-                CloudUiEvents.emit(
-                    CloudUiEvent(
-                        title = row.uiTitle(),
-                        message = item.body,
-                        customerId = item.customerId,
-                        actorName = row.actorDisplayName,
+                if (posted) {
+                    lastAlertAt = android.os.SystemClock.elapsedRealtime()
+                    rememberSeen(listOf(row.id))
+                }
+                if (CloudUiEvents.isAppForeground()) {
+                    CloudUiEvents.emit(CloudUiEvent(
+                        title = row.uiTitle(), message = item.body,
+                        customerId = item.customerId, actorName = row.actorDisplayName,
                         kind = row.uiKind()
-                    )
-                )
+                    ))
+                }
             }
-
-            CloudNotificationCenter.postBatch(
-                context = appContext,
-                events = external,
-                audible = false
-            )
-        } else {
-            CloudNotificationCenter.postBatch(
-                context = appContext,
-                events = external,
-                audible = true
-            )
+            if (index < rows.lastIndex) delay(3_000L)
         }
     }
 
@@ -232,10 +193,13 @@ class CloudNotificationInbox(context: Context) {
     }
 
     companion object {
+        private val deliveryMutex = Mutex()
+        private val catchUpMutex = Mutex()
+        private var lastAlertAt = -3_000L
         private const val PREFS = "raad_cloud_notification_inbox_v1"
-        private const val KEY_INITIALIZED = "initialized"
+        private const val KEY_CURSOR_AT = "catchup_cursor_at"
         private const val KEY_SEEN = "seen_ids"
         private const val KEY_FEATURE_START_AT = "feature_start_at"
-        private const val MAX_SEEN = 300
+        private const val MAX_SEEN = 5_000
     }
 }

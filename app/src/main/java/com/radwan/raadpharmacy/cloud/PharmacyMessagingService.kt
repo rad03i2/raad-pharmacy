@@ -2,8 +2,6 @@ package com.radwan.raadpharmacy.cloud
 
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import java.time.Instant
 
 class PharmacyMessagingService : FirebaseMessagingService() {
@@ -32,20 +30,7 @@ class PharmacyMessagingService : FirebaseMessagingService() {
                 createdAt = data["created_at"] ?: Instant.now().toString()
             )
 
-            runBlocking(Dispatchers.IO) {
-                runCatching {
-                    val eventAge = System.currentTimeMillis() -
-                        runCatching { Instant.parse(row.createdAt).toEpochMilli() }
-                            .getOrDefault(System.currentTimeMillis())
-
-                    val inbox = CloudNotificationInbox(applicationContext)
-                    if (eventAge >= DELAYED_PUSH_BATCH_AFTER_MS) {
-                        inbox.catchUp()
-                    } else {
-                        inbox.deliverPush(row)
-                    }
-                }
-            }
+            CloudNotificationDeliveryWorker.enqueue(applicationContext, row)
             return
         }
 
@@ -61,11 +46,8 @@ class PharmacyMessagingService : FirebaseMessagingService() {
             title = title,
             body = body,
             customerId = data["customer_id"],
-            audible = !CloudUiEvents.isAppForeground()
+            audible = true
         )
     }
 
-    companion object {
-        private const val DELAYED_PUSH_BATCH_AFTER_MS = 20_000L
-    }
 }

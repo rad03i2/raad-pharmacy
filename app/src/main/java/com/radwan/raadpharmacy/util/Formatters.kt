@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit
 
 private val moneyFormatter = NumberFormat.getIntegerInstance(Locale.US)
 private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.US)
-private val timeFormatter = DateTimeFormatter.ofPattern("hh:mm a", Locale.US)
+private val timeFormatter = DateTimeFormatter.ofPattern("h:mm", Locale.US)
 
 fun formatMoney(amount: Long): String = "${moneyFormatter.format(amount)} د.ع"
 
@@ -21,11 +21,10 @@ fun formatDate(timestamp: Long): String =
         .toLocalDate()
         .format(dateFormatter)
 
-fun formatTime(timestamp: Long): String =
-    Instant.ofEpochMilli(timestamp)
-        .atZone(ZoneId.systemDefault())
-        .toLocalTime()
-        .format(timeFormatter)
+fun formatTime(timestamp: Long): String {
+    val time = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalTime()
+    return time.format(timeFormatter) + if (time.hour < 12) " صباحًا" else " مساءً"
+}
 
 fun daysSince(timestamp: Long): Long =
     TimeUnit.MILLISECONDS.toDays((System.currentTimeMillis() - timestamp).coerceAtLeast(0L))
