@@ -44,8 +44,6 @@ object CloudNotificationCenter {
         if (!canPost(app)) return
         ensureChannels(app)
 
-        if (audible) PixabaySoundAssets.playNotification(app)
-
         val id = stableId(eventId)
         val notification = builder(
             context = app,
@@ -60,6 +58,7 @@ object CloudNotificationCenter {
             .build()
 
         notifySafely(app, id, notification)
+        if (audible) PixabaySoundAssets.playNotification(app)
     }
 
     fun postBatch(
@@ -101,8 +100,6 @@ object CloudNotificationCenter {
             notifySafely(app, id, child)
         }
 
-        if (audible) PixabaySoundAssets.playNotification(app)
-
         val summary = NotificationCompat.Builder(
             app,
             if (audible) CHANNEL_ALERT else CHANNEL_SILENT
@@ -126,6 +123,7 @@ object CloudNotificationCenter {
             .build()
 
         notifySafely(app, SUMMARY_ID, summary)
+        if (audible) PixabaySoundAssets.playNotification(app)
     }
 
     @SuppressLint("MissingPermission")
