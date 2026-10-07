@@ -181,11 +181,11 @@ object FinancialOperationFeedback {
     }
 
     fun playOperationSound(context: Context, preset: OperationSoundPreset) {
-        FeedbackSoundPlayer.play(context, preset.resourceId)
+        PixabaySoundAssets.playOperation(context)
     }
 
     fun playNotificationSound(context: Context, preset: NotificationSoundPreset) {
-        FeedbackSoundPlayer.play(context, preset.resourceId, notification = true)
+        PixabaySoundAssets.playNotification(context)
     }
 
     fun stopPreviewSound() { FeedbackSoundPlayer.stop() }
