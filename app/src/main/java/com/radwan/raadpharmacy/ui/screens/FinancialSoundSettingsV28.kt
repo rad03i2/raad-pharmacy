@@ -113,7 +113,7 @@ internal fun FinancialSoundSettingsContent(
         SoundGroupCardV28(
             title = "صوت نجاح العملية",
             selectedTitle = settings.operationSound.title,
-            description = "يعمل فور نجاح تسجيل الدين أو التحصيل أو التسديد الكامل.",
+            description = "الصوت الثابت المعتمد عند اكتمال تسجيل الدين أو التحصيل بنجاح.",
             expanded = expandedGroup == "operation",
             onToggle = { expandedGroup = if (expandedGroup == "operation") null else "operation" },
             icon = { Icon(Icons.Rounded.VolumeUp, null, tint = MaterialTheme.colorScheme.primary) }
@@ -126,7 +126,7 @@ internal fun FinancialSoundSettingsContent(
         SoundGroupCardV28(
             title = "صوت إشعار الهاتف",
             selectedTitle = settings.notificationSound.title,
-            description = "يُستخدم لتأكيد العمليات ومتابعة الديون. تنبيه تأكيد العملية يصل بعد ثانيتين.",
+            description = "الصوت الثابت للتنبيه السحابي الداخلي والخارجي عند وصول عملية من هاتف آخر.",
             expanded = expandedGroup == "notification",
             onToggle = { expandedGroup = if (expandedGroup == "notification") null else "notification" },
             icon = { Icon(Icons.Rounded.NotificationsActive, null, tint = MaterialTheme.colorScheme.primary) }
@@ -146,7 +146,7 @@ internal fun FinancialSoundSettingsContent(
             notificationMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary) }
         }
-        Text("اضغط على الخيار لعرض النغمات. الاختيار يُحفظ تلقائيًا، وزر «تجربة» يسمعك الصوت دون تغييره.",
+        Text("يعتمد التطبيق صوتين فقط: صوت لاكتمال العملية وصوت للتنبيهات السحابية. لا توجد نغمات إضافية.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
