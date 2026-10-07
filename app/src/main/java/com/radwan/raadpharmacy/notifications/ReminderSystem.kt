@@ -33,7 +33,7 @@ enum class ReminderFrequency(val storageValue: String, val hours: Long) {
 
     companion object {
         fun fromStorage(value: String?): ReminderFrequency =
-            entries.firstOrNull { it.storageValue == value } ?: DAILY
+            entries.firstOrNull { it.storageValue == value } ?: WEEKLY
     }
 }
 
@@ -48,8 +48,17 @@ class ReminderStore(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    init {
+        if (!prefs.getBoolean("weekly_defaults_v334", false)) {
+            prefs.edit().putBoolean(KEY_ENABLED, true)
+                .putString(KEY_FREQUENCY, ReminderFrequency.WEEKLY.storageValue)
+                .putInt(KEY_MIN_AGE_DAYS, 7)
+                .putBoolean("weekly_defaults_v334", true).apply()
+        }
+    }
+
     fun state(): ReminderSettings = ReminderSettings(
-        enabled = prefs.getBoolean(KEY_ENABLED, false),
+        enabled = prefs.getBoolean(KEY_ENABLED, true),
         frequency = ReminderFrequency.fromStorage(prefs.getString(KEY_FREQUENCY, null)),
         minimumAgeDays = prefs.getInt(KEY_MIN_AGE_DAYS, 7).let {
             if (it in setOf(7, 15, 30)) it else 7

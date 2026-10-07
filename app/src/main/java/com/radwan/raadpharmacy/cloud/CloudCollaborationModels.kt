@@ -11,6 +11,7 @@ data class CloudNotificationEventRow(
     @SerialName("actor_display_name") val actorDisplayName: String? = null,
     @SerialName("actor_device_id") val actorDeviceId: String? = null,
     @SerialName("event_type") val eventType: String,
+    @SerialName("recipient_user_id") val recipientUserId: String? = null,
     @SerialName("customer_id") val customerId: String? = null,
     @SerialName("transaction_id") val transactionId: String? = null,
     val amount: Double = 0.0,
@@ -36,3 +37,7 @@ data class CloudTeamProfileRow(
     @SerialName("is_hidden") val isHidden: Boolean = false,
     @SerialName("avatar_path") val avatarPath: String? = null
 )
+
+/** Directed alerts must never be displayed on another account's phone. */
+internal fun CloudNotificationEventRow.isAddressedTo(userId: String): Boolean =
+    eventType != "TEAM_ALERT" || recipientUserId == userId

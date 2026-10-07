@@ -34,6 +34,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -57,6 +58,7 @@ import com.radwan.raadpharmacy.data.AutoBackupInterval
 import com.radwan.raadpharmacy.data.BackupPreview
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
 import com.radwan.raadpharmacy.ui.components.SectionTitle
+import com.radwan.raadpharmacy.util.SignOutChallenge
 import com.radwan.raadpharmacy.util.formatDate
 import com.radwan.raadpharmacy.util.formatTime
 import kotlinx.coroutines.Dispatchers
@@ -76,12 +78,11 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
     var working by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var lastBackupAt by remember { mutableStateOf(vm.lastBackupAt()) }
-    var autoInterval by remember { mutableStateOf(vm.autoBackupInterval()) }
     var pendingRestoreRaw by remember { mutableStateOf<String?>(null) }
     var pendingPreview by remember { mutableStateOf<BackupPreview?>(null) }
-    var showResetConfirm by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showSignOutConfirm by remember { mutableStateOf(false) }
+    var signOutAnswer by remember { mutableStateOf("") }
     var showTypography by remember { mutableStateOf(false) }
 
     val createBackupLauncher = rememberLauncherForActivityResult(
@@ -209,28 +210,6 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
         )
     }
 
-    if (showResetConfirm) {
-        AlertDialog(
-            onDismissRequest = { showResetConfirm = false },
-            title = { Text("إعادة البيانات التجريبية") },
-            text = { Text("سيتم حذف البيانات الحالية وإعادة بيانات العرض الأولية.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        working = true
-                        vm.resetDemoData()
-                        working = false
-                        showResetConfirm = false
-                        message = "تمت إعادة البيانات التجريبية."
-                    }
-                }) { Text("إعادة") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showResetConfirm = false }) { Text("إلغاء") }
-            }
-        )
-    }
-
     if (showAbout) {
         AboutDialogV15(onDismiss = { showAbout = false })
     }
@@ -253,19 +232,33 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
             onDismissRequest = { if (!working) showSignOutConfirm = false },
             title = { Text("تسجيل الخروج من الحساب؟") },
             text = {
-                Text(
-                    "ستبقى بيانات الدفتر محفوظة محليًا، وسيتوقف هذا الجهاز عن استقبال تحديثات الحساب حتى تسجيل الدخول مرة أخرى."
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("للتأكيد، احسب المعادلة واكتب الناتج. ستبقى بيانات الدفتر محفوظة على الجهاز.")
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
+                    ) {
+                        Text(SignOutChallenge.expression, style = MaterialTheme.typography.titleMedium)
+                        OutlinedTextField(value = signOutAnswer,
+                            onValueChange = { signOutAnswer = it.filter(Char::isDigit).take(8) },
+                            label = { Text("الناتج") }, singleLine = true, enabled = !working,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth())
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
-                    enabled = !working,
+                    enabled = !working && SignOutChallenge.accepts(signOutAnswer),
                     onClick = {
                         scope.launch {
                             working = true
-                            CloudSyncRuntime.signOut(context)
-                            working = false
-                            showSignOutConfirm = false
+                            try {
+                                CloudSyncRuntime.signOut(context)
+                                showSignOutConfirm = false
+                            } catch (_: Exception) {
+                                message = "تعذر تسجيل الخروج. حاول مرة أخرى."
+                            } finally { working = false }
                         }
                     }
                 ) { Text("تسجيل الخروج") }
@@ -290,7 +283,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
         )
     }
 
-    Scaffold(topBar = { ScreenTopBar("المزيد") }) { padding ->
+    Scaffold(topBar = { ScreenTopBar("الضبط") }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
@@ -379,46 +372,6 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
                 }
             }
 
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(15.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text("النسخ التلقائي الداخلي", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "يحفظ التطبيق نسخة داخلية دورية عند استخدامه، ويحتفظ بأحدث 7 نسخ.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            AutoBackupInterval.entries.forEach { interval ->
-                                FilterChip(
-                                    selected = autoInterval == interval,
-                                    onClick = {
-                                        scope.launch {
-                                            autoInterval = interval
-                                            vm.setAutoBackupInterval(interval)
-                                            lastBackupAt = vm.lastBackupAt()
-                                        }
-                                    },
-                                    label = { Text(intervalLabel(interval)) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
             if (working) {
                 item {
                     Surface(
@@ -469,6 +422,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
                     "إيقاف مزامنة هذا الحساب على الجهاز والعودة لشاشة الدخول",
                     enabled = !working
                 ) {
+                    signOutAnswer = ""
                     showSignOutConfirm = true
                 }
             }
@@ -482,17 +436,6 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
                     "الإصدار " + BuildConfig.VERSION_NAME + " • التطوير والتصميم: رضوان عبدالهادي"
                 ) {
                     showAbout = true
-                }
-            }
-
-            item {
-                OutlinedButton(
-                    onClick = { showResetConfirm = true },
-                    enabled = !working,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large
-                ) {
-                    Text("إعادة البيانات التجريبية")
                 }
             }
 

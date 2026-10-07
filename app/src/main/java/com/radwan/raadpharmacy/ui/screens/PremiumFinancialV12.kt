@@ -15,6 +15,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -39,6 +42,8 @@ import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.Wallet
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -63,6 +68,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -93,6 +99,10 @@ import com.radwan.raadpharmacy.ui.components.SoftDivider
 import com.radwan.raadpharmacy.ui.theme.DebtRed
 import com.radwan.raadpharmacy.ui.theme.PaidGreen
 import com.radwan.raadpharmacy.util.formatMoney
+import com.radwan.raadpharmacy.util.accumulatedAmount
+import com.radwan.raadpharmacy.ui.components.CompactFinanceHeader
+import com.radwan.raadpharmacy.ui.components.FinancialQuickAmounts
+import com.radwan.raadpharmacy.ui.components.CompactBalanceSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -112,6 +122,7 @@ fun AddDebtScreenV12(
     onBack: () -> Unit
 ) {
     val customers by vm.customers.collectAsStateWithLifecycle()
+    val entries by vm.entries.collectAsStateWithLifecycle()
     val customer = customers.firstOrNull { it.id == customerId }
     if (customer == null) {
         V12MissingCustomer(onBack)
@@ -124,7 +135,7 @@ fun AddDebtScreenV12(
     val scope = rememberCoroutineScope()
     val financialFeedback = rememberFinancialFeedbackHandler(vm)
     val speechRecognizer = remember(context) { DebtSpeechRecognizer(context) }
-    val previousBalance = vm.balance(customer)
+    val previousBalance = remember(customer, entries) { com.radwan.raadpharmacy.data.customerBalance(customer, entries) }
 
     var amountText by rememberSaveable { mutableStateOf("") }
     var detailsText by rememberSaveable { mutableStateOf("") }
@@ -413,89 +424,37 @@ fun AddDebtScreenV12(
             }
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(14.dp, 4.dp, 14.dp, 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                V12FinanceHero(
-                    customerId = customer.id,
-                    customerName = customer.name,
-                    label = "الدين الحالي",
-                    amount = previousBalance,
-                    positive = false
-                )
-            }
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    V12AmountInput(
-                        value = amountText,
-                        onValueChange = {
-                            amountText = it.filter(Char::isDigit).take(12)
-                            errorText = null
-                            voiceFeedback = null
-                        },
-                        label = "المبلغ",
-                        helper = errorText ?: "أدخل قيمة الأدوية أو المشتريات، أو استخدم الميكروفون ثم راجع المبلغ.",
-                        isError = errorText != null,
-                        enabled = !isSaving && !voiceListening,
-                        onDone = ::submit,
-                        trailingIcon = {
-                            V29DebtMicrophoneButton(
-                                listening = voiceListening,
-                                enabled = !isSaving,
-                                onClick = ::onMicrophoneClick
-                            )
-                        }
-                    )
-                    if (voiceListening || voiceTranscript.isNotBlank() || voiceFeedback != null || voiceError != null) {
-                        V29VoiceStatus(
-                            listening = voiceListening,
-                            preparing = voicePreparing,
-                            processing = voiceProcessing,
-                            transcript = voiceTranscript,
-                            feedback = voiceFeedback,
-                            error = voiceError
-                        )
-                    }
-                }
-            }
-            item {
-                V12QuickAmounts(
-                    values = listOf(5_000L, 10_000L, 15_000L, 20_000L, 25_000L, 50_000L),
-                    selected = amountText.toLongOrNull(),
-                    enabled = !isSaving && !voiceListening
-                ) {
-                    amountText = it.toString()
+        val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding).padding(14.dp, 6.dp)) {
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(if (maxHeight < 430.dp) 6.dp else 10.dp)) {
+                if (!keyboardVisible) CompactFinanceHeader(customer.id, customer.name, previousBalance)
+                V12AmountInput(value = amountText, onValueChange = {
+                    amountText = it.filter(Char::isDigit).take(12)
                     errorText = null
                     voiceFeedback = null
+                }, label = "المبلغ", helper = errorText ?: "أدخل المبلغ أو استخدم الميكروفون.",
+                    isError = errorText != null, enabled = !isSaving && !voiceListening,
+                    onDone = ::submit, trailingIcon = {
+                        V29DebtMicrophoneButton(voiceListening, !isSaving, ::onMicrophoneClick)
+                    })
+                if (voiceListening || voiceFeedback != null || voiceError != null) {
+                    Text(voiceError ?: voiceFeedback ?: if (voicePreparing) "جارٍ تجهيز الميكروفون…"
+                        else if (voiceProcessing) "جارٍ تحليل المبلغ…" else "أستمع الآن… " + voiceTranscript,
+                        style = MaterialTheme.typography.bodySmall, maxLines = 2,
+                        color = if (voiceError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                 }
-            }
-            item {
-                OutlinedTextField(
-                    value = detailsText,
-                    onValueChange = { detailsText = it.take(160) },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("المشتريات / الأدوية (اختياري)") },
-                    placeholder = { Text("مثال: دواء ضغط + فيتامينات") },
-                    enabled = !isSaving,
-                    minLines = 2,
-                    maxLines = 3,
-                    shape = MaterialTheme.shapes.large
-                )
-            }
-            item {
-                V12Equation(
-                    firstLabel = "الرصيد السابق",
-                    first = previousBalance,
-                    operator = "+",
-                    secondLabel = "الدين الجديد",
-                    second = amount,
-                    resultLabel = "الرصيد بعد التسجيل",
-                    result = previousBalance + amount,
-                    positive = false
-                )
+                if (!keyboardVisible) FinancialQuickAmounts(!isSaving && !voiceListening) { addition ->
+                    val updated = accumulatedAmount(amountText, addition)
+                    if (updated != null) { amountText = updated; errorText = null; voiceFeedback = null }
+                    else errorText = "المبلغ أكبر من الحد المسموح."
+                }
+                OutlinedTextField(value = detailsText, onValueChange = { detailsText = it.take(160) },
+                    modifier = Modifier.fillMaxWidth(), label = { Text("المشتريات / الأدوية (اختياري)") },
+                    placeholder = { Text("مثال: دواء ضغط + فيتامينات") }, enabled = !isSaving,
+                    singleLine = true, shape = MaterialTheme.shapes.large,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }))
+                if (!keyboardVisible) CompactBalanceSummary(previousBalance, amount, previousBalance + amount, false)
             }
         }
     }
@@ -508,6 +467,7 @@ fun AddPaymentScreenV12(
     onBack: () -> Unit
 ) {
     val customers by vm.customers.collectAsStateWithLifecycle()
+    val entries by vm.entries.collectAsStateWithLifecycle()
     val customer = customers.firstOrNull { it.id == customerId }
     if (customer == null) {
         V12MissingCustomer(onBack)
@@ -517,11 +477,13 @@ fun AddPaymentScreenV12(
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val financialFeedback = rememberFinancialFeedbackHandler(vm)
-    val currentBalance = vm.balance(customer)
+    val currentBalance = remember(customer, entries) { com.radwan.raadpharmacy.data.customerBalance(customer, entries) }
     var amountText by rememberSaveable { mutableStateOf("") }
     var isSaving by rememberSaveable { mutableStateOf(false) }
     var errorText by rememberSaveable { mutableStateOf<String?>(null) }
     var savedAmount by rememberSaveable { mutableStateOf<Long?>(null) }
+    var savedWasFull by rememberSaveable { mutableStateOf(false) }
+    var pendingFull by remember { mutableStateOf<Pair<Long, Boolean>?>(null) }
 
     val amount = amountText.toLongOrNull() ?: 0L
     val tooHigh = amount > currentBalance && amount > 0
@@ -547,6 +509,7 @@ fun AddPaymentScreenV12(
 
             isSaving = false
             if (success) {
+                savedWasFull = amount == currentBalance
                 savedAmount = amount
                 financialFeedback.onSaved(
                     FinancialOperationReceipt(
@@ -567,10 +530,30 @@ fun AddPaymentScreenV12(
         }
     }
 
+    fun requestSubmit() {
+        if (canSubmit && amount == currentBalance) pendingFull = currentBalance to true
+        else submit()
+    }
+
+    pendingFull?.let { (balanceAtRequest, saveNow) ->
+        AlertDialog(onDismissRequest = { pendingFull = null },
+            title = { Text(if (saveNow) "تأكيد تسديد الحساب بالكامل" else "اختيار تسديد المبلغ كاملًا") },
+            text = { Text("سيتم تسديد " + formatMoney(balanceAtRequest) + " لحساب " + customer.name +
+                if (saveNow) " وإغلاق الدين الحالي. هل تؤكد هذه العملية؟" else " عند تأكيد الحفظ لاحقًا. هل تريد تعبئة هذا المبلغ؟") },
+            confirmButton = { TextButton(onClick = {
+                pendingFull = null
+                if (vm.balance(customer) != balanceAtRequest || (saveNow && amount != balanceAtRequest)) {
+                    errorText = "تغير المبلغ أو الرصيد. راجع الحساب ثم أكد من جديد."
+                } else if (saveNow) submit()
+                else { amountText = balanceAtRequest.toString(); errorText = null }
+            }) { Text(if (saveNow) "تأكيد التسديد" else "تعبئة المبلغ") } },
+            dismissButton = { TextButton(onClick = { pendingFull = null }) { Text("إلغاء") } })
+    }
+
     savedAmount?.let { saved ->
         V12SuccessDialog(
-            title = if (saved == currentBalance) "تم تسديد الحساب" else "تم تسجيل التحصيل",
-            message = if (saved == currentBalance) {
+            title = if (savedWasFull) "تم تسديد الحساب" else "تم تسجيل التحصيل",
+            message = if (savedWasFull) {
                 "أصبح رصيد " + customer.name + " صفرًا."
             } else {
                 "تم تحصيل " + formatMoney(saved) + " من " + customer.name
@@ -593,9 +576,9 @@ fun AddPaymentScreenV12(
             if (currentBalance > 0L) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     Button(
-                        onClick = ::submit,
+                        onClick = ::requestSubmit,
                         enabled = canSubmit,
-                        modifier = Modifier.fillMaxWidth().padding(12.dp, 10.dp, 12.dp, 12.dp).height(58.dp),
+                        modifier = Modifier.fillMaxWidth().imePadding().padding(12.dp, 10.dp, 12.dp, 12.dp).height(58.dp),
                         shape = MaterialTheme.shapes.large
                     ) {
                         if (isSaving) {
@@ -617,113 +600,33 @@ fun AddPaymentScreenV12(
             }
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(14.dp, 4.dp, 14.dp, 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                V12FinanceHero(
-                    customerId = customer.id,
-                    customerName = customer.name,
-                    label = "الدين الحالي",
-                    amount = currentBalance,
-                    positive = currentBalance == 0L
-                )
-            }
-
-            if (currentBalance == 0L) {
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.extraLarge,
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(18.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Rounded.Check, null, tint = PaidGreen)
-                            Column(modifier = Modifier.padding(horizontal = 10.dp)) {
-                                Text("الحساب مسدد بالكامل", style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    "لا يوجد مبلغ مطلوب من هذا الزبون.",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+        val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding).padding(14.dp, 6.dp)) {
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(if (maxHeight < 430.dp) 6.dp else 10.dp)) {
+                if (!keyboardVisible) CompactFinanceHeader(customer.id, customer.name, currentBalance)
+                if (currentBalance == 0L) {
+                    Text("الحساب مسدد بالكامل. لا يوجد مبلغ مطلوب من هذا الزبون.",
+                        style = MaterialTheme.typography.titleMedium, color = PaidGreen)
+                } else {
+                    V12AmountInput(value = amountText, onValueChange = {
+                        amountText = it.filter(Char::isDigit).take(12); errorText = null
+                    }, label = "المبلغ المستلم", helper = when {
+                        tooHigh -> "المبلغ يتجاوز الدين الحالي: " + formatMoney(currentBalance)
+                        errorText != null -> errorText.orEmpty()
+                        else -> "أدخل المبلغ المستلم من الزبون."
+                    }, isError = tooHigh || errorText != null, enabled = !isSaving, onDone = ::requestSubmit)
+                    if (!keyboardVisible) FinancialQuickAmounts(!isSaving) { addition ->
+                        val updated = accumulatedAmount(amountText, addition)
+                        if (updated != null) { amountText = updated; errorText = null }
+                        else errorText = "المبلغ أكبر من الحد المسموح."
                     }
-                }
-            } else {
-                item {
-                    V12AmountInput(
-                        value = amountText,
-                        onValueChange = {
-                            amountText = it.filter(Char::isDigit).take(12)
-                            errorText = null
-                        },
-                        label = "المبلغ المستلم",
-                        helper = when {
-                            tooHigh -> "لا يمكن أن يتجاوز " + formatMoney(currentBalance)
-                            errorText != null -> errorText.orEmpty()
-                            else -> "أدخل المبلغ واضغط تم للحفظ مباشرة."
-                        },
-                        isError = tooHigh || errorText != null,
-                        enabled = !isSaving,
-                        onDone = ::submit
-                    )
-                }
-
-                item {
-                    V12QuickAmounts(
-                        values = listOf(
-                            5_000L,
-                            10_000L,
-                            25_000L,
-                            currentBalance
-                        ).filter { it <= currentBalance }.distinct(),
-                        selected = amountText.toLongOrNull(),
-                        fullAmount = currentBalance,
-                        enabled = !isSaving
-                    ) {
-                        amountText = it.toString()
-                        errorText = null
+                    OutlinedButton(onClick = { focusManager.clearFocus(); pendingFull = currentBalance to false },
+                        enabled = !isSaving, modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = MaterialTheme.shapes.large) {
+                        Icon(Icons.Rounded.Payments, null, Modifier.size(18.dp))
+                        Text("تسديد كامل المبلغ", Modifier.padding(horizontal = 7.dp))
                     }
-                }
-
-                item {
-                    V12Equation(
-                        firstLabel = "الدين الحالي",
-                        first = currentBalance,
-                        operator = "-",
-                        secondLabel = "المبلغ المستلم",
-                        second = amount,
-                        resultLabel = "المتبقي",
-                        result = remaining,
-                        positive = remaining == 0L && amount > 0L && !tooHigh
-                    )
-                }
-
-                if (remaining == 0L && amount > 0L && !tooHigh) {
-                    item {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.large,
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Rounded.Check, null, tint = PaidGreen)
-                                Text(
-                                    "هذه الدفعة ستغلق الحساب بالكامل.",
-                                    modifier = Modifier.padding(horizontal = 8.dp),
-                                    color = PaidGreen
-                                )
-                            }
-                        }
-                    }
+                    if (!keyboardVisible) CompactBalanceSummary(currentBalance, amount, remaining, true)
                 }
             }
         }
@@ -802,6 +705,8 @@ private fun V12AmountInput(
         supportingText = {
             Text(
                 helper,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 color = if (isError) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurfaceVariant
             )

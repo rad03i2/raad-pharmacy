@@ -36,6 +36,12 @@ import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.TrendingUp
 import androidx.compose.material.icons.rounded.Wallet
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Lifecycle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -103,6 +109,7 @@ fun HomeScreenV3(
     onCollections: () -> Unit,
     onDailyDebts: () -> Unit,
     onTopDebtors: () -> Unit,
+    onAreas: () -> Unit,
     onFollowUp: () -> Unit,
     onCustomer: (String) -> Unit
 ) {
@@ -119,6 +126,15 @@ fun HomeScreenV3(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var cloudRefreshing by remember { mutableStateOf(false) }
+    var totalVisible by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) totalVisible = false
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     PullToRefreshBox(
         isRefreshing = cloudRefreshing,
@@ -161,6 +177,8 @@ fun HomeScreenV3(
                 debtors = vm.indebtedCustomersCount(),
                 collections = vm.todayCollections(),
                 hideAmounts = security.hideAmounts,
+                totalVisible = totalVisible,
+                onToggleTotal = { totalVisible = !totalVisible },
                 onDebt = onQuickDebt,
                 onPayment = onQuickPayment
             )
@@ -170,7 +188,7 @@ fun HomeScreenV3(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 QuickActionCard("زبون جديد", Icons.Rounded.PersonAdd, onAddCustomer, Modifier.weight(1f))
-                QuickActionCard("سجل الحركات", Icons.Rounded.ReceiptLong, onActivity, Modifier.weight(1f))
+                QuickActionCard("المناطق", Icons.Rounded.LocationOn, onAreas, Modifier.weight(1f))
                 QuickActionCard("المتابعة", Icons.Rounded.Assessment, onFollowUp, Modifier.weight(1f))
             }
         }
@@ -312,6 +330,8 @@ private fun V3DebtHero(
     debtors: Int,
     collections: Long,
     hideAmounts: Boolean,
+    totalVisible: Boolean,
+    onToggleTotal: () -> Unit,
     onDebt: () -> Unit,
     onPayment: () -> Unit
 ) {
@@ -323,9 +343,16 @@ private fun V3DebtHero(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text("إجمالي الدين الحالي", color = Color.White.copy(alpha = 0.78f))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("إجمالي الدين الحالي", color = Color.White.copy(alpha = 0.78f), modifier = Modifier.weight(1f))
+                IconButton(onClick = onToggleTotal, enabled = !hideAmounts) {
+                    Icon(if (totalVisible && !hideAmounts) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                        contentDescription = if (totalVisible) "إخفاء إجمالي الديون" else "إظهار إجمالي الديون",
+                        tint = Color.White)
+                }
+            }
             Text(
-                if (hideAmounts) "•••• د.ع" else formatMoney(totalDebt),
+                if (hideAmounts || !totalVisible) "•••• د.ع" else formatMoney(totalDebt),
                 style = MaterialTheme.typography.headlineLarge,
                 color = Color.White,
                 fontWeight = FontWeight.Bold

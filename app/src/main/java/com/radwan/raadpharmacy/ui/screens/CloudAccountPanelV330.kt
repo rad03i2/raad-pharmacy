@@ -1,6 +1,18 @@
 package com.radwan.raadpharmacy.ui.screens
 
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import androidx.compose.runtime.produceState
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.Vibration
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import com.radwan.raadpharmacy.util.formatDate
+import com.radwan.raadpharmacy.util.formatTime
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -59,9 +71,13 @@ internal fun CloudAccountPanelV330() {
     var snapshot by remember { mutableStateOf(CloudTeamSnapshot(null, emptyList())) }
     var loading by remember { mutableStateOf(true) }
     var uploading by remember { mutableStateOf(false) }
+    var sendingTo by remember { mutableStateOf(emptySet<String>()) }
+    var alertMessage by remember { mutableStateOf<String?>(null) }
+    val lastSent = remember { mutableMapOf<String, Long>() }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     suspend fun refresh() {
-        runCatching { store.load() }
+        runCatching { withContext(Dispatchers.IO) { store.load() } }
             .onSuccess { snapshot = it }
         loading = false
     }
@@ -73,7 +89,7 @@ internal fun CloudAccountPanelV330() {
             scope.launch {
                 uploading = true
                 runCatching {
-                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
                         ?: error("تعذر قراءة الصورة")
                     store.uploadMyAvatar(bytes)
                 }
@@ -83,11 +99,10 @@ internal fun CloudAccountPanelV330() {
         }
     }
 
-    LaunchedEffect(Unit) {
-        refresh()
-        while (true) {
-            delay(12_000L)
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             refresh()
+            while (true) { delay(30_000L); refresh() }
         }
     }
 
@@ -183,15 +198,36 @@ internal fun CloudAccountPanelV330() {
                 )
 
                 snapshot.others.forEach { member ->
-                    TeamMemberRow(member)
+                    TeamMemberRow(member, member.id in sendingTo) {
+                        val last = lastSent[member.id] ?: 0L
+                        if (System.currentTimeMillis() - last < 30_000L) {
+                            alertMessage = "انتظر 30 ثانية قبل تنبيه المستخدم مرة أخرى."
+                        } else {
+                            sendingTo = sendingTo + member.id
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) { store.sendAlert(member.id) }
+                                    lastSent[member.id] = System.currentTimeMillis()
+                                    alertMessage = "تم إرسال طلب التنبيه إلى " + member.displayName
+                                } catch (cancelled: CancellationException) { throw cancelled }
+                                catch (error: Exception) {
+                                    alertMessage = if (error.message.orEmpty().contains("ALERT_RATE_LIMIT"))
+                                        "انتظر 30 ثانية قبل إرسال تنبيه آخر."
+                                    else "تعذر إرسال التنبيه. تحقق من اتصال الإنترنت ثم حاول مرة أخرى."
+                                } finally { sendingTo = sendingTo - member.id }
+                            }
+                        }
+                    }
                 }
             }
+            alertMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary) }
         }
     }
 }
 
 @Composable
-private fun TeamMemberRow(member: CloudTeamMember) {
+private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, onAlert: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -225,14 +261,27 @@ private fun TeamMemberRow(member: CloudTeamMember) {
                 }
             )
         }
+        IconButton(onClick = onAlert, enabled = !sending) {
+            if (sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            else Icon(Icons.Rounded.Vibration, contentDescription = "تنبيه " + member.displayName,
+                tint = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 
 @Composable
 private fun TeamAvatar(file: File?, size: Dp) {
-    val bitmap = remember(file?.absolutePath, file?.lastModified()) {
-        file?.takeIf { it.isFile }?.let {
-            runCatching { BitmapFactory.decodeFile(it.absolutePath) }.getOrNull()
+    val bitmap by produceState<Bitmap?>(null, file?.absolutePath, file?.lastModified()) {
+        value = withContext(Dispatchers.IO) {
+            file?.takeIf(File::isFile)?.let { image ->
+                runCatching {
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(image.absolutePath, bounds)
+                    var sample = 1
+                    while (bounds.outWidth / sample > 256 || bounds.outHeight / sample > 256) sample *= 2
+                    BitmapFactory.decodeFile(image.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+                }.getOrNull()
+            }
         }
     }
 
@@ -270,10 +319,7 @@ private fun lastSeenLabel(lastSeenAt: Long?): String {
         diff < 60L * minute -> "آخر ظهور قبل " + (diff / minute) + " دقيقة"
         diff < 24L * 60L * minute -> "آخر ظهور قبل " + (diff / (60L * minute)) + " ساعة"
         else -> {
-            val formatter = DateTimeFormatter.ofPattern("d MMM • HH:mm", Locale("ar", "IQ"))
-            "آخر ظهور " + Instant.ofEpochMilli(lastSeenAt)
-                .atZone(ZoneId.systemDefault())
-                .format(formatter)
+            "آخر ظهور " + formatDate(lastSeenAt) + " • " + formatTime(lastSeenAt)
         }
     }
 }

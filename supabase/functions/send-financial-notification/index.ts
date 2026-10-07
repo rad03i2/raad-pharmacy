@@ -75,15 +75,17 @@ Deno.serve(async (req: Request) => {
   const payload = await req.json().catch(() => ({}));
   const transactionId = String(payload.transaction_id || "");
   const eventId = String(payload.event_id || "");
-  if (!transactionId) return json({ error: "missing_transaction_id" }, 400);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if ((!transactionId && !eventId) || (transactionId && !uuid.test(transactionId)) || (eventId && !uuid.test(eventId)))
+    return json({ error: "invalid_event_identifier" }, 400);
 
   let eventQuery = userClient
     .from("notification_events").select("*")
-    .eq("transaction_id", transactionId)
     .eq("actor_user_id", userData.user.id)
     .is("push_dispatched_at", null)
     .order("created_at", { ascending: false })
     .limit(1);
+  if (transactionId) eventQuery = eventQuery.eq("transaction_id", transactionId);
   if (eventId) eventQuery = eventQuery.eq("id", eventId);
   const { data: event, error: eventError } = await eventQuery.maybeSingle();
 
@@ -110,11 +112,16 @@ Deno.serve(async (req: Request) => {
     return json({ error: "firebase_service_account_invalid" }, 503);
   }
 
-  const { data: tokens, error: tokenError } = await admin.from("push_tokens")
+  let tokenQuery = admin.from("push_tokens")
     .select("id,token,device_id")
     .eq("pharmacy_id", event.pharmacy_id)
     .is("deleted_at", null)
     .neq("device_id", event.actor_device_id ?? "");
+  if (event.event_type === "TEAM_ALERT") {
+    if (!event.recipient_user_id) return json({ error: "invalid_alert_recipient" }, 400);
+    tokenQuery = tokenQuery.eq("user_id", event.recipient_user_id);
+  }
+  const { data: tokens, error: tokenError } = await tokenQuery;
   if (tokenError) return json({ error: "token_lookup_failed", detail: tokenError.message }, 500);
 
   if (!tokens?.length) {
@@ -148,6 +155,7 @@ Deno.serve(async (req: Request) => {
       actor_display_name: event.actor_display_name ? String(event.actor_display_name) : "",
       actor_device_id: event.actor_device_id ? String(event.actor_device_id) : "",
       event_type: String(event.event_type),
+      recipient_user_id: event.recipient_user_id ? String(event.recipient_user_id) : "",
       customer_id: event.customer_id ? String(event.customer_id) : "",
       transaction_id: event.transaction_id ? String(event.transaction_id) : "",
       amount: String(event.amount ?? 0),

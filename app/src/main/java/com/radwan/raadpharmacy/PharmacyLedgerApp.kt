@@ -225,7 +225,7 @@ fun PharmacyLedgerApp(
                                     },
                                     icon = { AnimatedBottomIcon(item.icon, item.label, currentRoute == item.route, index) },
                                     label = { Text(item.label, style = MaterialTheme.typography.labelMedium) },
-                                    alwaysShowLabel = false,
+                                    alwaysShowLabel = true,
                                     colors = NavigationBarItemDefaults.colors(
                                         selectedIconColor = MaterialTheme.colorScheme.primary,
                                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -315,6 +315,7 @@ fun PharmacyLedgerApp(
                             onCollections = { safeNavigate(Routes.COLLECTIONS) },
                             onDailyDebts = { safeNavigate(Routes.DAILY_DEBTS) },
                             onTopDebtors = { safeNavigate(Routes.TOP_DEBTORS) },
+                            onAreas = { safeNavigate(Routes.AREAS) },
                             onFollowUp = { safeNavigate(Routes.FOLLOWUP) },
                             onCustomer = { safeNavigate(Routes.customer(it)) }
                         )

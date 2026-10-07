@@ -92,6 +92,12 @@ class CloudNotificationInbox(context: Context) {
             deliveryMutex.withLock {
                 if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
                 if (isSeen(row.id)) return@withLock
+                client.auth.awaitInitialization()
+                val userId = client.auth.currentSessionOrNull()?.user?.id ?: return@withLock
+                if (!row.isAddressedTo(userId)) {
+                    rememberSeen(listOf(row.id))
+                    return@withLock
+                }
                 if (row.actorDeviceId == deviceStore.deviceId()) {
                     rememberSeen(listOf(row.id))
                     return@withLock
@@ -127,6 +133,10 @@ class CloudNotificationInbox(context: Context) {
         val body: String
 
         when (eventType) {
+            "TEAM_ALERT" -> {
+                title = "تنبيه من " + actor
+                body = actor + " يطلب انتباهك. افتح التطبيق للتواصل."
+            }
             "PAYMENT_CREATED" -> {
                 title = "تحصيل جديد • " + actor
                 body = "سجّل " + actor + " تحصيل " + amountText + " لحساب " + customerName
@@ -158,6 +168,7 @@ class CloudNotificationInbox(context: Context) {
     }
 
     private fun CloudNotificationEventRow.uiTitle(): String = when (eventType) {
+        "TEAM_ALERT" -> "تنبيه من مستخدم"
         "PAYMENT_CREATED" -> "تحصيل جديد"
         "DEBT_CREATED" -> "دين جديد"
         "TRANSACTION_UPDATED" -> "تم تعديل حركة"

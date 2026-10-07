@@ -3,6 +3,12 @@ package com.radwan.raadpharmacy.cloud
 import android.content.Context
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import java.util.UUID
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -34,14 +40,11 @@ class CloudTeamStore(context: Context) {
         val userId = client.auth.currentSessionOrNull()?.user?.id
             ?: return CloudTeamSnapshot(null, emptyList())
 
-        val profiles = client.from("profiles")
-            .select()
-            .decodeList<CloudTeamProfileRow>()
-
-        val presence = client.from("user_presence")
-            .select()
-            .decodeList<CloudPresenceRow>()
-            .associateBy { it.userId }
+        val (profiles, presence) = coroutineScope {
+            val profilesRequest = async { client.from("profiles").select().decodeList<CloudTeamProfileRow>() }
+            val presenceRequest = async { client.from("user_presence").select().decodeList<CloudPresenceRow>().associateBy { it.userId } }
+            profilesRequest.await() to presenceRequest.await()
+        }
 
         val visible = profiles.filter { profile ->
             profile.id == userId || (profile.role == "MANAGER" && !profile.isHidden)
@@ -74,6 +77,18 @@ class CloudTeamStore(context: Context) {
             current = members.firstOrNull { it.isCurrent },
             others = members.filterNot { it.isCurrent }.sortedBy { it.displayName }
         )
+    }
+
+    suspend fun sendAlert(recipientId: String) {
+        client.auth.awaitInitialization()
+        check(client.auth.currentSessionOrNull() != null) { "يرجى تسجيل الدخول" }
+        val alertId = UUID.randomUUID().toString()
+        client.postgrest.rpc("send_user_alert", buildJsonObject {
+            put("target_user_id", recipientId)
+            put("sender_device_id", deviceStore.deviceId())
+            put("alert_id", alertId)
+        })
+        CloudPushDispatcher.requestEvent(appContext, alertId)
     }
 
     suspend fun heartbeat(online: Boolean) {

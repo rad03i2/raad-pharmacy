@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.People
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.TrendingUp
 import androidx.compose.material3.DatePicker
@@ -32,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -58,6 +60,9 @@ import com.radwan.raadpharmacy.ui.components.ScreenTopBar
 import com.radwan.raadpharmacy.ui.components.SectionTitle
 import com.radwan.raadpharmacy.ui.theme.DebtRed
 import com.radwan.raadpharmacy.ui.theme.PaidGreen
+import com.radwan.raadpharmacy.util.AreaOverview
+import com.radwan.raadpharmacy.util.AreaSort
+import com.radwan.raadpharmacy.util.buildAreaOverview
 import com.radwan.raadpharmacy.util.formatDate
 import com.radwan.raadpharmacy.util.formatMoney
 import com.radwan.raadpharmacy.util.formatTime
@@ -279,73 +284,88 @@ fun TopDebtorsScreenV4(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustom
 fun AreasScreenV4(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustomer: (String) -> Unit) {
     val customers by vm.customers.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
+    val security by vm.securityState.collectAsStateWithLifecycle()
     var expanded by remember { mutableStateOf<String?>(null) }
-    val today = remember { LocalDate.now() }
-    val todayPaid = remember(entries) {
-        entries.filter { it.type == EntryType.PAYMENT && dayOfV4(it.createdAt) == today }
-            .groupBy { it.customerId }
-            .mapValues { (_, list) -> list.sumOf { it.amount } }
+    var query by remember { mutableStateOf("") }
+    var sort by remember { mutableStateOf(AreaSort.DEBT) }
+    val today = LocalDate.now()
+    val groups by androidx.compose.runtime.produceState(emptyList<AreaOverview>(), customers, entries, today) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            buildAreaOverview(customers, entries, today)
+        }
     }
-    val groups = remember(customers, entries) {
-        customers.groupBy { it.area.ifBlank { "غير محددة" } }
-            .map { (name, list) ->
-                Triple(name, list.sortedByDescending { vm.balance(it) }, list.sumOf { vm.balance(it) })
-            }.sortedByDescending { it.third }
+    val visible = remember(groups, query, sort) {
+        val filtered = groups.filter { it.name.contains(query.trim(), ignoreCase = true) }
+        when (sort) {
+            AreaSort.DEBT -> filtered.sortedWith(compareByDescending<AreaOverview> { it.debt }.thenBy { it.name })
+            AreaSort.CUSTOMERS -> filtered.sortedWith(compareByDescending<AreaOverview> { it.customers.size }.thenBy { it.name })
+            AreaSort.NAME -> filtered.sortedBy { it.name }
+        }
     }
-
-    Scaffold(topBar = { ScreenTopBar("المناطق", onBack) }) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+    val maximumDebt = groups.maxOfOrNull { it.debt }?.coerceAtLeast(1L) ?: 1L
+    Scaffold(topBar = { ScreenTopBar("المناطق والأحياء", onBack) }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surface, modifier = Modifier.size(44.dp)) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Rounded.LocationOn, null, tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                        Column(Modifier.padding(horizontal = 11.dp)) {
-                            Text(groups.size.toString() + " منطقة", style = MaterialTheme.typography.titleLarge)
-                            Text("اختر منطقة لعرض الزبائن والحسابات", style = MaterialTheme.typography.bodySmall)
+                Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(Icons.Rounded.LocationOn, null, modifier = Modifier.size(32.dp))
+                        Column {
+                            Text("${groups.size} منطقة • ${customers.size} زبون", style = MaterialTheme.typography.titleMedium)
+                            Text("توزيع الحسابات حسب المنطقة أو الحي", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
             }
-            groups.forEach { (name, list, debt) ->
-                val collected = list.sumOf { todayPaid[it.id] ?: 0L }
-                item(key = "a-" + name) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().clickable { expanded = if (expanded == name) null else name },
-                        shape = MaterialTheme.shapes.large,
+            item {
+                OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
+                    placeholder = { Text("ابحث عن المنطقة أو الحي") }, modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = MaterialTheme.shapes.large)
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AreaSort.entries.forEach { option ->
+                        FilterChip(selected = sort == option, onClick = { sort = option },
+                            label = { Text(option.label) }, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+            if (visible.isEmpty()) item {
+                Text(if (customers.isEmpty()) "أضف زبائن وحدد المنطقة أو الحي لتظهر هنا."
+                    else "لا توجد مناطق مطابقة للبحث.", modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            visible.forEach { area ->
+                item(key = "area-" + area.name) {
+                    Surface(onClick = { expanded = if (expanded == area.name) null else area.name },
+                        modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
                         color = MaterialTheme.colorScheme.surface,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                    ) {
-                        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text(name, style = MaterialTheme.typography.titleMedium)
-                                    Text(list.size.toString() + " زبون", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(area.name, style = MaterialTheme.typography.titleMedium)
+                                    Text("${area.customers.size} زبون • ${area.openAccounts} حساب مفتوح",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Text(formatMoney(debt), color = DebtRed, style = MaterialTheme.typography.titleMedium)
+                                Text(if (security.hideAmounts) "•••• د.ع" else formatMoney(area.debt),
+                                    color = DebtRed, style = MaterialTheme.typography.titleSmall)
                             }
+                            LinearProgressIndicator(progress = { (area.debt.toDouble() / maximumDebt).toFloat() },
+                                modifier = Modifier.fillMaxWidth().height(4.dp), color = MaterialTheme.colorScheme.primary)
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("تحصيل اليوم " + formatMoney(collected), style = MaterialTheme.typography.labelMedium, color = PaidGreen)
-                                Text(if (expanded == name) "إخفاء" else "عرض الزبائن", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                Text("تحصيل اليوم " + if (security.hideAmounts) "•••• د.ع" else formatMoney(area.collectedToday),
+                                    style = MaterialTheme.typography.labelMedium, color = PaidGreen)
+                                Text(if (expanded == area.name) "إخفاء الزبائن" else "عرض الزبائن",
+                                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
                 }
-                if (expanded == name) {
-                    items(list, key = { "c-" + it.id }) { customer ->
-                        CustomerCard(customer, vm.balance(customer), { onCustomer(customer.id) })
-                    }
+                if (expanded == area.name) items(area.customers, key = { "area-customer-" + it.id }) { customer ->
+                    CustomerCard(customer, area.balances[customer.id] ?: 0L, { onCustomer(customer.id) },
+                        hideBalance = security.hideAmounts)
                 }
             }
         }
