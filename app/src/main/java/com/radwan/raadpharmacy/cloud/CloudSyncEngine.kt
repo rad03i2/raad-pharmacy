@@ -66,6 +66,19 @@ class CloudSyncEngine(context: Context) {
         pullRemoteSnapshot()
     }
 
+    suspend fun flushPendingOnly() = globalSyncMutex.withLock {
+        client.auth.awaitInitialization()
+        val session = client.auth.currentSessionOrNull() ?: return@withLock
+        val userId = session.user?.id ?: return@withLock
+        val profile = client.from("profiles")
+            .select { filter { eq("id", userId) } }
+            .decodeSingle<CloudProfileRow>()
+
+        registerDevice(profile, userId)
+        registerPushToken(profile, userId)
+        pushPending(profile)
+    }
+
     suspend fun pullRemoteNow() = globalSyncMutex.withLock {
         client.auth.awaitInitialization()
         if (client.auth.currentSessionOrNull() == null) return@withLock
