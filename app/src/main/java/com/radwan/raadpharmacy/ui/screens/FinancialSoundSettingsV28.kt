@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
@@ -72,7 +73,8 @@ internal fun FinancialSoundSettingsContent(
 
             Switch(
                 checked = settings.operationSoundEnabled,
-                onCheckedChange = onOperationSoundEnabledChange
+                onCheckedChange = onOperationSoundEnabledChange,
+                modifier = Modifier.testTag("operation_sound_toggle")
             )
         }
     }
