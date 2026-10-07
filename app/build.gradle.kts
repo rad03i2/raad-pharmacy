@@ -5,15 +5,15 @@ plugins {
 }
 
 android {
-    namespace = "com.radwan.abosmra"
+    namespace = "com.radwan.raadpharmacy"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.radwan.abosmra"
+        applicationId = "com.radwan.raadpharmacy"
         minSdk = 26
         targetSdk = 37
-        versionCode = 26
-        versionName = "2.12.0"
+        versionCode = 27
+        versionName = "3.0.0"
         manifestPlaceholders["debtVoicePermission"] =
             "android.permission." + "RECORD_AUDIO"
     }
