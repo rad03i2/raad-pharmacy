@@ -1,6 +1,7 @@
 package com.radwan.raadpharmacy.cloud
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -58,11 +59,7 @@ object CloudNotificationCenter {
             .setSilent(true)
             .build()
 
-        try {
-            NotificationManagerCompat.from(app).notify(id, notification)
-        } catch (_: SecurityException) {
-            // Notification permission can be revoked after the explicit permission check.
-        }
+        notifySafely(app, id, notification)
     }
 
     fun postBatch(
@@ -101,11 +98,7 @@ object CloudNotificationCenter {
                 .setGroup(GROUP_KEY)
                 .setSilent(true)
                 .build()
-            try {
-                NotificationManagerCompat.from(app).notify(id, child)
-            } catch (_: SecurityException) {
-                // Notification permission can be revoked after the explicit permission check.
-            }
+            notifySafely(app, id, child)
         }
 
         if (audible) PixabaySoundAssets.playNotification(app)
@@ -132,10 +125,20 @@ object CloudNotificationCenter {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
+        notifySafely(app, SUMMARY_ID, summary)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun notifySafely(
+        context: Context,
+        id: Int,
+        notification: android.app.Notification
+    ) {
+        if (!canPost(context)) return
         try {
-            NotificationManagerCompat.from(app).notify(SUMMARY_ID, summary)
+            NotificationManagerCompat.from(context).notify(id, notification)
         } catch (_: SecurityException) {
-            // Notification permission can be revoked after the explicit permission check.
+            // Permission can be revoked between the explicit check and notify().
         }
     }
 
