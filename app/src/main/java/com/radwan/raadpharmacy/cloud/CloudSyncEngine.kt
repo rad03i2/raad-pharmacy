@@ -26,6 +26,23 @@ class CloudSyncEngine(context: Context) {
     private val journal = CloudSyncJournal(appContext)
     private val deviceStore = CloudDeviceStore(appContext)
 
+    suspend fun unregisterPushToken() = globalSyncMutex.withLock {
+        client.auth.awaitInitialization()
+        val session = client.auth.currentSessionOrNull() ?: return@withLock
+        val userId = session.user?.id ?: return@withLock
+        val profile = client.from("profiles")
+            .select { filter { eq("id", userId) } }
+            .decodeSingle<CloudProfileRow>()
+
+        client.from("push_tokens").update(DeletedAtPatch(nowIso())) {
+            filter {
+                eq("id", deviceStore.pushTokenRowId())
+                eq("pharmacy_id", profile.pharmacyId)
+                eq("user_id", userId)
+            }
+        }
+    }
+
     suspend fun syncOnce() = globalSyncMutex.withLock {
         client.auth.awaitInitialization()
         val session = client.auth.currentSessionOrNull() ?: return@withLock
