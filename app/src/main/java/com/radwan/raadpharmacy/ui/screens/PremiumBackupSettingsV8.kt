@@ -21,14 +21,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
-import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.CloudDone
-import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Restore
-import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -84,6 +82,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
     var showResetConfirm by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showSignOutConfirm by remember { mutableStateOf(false) }
+    var showTypography by remember { mutableStateOf(false) }
 
     val createBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -236,6 +235,19 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
         AboutDialogV15(onDismiss = { showAbout = false })
     }
 
+    if (showTypography) {
+        AlertDialog(
+            onDismissRequest = { showTypography = false },
+            title = { Text("الخط وحجم النص") },
+            text = { TypographySettingsCardV212(vm) },
+            confirmButton = {
+                TextButton(onClick = { showTypography = false }) {
+                    Text("تم")
+                }
+            }
+        )
+    }
+
     if (showSignOutConfirm) {
         AlertDialog(
             onDismissRequest = { if (!working) showSignOutConfirm = false },
@@ -284,6 +296,9 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item { CloudAccountPanelV330() }
+            item { SectionTitle("البيانات والنسخ الاحتياطي") }
+
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -427,35 +442,15 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
             }
 
             item { SectionTitle("التطبيق") }
-
             item {
                 V8SettingsRow(
-                    Icons.Rounded.Share,
-                    "كشف الحساب",
-                    "المشاركة متاحة من داخل ملف كل زبون"
+                    Icons.Rounded.FormatSize,
+                    "الخط وحجم النص",
+                    "اختيار الخط وضبط حجم النص من مكان واحد"
                 ) {
-                    message = "افتح الزبون ثم كشف الحساب للمشاركة كصورة عبر WhatsApp أو الرسائل."
+                    showTypography = true
                 }
             }
-            item {
-                V8SettingsRow(
-                    Icons.Rounded.DarkMode,
-                    "المظهر",
-                    "يتبع إعداد الهاتف تلقائيًا"
-                ) {
-                    message = "الوضع الفاتح والداكن يتبعان إعداد الهاتف."
-                }
-            }
-            item {
-                V8SettingsRow(
-                    Icons.Rounded.AccountBalanceWallet,
-                    "العملة",
-                    "الدينار العراقي • د.ع"
-                ) { }
-            }
-
-            item { SectionTitle("الخط وحجم النص") }
-            item { TypographySettingsCardV212(vm) }
 
             item { SectionTitle("الأصوات والتأكيدات") }
             item { FinancialSoundSettingsCardV28(vm) }
