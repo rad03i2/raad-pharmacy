@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.AlertDialog
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.BuildConfig
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
+import com.radwan.raadpharmacy.cloud.CloudSyncRuntime
 import com.radwan.raadpharmacy.data.AutoBackupInterval
 import com.radwan.raadpharmacy.data.BackupPreview
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
@@ -81,6 +83,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
     var pendingPreview by remember { mutableStateOf<BackupPreview?>(null) }
     var showResetConfirm by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
+    var showSignOutConfirm by remember { mutableStateOf(false) }
 
     val createBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -231,6 +234,37 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
 
     if (showAbout) {
         AboutDialogV15(onDismiss = { showAbout = false })
+    }
+
+    if (showSignOutConfirm) {
+        AlertDialog(
+            onDismissRequest = { if (!working) showSignOutConfirm = false },
+            title = { Text("تسجيل الخروج من الحساب؟") },
+            text = {
+                Text(
+                    "ستبقى بيانات الدفتر محفوظة محليًا، وسيتوقف هذا الجهاز عن استقبال تحديثات الحساب حتى تسجيل الدخول مرة أخرى."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !working,
+                    onClick = {
+                        scope.launch {
+                            working = true
+                            CloudSyncRuntime.signOut(context)
+                            working = false
+                            showSignOutConfirm = false
+                        }
+                    }
+                ) { Text("تسجيل الخروج") }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !working,
+                    onClick = { showSignOutConfirm = false }
+                ) { Text("إلغاء") }
+            }
+        )
     }
 
     message?.let { currentMessage ->
@@ -432,6 +466,18 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
             item { SectionTitle("الخصوصية والأمان") }
             item { SecuritySettingsCardV9(vm) }
 
+            item { SectionTitle("الحساب السحابي") }
+            item {
+                V8SettingsRow(
+                    Icons.Rounded.Logout,
+                    "تسجيل الخروج",
+                    "إيقاف مزامنة هذا الحساب على الجهاز والعودة لشاشة الدخول",
+                    enabled = !working
+                ) {
+                    showSignOutConfirm = true
+                }
+            }
+
             item { SectionTitle("حول") }
 
             item {
@@ -524,5 +570,5 @@ private fun backupFileName(): String {
     val stamp = LocalDateTime.now().format(
         DateTimeFormatter.ofPattern("yyyyMMdd-HHmm", Locale.US)
     )
-    return "DaftarAlGas-backup-" + stamp + ".json"
+    return "RaadPharmacy-backup-" + stamp + ".json"
 }
