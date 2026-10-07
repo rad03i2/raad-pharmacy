@@ -51,6 +51,8 @@ data class CloudTransactionRow(
     val amount: Double,
     val notes: String? = null,
     @SerialName("created_by") val createdBy: String? = null,
+    @SerialName("updated_by") val updatedBy: String? = null,
+    @SerialName("deleted_by") val deletedBy: String? = null,
     @SerialName("device_id") val deviceId: String? = null,
     @SerialName("occurred_at") val occurredAt: String,
     @SerialName("created_at") val createdAt: String,
