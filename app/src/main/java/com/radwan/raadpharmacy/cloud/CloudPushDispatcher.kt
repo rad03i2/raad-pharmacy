@@ -47,7 +47,7 @@ object CloudPushDispatcher {
                         lt("push_attempts", MAX_ATTEMPTS)
                     }
                     order("created_at", Order.ASCENDING)
-                    limit(MAX_RETRY_BATCH)
+                    limit(MAX_RETRY_BATCH.toLong())
                 }
                 .decodeList<PendingPushRow>()
 
