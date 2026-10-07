@@ -41,47 +41,63 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 fun CloudActivityBannerHost(
-    modifier: Modifier = Modifier,
     onCustomerClick: (String) -> Unit = {}
 ) {
     var current by remember { mutableStateOf<CloudUiEvent?>(null) }
+    var visible by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         CloudUiEvents.events.collectLatest { event ->
             current = event
+            visible = true
             delay(4_200L)
+            visible = false
+            delay(260L)
             if (current == event) current = null
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        contentAlignment = Alignment.TopCenter
+    val event = current ?: return
+
+    Popup(
+        alignment = Alignment.TopCenter,
+        properties = PopupProperties(
+            focusable = false,
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
+        )
     ) {
-        AnimatedVisibility(
-            visible = current != null,
-            enter = slideInVertically(
-                animationSpec = tween(260),
-                initialOffsetY = { -it }
-            ) + fadeIn(tween(180)),
-            exit = slideOutVertically(
-                animationSpec = tween(220),
-                targetOffsetY = { -it }
-            ) + fadeOut(tween(160))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            contentAlignment = Alignment.TopCenter
         ) {
-            current?.let { event ->
+            AnimatedVisibility(
+                visible = visible,
+                enter = slideInVertically(
+                    animationSpec = tween(260),
+                    initialOffsetY = { -it }
+                ) + fadeIn(tween(180)),
+                exit = slideOutVertically(
+                    animationSpec = tween(220),
+                    targetOffsetY = { -it }
+                ) + fadeOut(tween(160))
+            ) {
                 CloudActivityBanner(
                     event = event,
                     onClick = {
-                        event.customerId?.takeIf { it.isNotBlank() }?.let(onCustomerClick)
+                        event.customerId
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let(onCustomerClick)
                     }
                 )
             }
@@ -162,7 +178,9 @@ private fun CloudActivityBanner(
                         }
                     }
                 }
+
                 Spacer(Modifier.height(3.dp))
+
                 Text(
                     text = event.message,
                     style = MaterialTheme.typography.bodyMedium,
