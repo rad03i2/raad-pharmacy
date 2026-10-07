@@ -47,6 +47,7 @@ object CloudSyncRuntime {
         CloudSyncScheduler.enqueue(appContext)
         scope.launch {
             runCatching { CloudSyncEngine(appContext).syncOnce() }
+                .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
             startRealtimeIfPossible(appContext)
         }
     }
