@@ -222,6 +222,7 @@ class CloudSyncEngine(context: Context) {
             .filter { it.id !in localIds }
             .filter { parseIso(it.createdAt) >= cutoff }
             .sortedBy { parseIso(it.createdAt) }
+            .toList()
             .takeLast(5)
             .forEach { row ->
                 val customerName = customerNames[row.customerId] ?: "الزبون"
