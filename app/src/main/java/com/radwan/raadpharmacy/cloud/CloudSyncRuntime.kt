@@ -77,7 +77,7 @@ object CloudSyncRuntime {
     suspend fun refreshNow(context: Context): Result<Unit> {
         val app = context.applicationContext
         return runCatching {
-            CloudSyncEngine(app).syncOnce()
+            CloudSyncEngine(app).pullRemoteNow()
             CloudNotificationInbox(app).catchUp()
             startRealtimeIfPossible(app)
         }.onFailure {
