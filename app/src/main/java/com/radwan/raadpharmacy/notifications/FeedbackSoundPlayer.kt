@@ -24,6 +24,7 @@ internal object FeedbackSoundPlayer {
                         else AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build())
+                current.setVolume(1.0f, 1.0f)
                 current.setDataSource(app, soundResourceUri(app, resourceId))
                 current.setOnPreparedListener { prepared ->
                     if (player === prepared) runCatching { prepared.start() }.onFailure { release(prepared) }
@@ -54,6 +55,7 @@ internal object FeedbackSoundPlayer {
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
+                current.setVolume(1.0f, 1.0f)
                 current.setDataSource(file.absolutePath)
                 current.setOnPreparedListener { prepared ->
                     if (player === prepared) {
