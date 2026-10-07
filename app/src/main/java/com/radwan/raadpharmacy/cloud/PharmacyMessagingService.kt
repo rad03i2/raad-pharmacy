@@ -34,7 +34,16 @@ class PharmacyMessagingService : FirebaseMessagingService() {
 
             runBlocking(Dispatchers.IO) {
                 runCatching {
-                    CloudNotificationInbox(applicationContext).deliverPush(row)
+                    val eventAge = System.currentTimeMillis() -
+                        runCatching { Instant.parse(row.createdAt).toEpochMilli() }
+                            .getOrDefault(System.currentTimeMillis())
+
+                    val inbox = CloudNotificationInbox(applicationContext)
+                    if (eventAge >= DELAYED_PUSH_BATCH_AFTER_MS) {
+                        inbox.catchUp()
+                    } else {
+                        inbox.deliverPush(row)
+                    }
                 }
             }
             return
