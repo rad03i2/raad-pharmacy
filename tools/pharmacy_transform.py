@@ -120,10 +120,6 @@ replace("app/build.gradle.kts", 'namespace = "com.radwan.raadpharmacy"', 'namesp
 replace("app/build.gradle.kts", 'applicationId = "com.radwan.raadpharmacy"', 'applicationId = "com.radwan.raadpharmacy"')
 replace("app/build.gradle.kts", 'versionCode = 26', 'versionCode = 27')
 replace("app/build.gradle.kts", 'versionName = "2.12.0"', 'versionName = "3.0.0"')
-replace(".github/workflows/android.yml", 'versionName = "2.12.0"', 'versionName = "3.0.0"')
-replace(".github/workflows/android.yml", "versionCode = 26", "versionCode = 27")
-replace(".github/workflows/android.yml", "abosmra-v2.12.0-qa-reports", "raad-pharmacy-v3.0.0-qa-reports")
-replace(".github/workflows/android.yml", "abosmra-v2.12.0-stable-apk", "raad-pharmacy-v3.0.0-stable-apk")
 
 # Medical Material 3 palette and Cairo typography are kept in the existing theme architecture.
 theme = read("app/src/main/java/com/radwan/raadpharmacy/ui/theme/Theme.kt")
