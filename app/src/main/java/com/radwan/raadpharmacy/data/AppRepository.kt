@@ -2,6 +2,8 @@ package com.radwan.raadpharmacy.data
 
 import android.content.Context
 import com.radwan.raadpharmacy.BuildConfig
+import com.radwan.raadpharmacy.cloud.CloudSyncJournal
+import com.radwan.raadpharmacy.cloud.CloudSyncRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -16,6 +18,7 @@ class AppRepository(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("raad_pharmacy_data", Context.MODE_PRIVATE)
     private val dao = PharmacyLedgerDatabase.get(appContext).dao()
+    private val cloudJournal = CloudSyncJournal(appContext)
 
     @Volatile
     private var customersCache: List<Customer> = emptyList()
@@ -25,7 +28,9 @@ class AppRepository(context: Context) {
 
     suspend fun initialize() {
         loadRoomOrMigrateLegacy()
+        normalizeLegacyIdsForCloud()
         maybeCreateAutomaticBackup()
+        CloudSyncRuntime.start(appContext)
     }
 
     fun observeCustomers(): Flow<List<Customer>> =
@@ -66,6 +71,8 @@ class AppRepository(context: Context) {
         )
         dao.insertCustomer(customer.toEntity())
         customersCache = listOf(customer) + customersCache.filterNot { it.id == customer.id }
+        cloudJournal.markCustomerUpsert(customer.id)
+        CloudSyncRuntime.requestSync(appContext)
         maybeCreateAutomaticBackup()
         return customer
     }
@@ -103,6 +110,8 @@ class AppRepository(context: Context) {
 
         dao.updateCustomer(updated.toEntity())
         customersCache = customersCache.map { if (it.id == customerId) updated else it }
+        cloudJournal.markCustomerUpsert(customerId)
+        CloudSyncRuntime.requestSync(appContext)
         maybeCreateAutomaticBackup()
         return MutationResult(true, "تم تحديث بيانات الزبون.")
     }
@@ -121,6 +130,8 @@ class AppRepository(context: Context) {
 
         dao.deleteCustomerById(customerId)
         customersCache = customersCache.filterNot { it.id == customerId }
+        cloudJournal.markCustomerDelete(customerId)
+        CloudSyncRuntime.requestSync(appContext)
         maybeCreateAutomaticBackup()
         return MutationResult(true, "تم حذف الزبون.")
     }
@@ -187,6 +198,8 @@ class AppRepository(context: Context) {
         }
 
         entriesCache = listOf(entry) + entriesCache.filterNot { it.id == entry.id }
+        cloudJournal.markTransactionUpsert(entry.id)
+        CloudSyncRuntime.requestSync(appContext)
         maybeCreateAutomaticBackup()
         return DebtCreateResult.Created(entry)
     }
@@ -206,6 +219,8 @@ class AppRepository(context: Context) {
         )
         dao.insertEntry(entry.toEntity())
         entriesCache = listOf(entry) + entriesCache.filterNot { it.id == entry.id }
+        cloudJournal.markTransactionUpsert(entry.id)
+        CloudSyncRuntime.requestSync(appContext)
         maybeCreateAutomaticBackup()
         return entry
     }
@@ -244,6 +259,8 @@ class AppRepository(context: Context) {
 
         dao.updateEntry(updated.toEntity())
         entriesCache = entriesCache.map { if (it.id == entryId) updated else it }
+        cloudJournal.markTransactionUpsert(entryId)
+        CloudSyncRuntime.requestSync(appContext)
         maybeCreateAutomaticBackup()
         return MutationResult(true, "تم تعديل الحركة.")
     }
@@ -267,6 +284,8 @@ class AppRepository(context: Context) {
 
         dao.deleteEntryById(entryId)
         entriesCache = entriesCache.filterNot { it.id == entryId }
+        cloudJournal.markTransactionDelete(entryId)
+        CloudSyncRuntime.requestSync(appContext)
         maybeCreateAutomaticBackup()
         return MutationResult(true, "تم حذف الحركة.")
     }
@@ -298,8 +317,9 @@ class AppRepository(context: Context) {
     suspend fun restoreBackup(raw: String): BackupRestoreResult {
         return runCatching {
             val payload = BackupValidator.parseValid(raw)
+            val previousCustomerIds = dao.getCustomers().mapTo(hashSetOf()) { it.id }
+            val previousEntryIds = dao.getEntries().mapTo(hashSetOf()) { it.id }
 
-            // Always protect the current state before replacing it.
             writeRecoveryBackup(createBackupJson())
 
             dao.replaceAll(
@@ -309,6 +329,22 @@ class AppRepository(context: Context) {
 
             customersCache = payload.customers
             entriesCache = payload.entries
+            normalizeLegacyIdsForCloud()
+
+            val restoredCustomers = dao.getCustomers()
+            val restoredEntries = dao.getEntries()
+            val restoredCustomerIds = restoredCustomers.mapTo(hashSetOf()) { it.id }
+            val restoredEntryIds = restoredEntries.mapTo(hashSetOf()) { it.id }
+
+            previousEntryIds
+                .filter { it !in restoredEntryIds && it.isCloudUuid() }
+                .forEach(cloudJournal::markTransactionDelete)
+            previousCustomerIds
+                .filter { it !in restoredCustomerIds && it.isCloudUuid() }
+                .forEach(cloudJournal::markCustomerDelete)
+            restoredCustomers.forEach { cloudJournal.markCustomerUpsert(it.id) }
+            restoredEntries.forEach { cloudJournal.markTransactionUpsert(it.id) }
+            CloudSyncRuntime.requestSync(appContext)
 
             val now = System.currentTimeMillis()
             prefs.edit()
@@ -318,9 +354,9 @@ class AppRepository(context: Context) {
 
             BackupRestoreResult(
                 success = true,
-                message = "تمت الاستعادة بنجاح، وتم حفظ نسخة أمان من البيانات السابقة.",
-                customerCount = payload.customers.size,
-                entryCount = payload.entries.size
+                message = "تمت الاستعادة بنجاح، وتم حفظ نسخة أمان من البيانات السابقة وستتم مزامنتها سحابيًا.",
+                customerCount = restoredCustomers.size,
+                entryCount = restoredEntries.size
             )
         }.getOrElse {
             BackupRestoreResult(
@@ -422,7 +458,7 @@ class AppRepository(context: Context) {
         val source = if (legacyCustomers.isNotEmpty()) {
             legacyCustomers to legacyEntries
         } else {
-            demoData()
+            emptyList<Customer>() to emptyList<LedgerEntry>()
         }
 
         dao.replaceAll(
@@ -433,6 +469,50 @@ class AppRepository(context: Context) {
         entriesCache = source.second
         prefs.edit().putBoolean(ROOM_INITIALIZED_KEY, true).apply()
     }
+
+
+    private suspend fun normalizeLegacyIdsForCloud() {
+        val currentCustomers = dao.getCustomers().map(CustomerEntity::toModel)
+        val currentEntries = dao.getEntries().map(LedgerEntryEntity::toModel)
+        if (currentCustomers.isEmpty() && currentEntries.isEmpty()) return
+
+        val customerIds = currentCustomers.associate { customer ->
+            customer.id to customer.id.toCloudUuid()
+        }
+        val normalizedCustomers = currentCustomers.map { customer ->
+            customer.copy(id = customerIds.getValue(customer.id))
+        }
+        val normalizedEntries = currentEntries
+            .filter { it.customerId in customerIds }
+            .map { entry ->
+                entry.copy(
+                    id = entry.id.toCloudUuid(),
+                    customerId = customerIds.getValue(entry.customerId)
+                )
+            }
+
+        val changed = normalizedCustomers.zip(currentCustomers).any { (a, b) -> a.id != b.id } ||
+            normalizedEntries.zip(currentEntries).any { (a, b) ->
+                a.id != b.id || a.customerId != b.customerId
+            }
+
+        if (changed) {
+            dao.replaceAll(
+                customers = normalizedCustomers.map(Customer::toEntity),
+                entries = normalizedEntries.map(LedgerEntry::toEntity)
+            )
+        }
+
+        customersCache = normalizedCustomers
+        entriesCache = normalizedEntries
+    }
+
+    private fun String.toCloudUuid(): String =
+        runCatching { UUID.fromString(this).toString() }
+            .getOrElse { UUID.randomUUID().toString() }
+
+    private fun String.isCloudUuid(): Boolean =
+        runCatching { UUID.fromString(this) }.isSuccess
 
 
     private fun customersToJson(): JSONArray = JSONArray().apply {

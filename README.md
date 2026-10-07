@@ -27,7 +27,10 @@
 - Material 3
 - Navigation Compose
 - ViewModel + StateFlow
-- Room 3 + SQLite
+- Room 3 + SQLite (Offline-first)
+- Supabase Auth + PostgreSQL + RLS + Realtime
+- WorkManager للمزامنة المؤجلة وإعادة المحاولة
+- Firebase Cloud Messaging + Crashlytics
 - KSP
 - Android API 26+
 - Compile / Target SDK 37
@@ -35,12 +38,15 @@
 ## قاعدة البيانات والتوافق
 قاعدة Room بقيت على Schema v1 في هذا التحويل لتجنب Migration غير ضرورية. حقلا bottles و bottle_price القديمـان موجودان فقط كتوافق Legacy لاستعادة البيانات القديمة، ولا يظهران في تجربة الصيدلية الجديدة ولا تستخدمهما عمليات الدين الجديدة.
 
+## المزامنة السحابية
+يبقى Room هو مصدر العمل المحلي السريع، وتُسجّل التغييرات في Journal محلي ثم تُرسل إلى Supabase فور توفر الشبكة. يدعم النظام إعادة المحاولة عبر WorkManager، استقبال تغييرات الأجهزة الأخرى عبر Realtime، تسجيل كل جهاز وFCM Token، وتسجيل الدخول باسم مستخدم وكلمة مرور دون إظهار البريد التقني الداخلي.
+
 ## الحزمة
 - Namespace: com.radwan.raadpharmacy
 - Application ID: com.radwan.raadpharmacy
 
 ## البناء
-يتحقق GitHub Actions من اختبارات الوحدة وRoom وCompose ثم lintRelease ويبني Release APK. الإصدار الحالي بعد التحويل هو v3.0.0.
+يتحقق GitHub Actions من اختبارات الوحدة وRoom وCompose ثم lintRelease ويبني Release APK. الإصدار الحالي مع الربط السحابي هو v3.1.0 (versionCode 28).
 
 ## ملاحظات تاريخية
 ملاحظات إصدارات التطبيق السابق نُقلت إلى docs/legacy للحفاظ على التاريخ التقني دون تقديمها كتوصيف للمنتج الحالي.

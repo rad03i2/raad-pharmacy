@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.radwan.raadpharmacy.cloud.CloudAuthGate
 
 class MainActivity : FragmentActivity() {
     private val notificationCustomerId = mutableStateOf<String?>(null)
@@ -33,10 +34,12 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         notificationCustomerId.value = intent?.getStringExtra(EXTRA_CUSTOMER_ID)
         setContent {
-            PharmacyLedgerApp(
-                notificationCustomerId = notificationCustomerId.value,
-                onNotificationHandled = { notificationCustomerId.value = null }
-            )
+            CloudAuthGate {
+                PharmacyLedgerApp(
+                    notificationCustomerId = notificationCustomerId.value,
+                    onNotificationHandled = { notificationCustomerId.value = null }
+                )
+            }
         }
     }
 
