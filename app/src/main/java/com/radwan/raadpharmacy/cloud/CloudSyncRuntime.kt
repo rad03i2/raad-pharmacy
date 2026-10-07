@@ -3,6 +3,7 @@ package com.radwan.raadpharmacy.cloud
 import android.content.Context
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,6 +46,14 @@ object CloudSyncRuntime {
             runCatching { CloudSyncEngine(appContext).syncOnce() }
             startRealtimeIfPossible(appContext)
         }
+    }
+
+    suspend fun signOut(context: Context) {
+        val appContext = context.applicationContext
+        runCatching { CloudSyncEngine(appContext).unregisterPushToken() }
+        runCatching { SupabaseProvider.client.realtime.removeAllChannels() }
+        realtimeStarted.set(false)
+        SupabaseProvider.client.auth.signOut()
     }
 
     private fun startRealtimeIfPossible(context: Context) {
