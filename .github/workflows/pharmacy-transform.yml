@@ -88,7 +88,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm --ignore-unmatch .github/workflows/pharmacy-transform.yml tools/pharmacy_transform.py
           git add -A
           git commit -m "refactor: transform ledger into Raad Pharmacy [skip ci]"
           git push origin HEAD:feat/pharmacy-transformation
