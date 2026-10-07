@@ -430,6 +430,10 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         financialFeedback.setNotificationSound(preset)
     }
 
+    fun setOperationSoundEnabled(enabled: Boolean) {
+        financialFeedback.setOperationSoundEnabled(enabled)
+    }
+
     fun previewOperationSound(preset: OperationSoundPreset) {
         viewModelScope.launch(Dispatchers.Default) {
             FinancialOperationFeedback.playOperationSound(app, preset)

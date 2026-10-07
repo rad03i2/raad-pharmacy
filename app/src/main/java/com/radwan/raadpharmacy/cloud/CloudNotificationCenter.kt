@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -26,8 +28,9 @@ data class CloudExternalNotification(
 )
 
 object CloudNotificationCenter {
-    private const val CHANNEL_ALERT = "raad_cloud_alerts_v4"
-    private const val CHANNEL_SILENT = "raad_cloud_silent_v4"
+    private const val CHANNEL_ALERT = "raad_cloud_alerts_v5"
+    private const val CHANNEL_ALERT_FALLBACK = "raad_cloud_alerts_fallback_v5"
+    private const val CHANNEL_SILENT = "raad_cloud_silent_v5"
     private const val GROUP_KEY = "raad_cloud_financial_events"
     private const val SUMMARY_ID = 4110
     private val nextId = AtomicInteger(4200)
@@ -44,22 +47,28 @@ object CloudNotificationCenter {
         if (!canPost(app)) return
         ensureChannels(app)
 
-        if (audible) PixabaySoundAssets.playNotification(app)
-
+        val pixabayReady = PixabaySoundAssets.isNotificationReady(app)
+        val channelId = when {
+            !audible -> CHANNEL_SILENT
+            pixabayReady -> CHANNEL_ALERT
+            else -> CHANNEL_ALERT_FALLBACK
+        }
         val id = stableId(eventId)
         val notification = builder(
             context = app,
-            channelId = if (audible) CHANNEL_ALERT else CHANNEL_SILENT,
+            channelId = channelId,
             title = title,
             body = body,
             customerId = customerId,
             requestCode = id
         )
             .setGroup(GROUP_KEY)
-            .setSilent(true)
+            .setSilent(!audible)
             .build()
 
         notifySafely(app, id, notification)
+        if (audible && pixabayReady) PixabaySoundAssets.playNotification(app)
+        if (audible && !pixabayReady) PixabaySoundAssets.prefetch(app)
     }
 
     fun postBatch(
@@ -101,11 +110,15 @@ object CloudNotificationCenter {
             notifySafely(app, id, child)
         }
 
-        if (audible) PixabaySoundAssets.playNotification(app)
-
+        val pixabayReady = PixabaySoundAssets.isNotificationReady(app)
+        val summaryChannel = when {
+            !audible -> CHANNEL_SILENT
+            pixabayReady -> CHANNEL_ALERT
+            else -> CHANNEL_ALERT_FALLBACK
+        }
         val summary = NotificationCompat.Builder(
             app,
-            if (audible) CHANNEL_ALERT else CHANNEL_SILENT
+            summaryChannel
         )
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("صيدلية رعد • ${events.size} عمليات جديدة")
@@ -121,11 +134,13 @@ object CloudNotificationCenter {
             .setGroup(GROUP_KEY)
             .setGroupSummary(true)
             .setAutoCancel(true)
-            .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSilent(!audible)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .build()
 
         notifySafely(app, SUMMARY_ID, summary)
+        if (audible && pixabayReady) PixabaySoundAssets.playNotification(app)
+        if (audible && !pixabayReady) PixabaySoundAssets.prefetch(app)
     }
 
     @SuppressLint("MissingPermission")
@@ -170,7 +185,7 @@ object CloudNotificationCenter {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
     }
@@ -188,6 +203,28 @@ object CloudNotificationCenter {
                 ).apply {
                     description = "إشعارات الديون والتحصيلات القادمة من الهواتف الأخرى"
                     setSound(null, null)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0L, 90L, 55L, 90L)
+                    setShowBadge(true)
+                }
+            )
+        }
+
+        if (manager.getNotificationChannel(CHANNEL_ALERT_FALLBACK) == null) {
+            val fallbackSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val attributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ALERT_FALLBACK,
+                    "عمليات الأجهزة الأخرى",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "تنبيه صوتي احتياطي إلى أن يصبح صوت التطبيق جاهزًا"
+                    setSound(fallbackSound, attributes)
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0L, 90L, 55L, 90L)
                     setShowBadge(true)

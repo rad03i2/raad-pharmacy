@@ -2,6 +2,8 @@ package com.radwan.raadpharmacy.notifications
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
@@ -11,6 +13,8 @@ import java.io.File
 internal object FeedbackSoundPlayer {
     private val main = Handler(Looper.getMainLooper())
     private var player: MediaPlayer? = null
+    private var audioManager: AudioManager? = null
+    private var focusRequest: AudioFocusRequest? = null
 
     fun play(context: Context, resourceId: Int, notification: Boolean = false) {
         val app = context.applicationContext
@@ -19,11 +23,16 @@ internal object FeedbackSoundPlayer {
             val current = MediaPlayer()
             player = current
             try {
-                current.setAudioAttributes(AudioAttributes.Builder()
-                    .setUsage(if (notification) AudioAttributes.USAGE_NOTIFICATION
-                        else AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                val attributes = AudioAttributes.Builder()
+                    .setUsage(
+                        if (notification) AudioAttributes.USAGE_NOTIFICATION
+                        else AudioAttributes.USAGE_ASSISTANCE_SONIFICATION
+                    )
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build())
+                    .build()
+                requestFocus(app, attributes)
+                current.setAudioAttributes(attributes)
+                current.setVolume(1.0f, 1.0f)
                 current.setDataSource(app, soundResourceUri(app, resourceId))
                 current.setOnPreparedListener { prepared ->
                     if (player === prepared) runCatching { prepared.start() }.onFailure { release(prepared) }
@@ -45,15 +54,16 @@ internal object FeedbackSoundPlayer {
             val current = MediaPlayer()
             player = current
             try {
-                current.setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(
-                            if (notification) AudioAttributes.USAGE_NOTIFICATION
-                            else AudioAttributes.USAGE_ASSISTANCE_SONIFICATION
-                        )
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
+                val attributes = AudioAttributes.Builder()
+                    .setUsage(
+                        if (notification) AudioAttributes.USAGE_NOTIFICATION
+                        else AudioAttributes.USAGE_ASSISTANCE_SONIFICATION
+                    )
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                requestFocus(app, attributes)
+                current.setAudioAttributes(attributes)
+                current.setVolume(1.0f, 1.0f)
                 current.setDataSource(file.absolutePath)
                 current.setOnPreparedListener { prepared ->
                     if (player === prepared) {
@@ -72,9 +82,37 @@ internal object FeedbackSoundPlayer {
 
     fun stop() { main.post { stopCurrent() } }
 
-    private fun stopCurrent() { player?.let(::release) }
+    private fun requestFocus(context: Context, attributes: AudioAttributes) {
+        val manager = context.getSystemService(AudioManager::class.java)
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(attributes)
+            .setAcceptsDelayedFocusGain(false)
+            .build()
+        audioManager = manager
+        focusRequest = request
+        runCatching { manager.requestAudioFocus(request) }
+    }
+
+    private fun stopCurrent() {
+        player?.let(::release)
+        abandonFocus()
+    }
+
     private fun release(current: MediaPlayer) {
-        if (player === current) player = null
+        if (player === current) {
+            player = null
+            abandonFocus()
+        }
         runCatching { current.release() }
+    }
+
+    private fun abandonFocus() {
+        val manager = audioManager
+        val request = focusRequest
+        if (manager != null && request != null) {
+            runCatching { manager.abandonAudioFocusRequest(request) }
+        }
+        audioManager = null
+        focusRequest = null
     }
 }

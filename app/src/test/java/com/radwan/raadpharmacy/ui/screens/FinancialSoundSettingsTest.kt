@@ -1,20 +1,14 @@
 package com.radwan.raadpharmacy.ui.screens
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import com.radwan.raadpharmacy.notifications.FinancialFeedbackSettings
 import com.radwan.raadpharmacy.notifications.NotificationSoundPreset
 import com.radwan.raadpharmacy.notifications.OperationSoundPreset
-import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,59 +21,45 @@ class FinancialSoundSettingsTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private val settings = FinancialFeedbackSettings(
-        OperationSoundPreset.PIXABAY_OPERATION,
-        NotificationSoundPreset.PIXABAY_NOTIFICATION
-    )
+    @Test
+    fun settingsExposeOnlyOperationCompletionSoundToggle() {
+        var enabled = true
 
-    private var operationPreviews = 0
-    private var notificationPreviews = 0
-    private var popupTests = 0
-    private var openedSettings = 0
-
-    private fun showSettings() {
         composeRule.setContent {
             MaterialTheme {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    FinancialSoundSettingsContent(
-                        settings = settings,
-                        onPreviewOperation = { operationPreviews++ },
-                        onPreviewNotification = { notificationPreviews++ },
-                        onOpenNotificationSettings = { openedSettings++ },
-                        onTestNotification = { popupTests++ }
-                    )
-                }
+                FinancialSoundSettingsContent(
+                    settings = FinancialFeedbackSettings(
+                        operationSound = OperationSoundPreset.PIXABAY_OPERATION,
+                        notificationSound = NotificationSoundPreset.PIXABAY_NOTIFICATION,
+                        operationSoundEnabled = enabled
+                    ),
+                    onOperationSoundEnabledChange = { enabled = it }
+                )
             }
         }
+
+        composeRule.onNodeWithText("صوت اكتمال العملية").assertExists()
+        composeRule.onNodeWithText("يعمل بعد نجاح تسجيل الدين أو التحصيل.").assertExists()
     }
 
     @Test
-    fun onlyTwoFixedPixabaySoundCardsAreShown() {
-        showSettings()
+    fun toggleCanDisableOperationCompletionSound() {
+        var enabled = true
 
-        composeRule.onAllNodesWithText("صوت اكتمال العملية").onFirst().assertExists()
-        composeRule.onAllNodesWithText("صوت التنبيه السحابي").onFirst().assertExists()
-    }
+        composeRule.setContent {
+            MaterialTheme {
+                FinancialSoundSettingsContent(
+                    settings = FinancialFeedbackSettings(
+                        operationSound = OperationSoundPreset.PIXABAY_OPERATION,
+                        notificationSound = NotificationSoundPreset.PIXABAY_NOTIFICATION,
+                        operationSoundEnabled = enabled
+                    ),
+                    onOperationSoundEnabledChange = { enabled = it }
+                )
+            }
+        }
 
-    @Test
-    fun bothFixedSoundsCanBePreviewed() {
-        showSettings()
-
-        composeRule.onAllNodesWithText("تجربة الصوت").onFirst().performClick()
-        assertEquals(1, operationPreviews)
-
-        composeRule.onAllNodesWithText("تجربة الصوت")[1].performScrollTo().performClick()
-        assertEquals(1, notificationPreviews)
-    }
-
-    @Test
-    fun externalNotificationControlsRemainAvailable() {
-        showSettings()
-
-        composeRule.onNodeWithText("تجربة إشعار خارجي").performScrollTo().performClick()
-        composeRule.onNodeWithText("إعدادات إشعارات الهاتف").performScrollTo().performClick()
-
-        assertEquals(1, popupTests)
-        assertEquals(1, openedSettings)
+        composeRule.onNodeWithTag("operation_sound_toggle").performClick()
+        assertFalse(enabled)
     }
 }

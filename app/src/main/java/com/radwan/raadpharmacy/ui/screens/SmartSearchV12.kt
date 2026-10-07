@@ -37,6 +37,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
+import com.radwan.raadpharmacy.util.CustomerSearch
 import com.radwan.raadpharmacy.ui.components.CustomerCard
 import com.radwan.raadpharmacy.ui.components.EmptyState
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
@@ -75,17 +76,15 @@ fun SmartSearchScreenV12(
             customers
         }
 
-        if (query.isBlank()) {
-            source.sortedByDescending {
-                vm.lastEntryFor(it.id)?.createdAt ?: it.createdAt
-            }.take(12)
-        } else {
-            val digits = query.filter(Char::isDigit)
-            source.filter {
-                it.name.contains(query, true) ||
-                    (digits.isNotBlank() && it.phone.orEmpty().contains(digits)) ||
-                    it.area.contains(query, true)
-            }.sortedByDescending { vm.balance(it) }
+        CustomerSearch.rank(
+            customers = source,
+            query = query,
+            balance = vm::balance,
+            recentAt = { customer ->
+                vm.lastEntryFor(customer.id)?.createdAt ?: customer.createdAt
+            }
+        ).let { ranked ->
+            if (query.isBlank()) ranked.take(12) else ranked
         }
     }
 
@@ -101,7 +100,7 @@ fun SmartSearchScreenV12(
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    placeholder = { Text("اسم الزبون، الهاتف أو المنطقة") },
+                    placeholder = { Text("اكتب الاسم، رقم الهاتف، المنطقة أو العنوان") },
                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
                     shape = CircleShape,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -130,7 +129,7 @@ fun SmartSearchScreenV12(
                         if (intent == SearchIntentV12.PAYMENT)
                             "لا يوجد زبون لديه دين متاح للتحصيل."
                         else
-                            "جرّب جزءًا من الاسم أو رقم الهاتف أو المنطقة."
+                            "جرّب جزءًا من الاسم أو رقم الهاتف أو المنطقة أو العنوان."
                     )
                 }
             } else {

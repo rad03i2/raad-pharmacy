@@ -22,7 +22,8 @@ enum class FinancialOperationKind {
 
 data class FinancialFeedbackSettings(
     val operationSound: OperationSoundPreset,
-    val notificationSound: NotificationSoundPreset
+    val notificationSound: NotificationSoundPreset,
+    val operationSoundEnabled: Boolean = true
 )
 
 class FinancialFeedbackStore(context: Context) {
@@ -36,7 +37,8 @@ class FinancialFeedbackStore(context: Context) {
             ),
             notificationSound = NotificationSoundPreset.fromStorage(
                 prefs.getString(KEY_NOTIFICATION_SOUND, null)
-            )
+            ),
+            operationSoundEnabled = prefs.getBoolean(KEY_OPERATION_SOUND_ENABLED, true)
         )
 
     fun setOperationSound(preset: OperationSoundPreset) {
@@ -47,10 +49,15 @@ class FinancialFeedbackStore(context: Context) {
         prefs.edit().putString(KEY_NOTIFICATION_SOUND, preset.storageValue).apply()
     }
 
+    fun setOperationSoundEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_OPERATION_SOUND_ENABLED, enabled).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "gas_ledger_financial_feedback"
         private const val KEY_OPERATION_SOUND = "operation_sound"
         private const val KEY_NOTIFICATION_SOUND = "notification_sound"
+        private const val KEY_OPERATION_SOUND_ENABLED = "operation_sound_enabled"
     }
 }
 
@@ -84,9 +91,12 @@ object FinancialOperationFeedback {
 
     fun postNotification(context: Context, receipt: FinancialOperationReceipt) {
         if (!canPostNotifications(context)) return
+        // This is the app/system notification that follows the in-app operation confirmation.
+        // Its sound is independent from the operation-complete toggle.
         val notification = buildNotification(context, receipt)
         try {
             NotificationManagerCompat.from(context).notify(nextNotificationId(), notification)
+            PixabaySoundAssets.playNotification(context)
         } catch (_: SecurityException) {
             // Permission can be revoked between the check and posting.
         }
@@ -177,7 +187,9 @@ object FinancialOperationFeedback {
     }
 
     fun playSelectedOperationSound(context: Context) {
-        playOperationSound(context, FinancialFeedbackStore(context).state().operationSound)
+        val state = FinancialFeedbackStore(context).state()
+        if (!state.operationSoundEnabled) return
+        playOperationSound(context, state.operationSound)
     }
 
     fun playOperationSound(context: Context, preset: OperationSoundPreset) {

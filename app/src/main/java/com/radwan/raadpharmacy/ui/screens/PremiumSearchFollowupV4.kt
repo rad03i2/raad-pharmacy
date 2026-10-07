@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.data.Customer
+import com.radwan.raadpharmacy.util.CustomerSearch
 import com.radwan.raadpharmacy.ui.components.CustomerAvatar
 import com.radwan.raadpharmacy.ui.components.CustomerCard
 import com.radwan.raadpharmacy.ui.components.EmptyState
@@ -68,15 +69,15 @@ fun SmartSearchScreenV4(
     var query by remember { mutableStateOf("") }
 
     val results = remember(customers, entries, query) {
-        if (query.isBlank()) {
-            customers.sortedByDescending { vm.lastEntryFor(it.id)?.createdAt ?: it.createdAt }.take(10)
-        } else {
-            val digits = query.filter(Char::isDigit)
-            customers.filter {
-                it.name.contains(query, true) ||
-                    (digits.isNotBlank() && it.phone.orEmpty().contains(digits)) ||
-                    it.area.contains(query, true)
-            }.sortedByDescending { vm.balance(it) }
+        CustomerSearch.rank(
+            customers = customers,
+            query = query,
+            balance = vm::balance,
+            recentAt = { customer ->
+                vm.lastEntryFor(customer.id)?.createdAt ?: customer.createdAt
+            }
+        ).let { ranked ->
+            if (query.isBlank()) ranked.take(10) else ranked
         }
     }
 
@@ -92,7 +93,7 @@ fun SmartSearchScreenV4(
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    placeholder = { Text("اسم الزبون، الهاتف أو المنطقة") },
+                    placeholder = { Text("الاسم، الهاتف، المنطقة أو العنوان") },
                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
                     shape = CircleShape
                 )
@@ -105,7 +106,7 @@ fun SmartSearchScreenV4(
                 )
             }
             if (results.isEmpty()) {
-                item { EmptyState("لا توجد نتيجة", "جرّب جزءًا من الاسم أو رقم الهاتف أو المنطقة.") }
+                item { EmptyState("لا توجد نتيجة", "جرّب جزءًا من الاسم أو رقم الهاتف أو المنطقة أو العنوان.") }
             } else {
                 items(results, key = { it.id }) { customer ->
                     Surface(

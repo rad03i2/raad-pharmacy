@@ -22,7 +22,7 @@ import kotlinx.serialization.Serializable
 
 object CloudPushDispatcher {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val http by lazy { HttpClient(CIO) }
+    private val http by lazy { HttpClient(CIO) { expectSuccess = true } }
 
     fun request(context: Context, transactionId: String) {
         val app = context.applicationContext
