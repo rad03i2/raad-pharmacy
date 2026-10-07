@@ -46,6 +46,18 @@ object CloudSyncScheduler {
         )
     }
 
+    fun ensureNetworkCatchUp(context: Context) {
+        val request = OneTimeWorkRequestBuilder<CloudSyncWorker>()
+            .setConstraints(networkConstraint)
+            .build()
+
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            "raad-cloud-network-catchup",
+            ExistingWorkPolicy.KEEP,
+            request
+        )
+    }
+
     fun ensurePeriodic(context: Context) {
         val request = PeriodicWorkRequestBuilder<CloudSyncWorker>(
             15,
