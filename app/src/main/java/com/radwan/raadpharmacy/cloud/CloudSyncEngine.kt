@@ -94,6 +94,7 @@ class CloudSyncEngine(context: Context) {
                 customerRows to transactionRows
             }.collect { (customerRows, transactionRows) ->
                 globalSyncMutex.withLock {
+                    notifyRemoteTransactions(customerRows, transactionRows)
                     applyRemoteSnapshot(customerRows, transactionRows)
                 }
             }
@@ -207,6 +208,38 @@ class CloudSyncEngine(context: Context) {
     private suspend fun fetchTransactions(): List<CloudTransactionRow> =
         client.from("transactions").select().decodeList()
 
+    private suspend fun notifyRemoteTransactions(
+        remoteCustomers: List<CloudCustomerRow>,
+        remoteTransactions: List<CloudTransactionRow>
+    ) {
+        val localIds = dao.getEntries().mapTo(hashSetOf()) { it.id }
+        val cutoff = System.currentTimeMillis() - 30_000L
+        val customerNames = remoteCustomers.associate { it.id to it.name }
+
+        remoteTransactions
+            .asSequence()
+            .filter { it.deletedAt == null }
+            .filter { it.id !in localIds }
+            .filter { parseIso(it.createdAt) >= cutoff }
+            .sortedBy { parseIso(it.createdAt) }
+            .takeLast(5)
+            .forEach { row ->
+                val customerName = customerNames[row.customerId] ?: "الزبون"
+                val amount = row.amount.toLong()
+                val title = if (row.type == "PAYMENT") "تحصيل جديد من جهاز آخر" else "دين جديد من جهاز آخر"
+                val body = if (row.type == "PAYMENT") {
+                    "تم تسجيل تحصيل " + amount + " د.ع لحساب " + customerName
+                } else {
+                    "تم تسجيل دين " + amount + " د.ع على حساب " + customerName
+                }
+                CloudNotificationCenter.post(
+                    context = appContext,
+                    title = title,
+                    body = body,
+                    customerId = row.customerId
+                )
+            }
+    }
     private suspend fun applyRemoteSnapshot(
         remoteCustomers: List<CloudCustomerRow>,
         remoteTransactions: List<CloudTransactionRow>
