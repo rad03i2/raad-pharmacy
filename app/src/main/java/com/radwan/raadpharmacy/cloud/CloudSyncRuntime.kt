@@ -10,11 +10,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 object CloudSyncRuntime {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val realtimeStarted = AtomicBoolean(false)
     private val authObserverStarted = AtomicBoolean(false)
+    private val lastBackgroundAt = AtomicLong(0L)
 
     fun start(context: Context) {
         val appContext = context.applicationContext
@@ -52,6 +54,38 @@ object CloudSyncRuntime {
         }
     }
 
+    suspend fun refreshNow(context: Context): Result<Unit> {
+        val appContext = context.applicationContext
+        return runCatching {
+            CloudSyncEngine(appContext).syncOnce()
+            startRealtimeIfPossible(appContext)
+        }.onFailure {
+            FirebaseCrashlytics.getInstance().recordException(it)
+        }
+    }
+
+    fun onAppForegrounded(context: Context) {
+        val appContext = context.applicationContext
+        CloudUiEvents.setAppForeground(true)
+        val backgroundDuration = System.currentTimeMillis() - lastBackgroundAt.get()
+
+        scope.launch {
+            if (backgroundDuration >= REALTIME_RECONNECT_AFTER_MS) {
+                runCatching { SupabaseProvider.client.realtime.removeAllChannels() }
+                realtimeStarted.set(false)
+            }
+
+            runCatching { CloudSyncEngine(appContext).syncOnce() }
+                .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
+            startRealtimeIfPossible(appContext)
+        }
+    }
+
+    fun onAppBackgrounded() {
+        CloudUiEvents.setAppForeground(false)
+        lastBackgroundAt.set(System.currentTimeMillis())
+    }
+
     suspend fun signOut(context: Context) {
         val appContext = context.applicationContext
         runCatching { CloudSyncEngine(appContext).unregisterPushToken() }
@@ -67,4 +101,6 @@ object CloudSyncRuntime {
             realtimeStarted.set(true)
         }
     }
+
+    private const val REALTIME_RECONNECT_AFTER_MS = 5_000L
 }
