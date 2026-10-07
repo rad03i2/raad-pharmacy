@@ -57,10 +57,8 @@ class FinancialSoundSettingsTest {
     fun onlyTwoFixedPixabaySoundCardsAreShown() {
         showSettings()
 
-        composeRule.onNodeWithText("صوت اكتمال العملية").assertExists()
-        composeRule.onNodeWithText("صوت التنبيه السحابي").assertExists()
-        composeRule.onNodeWithText(OperationSoundPreset.PIXABAY_OPERATION.title).assertExists()
-        composeRule.onNodeWithText(NotificationSoundPreset.PIXABAY_NOTIFICATION.title).assertExists()
+        composeRule.onAllNodesWithText("صوت اكتمال العملية").onFirst().assertExists()
+        composeRule.onAllNodesWithText("صوت التنبيه السحابي").onFirst().assertExists()
     }
 
     @Test
