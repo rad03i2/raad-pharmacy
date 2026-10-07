@@ -2,17 +2,19 @@ package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import com.radwan.raadpharmacy.data.CustomerEntity
 import com.radwan.raadpharmacy.data.LedgerEntryEntity
 import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.postgrest.from
-import io.github.jan.supabase.realtime.PrimaryKey
+import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
-import io.github.jan.supabase.realtime.postgresListDataFlow
+import io.github.jan.supabase.realtime.decodeOldRecordOrNull
+import io.github.jan.supabase.realtime.decodeRecordOrNull
+import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,6 +27,7 @@ class CloudSyncEngine(context: Context) {
     private val dao = PharmacyLedgerDatabase.get(appContext).dao()
     private val journal = CloudSyncJournal(appContext)
     private val deviceStore = CloudDeviceStore(appContext)
+    private val actorNames = mutableMapOf<String, String?>()
 
     suspend fun unregisterPushToken() = globalSyncMutex.withLock {
         client.auth.awaitInitialization()
@@ -60,45 +63,57 @@ class CloudSyncEngine(context: Context) {
         }
 
         pushPending(profile)
-        val remoteCustomers = fetchCustomers()
-        val remoteTransactions = fetchTransactions()
-        applyRemoteSnapshot(remoteCustomers, remoteTransactions)
+        pullRemoteSnapshot()
+    }
+
+    suspend fun pullRemoteNow() = globalSyncMutex.withLock {
+        client.auth.awaitInitialization()
+        if (client.auth.currentSessionOrNull() == null) return@withLock
+        pullRemoteSnapshot()
     }
 
     fun startRealtime(scope: CoroutineScope): Boolean {
         val session = client.auth.currentSessionOrNull() ?: return false
         val userId = session.user?.id ?: return false
-        val channel = client.channel("raad-ledger-$userId")
+        val channel = client.channel("raad-ledger-" + userId)
 
-        val customers = channel.postgresListDataFlow(
-            table = "customers",
-            primaryKey = PrimaryKey<CloudCustomerRow>("id") { it.id }
-        )
-        val transactions = channel.postgresListDataFlow(
-            table = "transactions",
-            primaryKey = PrimaryKey<CloudTransactionRow>("id") { it.id }
-        )
+        val transactionChanges = channel.postgresChangeFlow<PostgresAction>("public") {
+            table = "transactions"
+        }
+        val customerChanges = channel.postgresChangeFlow<PostgresAction>("public") {
+            table = "customers"
+        }
 
         scope.launch {
-            channel.subscribe()
+            launch {
+                transactionChanges.collect { action ->
+                    runCatching {
+                        handleTransactionRealtime(action)
+                        pullRemoteNow()
+                    }.onFailure {
+                        Log.w(TAG, "Realtime transaction sync failed", it)
+                    }
+                }
+            }
+            launch {
+                customerChanges.collect {
+                    runCatching { pullRemoteNow() }
+                        .onFailure { Log.w(TAG, "Realtime customer sync failed", it) }
+                }
+            }
+            runCatching { channel.subscribe() }
+                .onFailure { Log.w(TAG, "Realtime channel subscription failed", it) }
         }
+
         scope.launch {
             client.auth.sessionStatus.collect { status ->
                 if (status is SessionStatus.Authenticated) {
                     runCatching { channel.updateAuth(status.session.accessToken) }
+                        .onFailure { Log.w(TAG, "Realtime auth refresh failed", it) }
                 }
             }
         }
-        scope.launch {
-            combine(customers, transactions) { customerRows, transactionRows ->
-                customerRows to transactionRows
-            }.collect { (customerRows, transactionRows) ->
-                globalSyncMutex.withLock {
-                    notifyRemoteTransactions(customerRows, transactionRows)
-                    applyRemoteSnapshot(customerRows, transactionRows)
-                }
-            }
-        }
+
         return true
     }
 
@@ -124,7 +139,7 @@ class CloudSyncEngine(context: Context) {
             ) { onConflict = "id" }
         }
 
-        applyRemoteSnapshot(fetchCustomers(), fetchTransactions())
+        pullRemoteSnapshot()
     }
 
     private suspend fun pushPending(profile: CloudProfileRow) {
@@ -208,67 +223,100 @@ class CloudSyncEngine(context: Context) {
     private suspend fun fetchTransactions(): List<CloudTransactionRow> =
         client.from("transactions").select().decodeList()
 
-    private suspend fun notifyRemoteTransactions(
-        remoteCustomers: List<CloudCustomerRow>,
-        remoteTransactions: List<CloudTransactionRow>
-    ) {
-        val localById = dao.getEntries().associateBy { it.id }
-        val cutoff = System.currentTimeMillis() - 30_000L
-        val customerNames = remoteCustomers.associate { it.id to it.name }
-
-        remoteTransactions
-            .asSequence()
-            .filter {
-                val eventTime = parseIso(it.deletedAt ?: it.updatedAt)
-                eventTime >= cutoff
-            }
-            .sortedBy { parseIso(it.deletedAt ?: it.updatedAt) }
-            .toList()
-            .takeLast(5)
-            .forEach { row ->
-                val local = localById[row.id]
-                val customerName = customerNames[row.customerId] ?: "الزبون"
-                val amount = row.amount.toLong()
-
-                when {
-                    row.deletedAt != null && local != null -> {
-                        CloudNotificationCenter.post(
-                            context = appContext,
-                            title = "تم حذف حركة من جهاز آخر",
-                            body = "تم حذف حركة بقيمة " + amount + " د.ع من حساب " + customerName,
-                            customerId = row.customerId
-                        )
-                    }
-                    row.deletedAt == null && local == null -> {
-                        val title = if (row.type == "PAYMENT") "تحصيل جديد من جهاز آخر" else "دين جديد من جهاز آخر"
-                        val body = if (row.type == "PAYMENT") {
-                            "تم تسجيل تحصيل " + amount + " د.ع لحساب " + customerName
-                        } else {
-                            "تم تسجيل دين " + amount + " د.ع على حساب " + customerName
-                        }
-                        CloudNotificationCenter.post(
-                            context = appContext,
-                            title = title,
-                            body = body,
-                            customerId = row.customerId
-                        )
-                    }
-                    row.deletedAt == null && local != null && (
-                        local.customerId != row.customerId ||
-                            local.type != row.type ||
-                            local.amount != amount ||
-                            local.details != row.notes.orEmpty()
-                    ) -> {
-                        CloudNotificationCenter.post(
-                            context = appContext,
-                            title = "تم تعديل حركة من جهاز آخر",
-                            body = "تم تحديث حركة بقيمة " + amount + " د.ع في حساب " + customerName,
-                            customerId = row.customerId
-                        )
-                    }
-                }
-            }
+    private suspend fun pullRemoteSnapshot() {
+        val remoteCustomers = fetchCustomers()
+        val remoteTransactions = fetchTransactions()
+        applyRemoteSnapshot(remoteCustomers, remoteTransactions)
     }
+
+    private suspend fun handleTransactionRealtime(action: PostgresAction) {
+        val row = when (action) {
+            is PostgresAction.Insert -> action.decodeRecordOrNull<CloudTransactionRow>()
+            is PostgresAction.Update -> action.decodeRecordOrNull<CloudTransactionRow>()
+            is PostgresAction.Delete -> action.decodeOldRecordOrNull<CloudTransactionRow>()
+            is PostgresAction.Select -> action.decodeRecordOrNull<CloudTransactionRow>()
+        } ?: return
+
+        if (row.deviceId == deviceStore.deviceId()) return
+
+        val local = dao.getEntryById(row.id)
+        val amount = row.amount.toLong()
+        val customerName = dao.getCustomerById(row.customerId)?.name
+            ?: runCatching {
+                client.from("customers")
+                    .select { filter { eq("id", row.customerId) } }
+                    .decodeSingle<CloudCustomerRow>()
+                    .name
+            }.getOrNull()
+            ?: "الزبون"
+
+        val actorName = actorNameFor(row.createdBy)
+        val event = when {
+            row.deletedAt != null && local != null -> CloudUiEvent(
+                title = "تم حذف حركة من جهاز آخر",
+                message = "تم حذف حركة بقيمة " + amount + " د.ع من حساب " + customerName,
+                customerId = row.customerId,
+                actorName = actorName,
+                kind = CloudUiEvent.Kind.DELETE
+            )
+            row.deletedAt == null && local == null && row.type == "PAYMENT" -> CloudUiEvent(
+                title = "تحصيل جديد",
+                message = "تم تسجيل تحصيل " + amount + " د.ع لحساب " + customerName,
+                customerId = row.customerId,
+                actorName = actorName,
+                kind = CloudUiEvent.Kind.PAYMENT
+            )
+            row.deletedAt == null && local == null -> CloudUiEvent(
+                title = "دين جديد",
+                message = "تم تسجيل دين " + amount + " د.ع على حساب " + customerName,
+                customerId = row.customerId,
+                actorName = actorName,
+                kind = CloudUiEvent.Kind.DEBT
+            )
+            row.deletedAt == null && local != null && (
+                local.customerId != row.customerId ||
+                    local.type != row.type ||
+                    local.amount != amount ||
+                    local.details != row.notes.orEmpty()
+            ) -> CloudUiEvent(
+                title = "تم تعديل حركة",
+                message = "تم تحديث حركة بقيمة " + amount + " د.ع في حساب " + customerName,
+                customerId = row.customerId,
+                actorName = actorName,
+                kind = CloudUiEvent.Kind.EDIT
+            )
+            else -> null
+        } ?: return
+
+        CloudUiEvents.emit(event)
+
+        if (!CloudUiEvents.isAppForeground()) {
+            val notificationTitle = event.actorName?.let { event.title + " • " + it } ?: event.title
+            CloudNotificationCenter.post(
+                context = appContext,
+                title = notificationTitle,
+                body = event.message,
+                customerId = event.customerId
+            )
+        }
+    }
+
+    private suspend fun actorNameFor(userId: String?): String? {
+        if (userId.isNullOrBlank()) return null
+        if (actorNames.containsKey(userId)) return actorNames[userId]
+
+        val name = runCatching {
+            client.from("profiles")
+                .select { filter { eq("id", userId) } }
+                .decodeSingle<CloudProfileRow>()
+                .takeUnless { it.isHidden }
+                ?.displayName
+        }.getOrNull()
+
+        actorNames[userId] = name
+        return name
+    }
+
     private suspend fun applyRemoteSnapshot(
         remoteCustomers: List<CloudCustomerRow>,
         remoteTransactions: List<CloudTransactionRow>
@@ -326,6 +374,7 @@ class CloudSyncEngine(context: Context) {
         type = type,
         amount = amount,
         notes = details.takeIf { it.isNotBlank() },
+        deviceId = deviceStore.deviceId(),
         occurredAt = toIso(createdAt),
         createdAt = toIso(createdAt)
     )
@@ -362,6 +411,7 @@ class CloudSyncEngine(context: Context) {
             .getOrDefault(System.currentTimeMillis())
 
     companion object {
+        private const val TAG = "CloudSyncEngine"
         private val globalSyncMutex = Mutex()
     }
 }
