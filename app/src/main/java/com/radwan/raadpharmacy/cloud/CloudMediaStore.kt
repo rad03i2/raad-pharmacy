@@ -1,6 +1,8 @@
 package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import com.radwan.raadpharmacy.customer.CustomerPhotoStore
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
@@ -8,6 +10,7 @@ import io.github.jan.supabase.storage.storage
 import io.ktor.http.ContentType
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 class CloudMediaStore(context: Context) {
@@ -20,7 +23,9 @@ class CloudMediaStore(context: Context) {
         val path = profile.pharmacyId + "/customers/" + customerId + "/" +
             System.currentTimeMillis() + ".jpg"
 
-        client.storage.from(BUCKET).upload(path, file.readBytes()) {
+        val optimized = optimizeJpeg(file.readBytes(), maxDimension = 1280, quality = 86)
+
+        client.storage.from(BUCKET).upload(path, optimized) {
             upsert = true
             contentType = ContentType.Image.JPEG
         }
@@ -29,7 +34,7 @@ class CloudMediaStore(context: Context) {
             filter { eq("id", customerId) }
         }
 
-        customerPhotos.saveRemote(customerId, path, file.readBytes())
+        customerPhotos.saveRemote(customerId, path, optimized)
         return path
     }
 
@@ -64,7 +69,9 @@ class CloudMediaStore(context: Context) {
         val path = profile.pharmacyId + "/profiles/" + profile.id + "/" +
             System.currentTimeMillis() + ".jpg"
 
-        client.storage.from(BUCKET).upload(path, bytes) {
+        val optimized = optimizeJpeg(bytes, maxDimension = 720, quality = 86)
+
+        client.storage.from(BUCKET).upload(path, optimized) {
             upsert = true
             contentType = ContentType.Image.JPEG
         }
@@ -73,7 +80,7 @@ class CloudMediaStore(context: Context) {
             filter { eq("id", profile.id) }
         }
 
-        saveProfilePhoto(profile.id, path, bytes)
+        saveProfilePhoto(profile.id, path, optimized)
         return path
     }
 
@@ -98,6 +105,34 @@ class CloudMediaStore(context: Context) {
         return client.from("profiles")
             .select { filter { eq("id", userId) } }
             .decodeSingle()
+    }
+
+    private fun optimizeJpeg(
+        bytes: ByteArray,
+        maxDimension: Int,
+        quality: Int
+    ): ByteArray {
+        val source = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: return bytes
+
+        val largest = maxOf(source.width, source.height)
+        val scaled = if (largest > maxDimension) {
+            val ratio = maxDimension.toFloat() / largest.toFloat()
+            Bitmap.createScaledBitmap(
+                source,
+                (source.width * ratio).toInt().coerceAtLeast(1),
+                (source.height * ratio).toInt().coerceAtLeast(1),
+                true
+            )
+        } else {
+            source
+        }
+
+        val output = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, quality, output)
+        if (scaled !== source) scaled.recycle()
+        source.recycle()
+        return output.toByteArray().takeIf { it.isNotEmpty() } ?: bytes
     }
 
     private fun saveProfilePhoto(userId: String, path: String, bytes: ByteArray): File {
