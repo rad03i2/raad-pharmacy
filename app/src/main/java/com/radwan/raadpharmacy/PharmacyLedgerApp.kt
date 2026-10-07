@@ -140,7 +140,7 @@ fun PharmacyLedgerApp(
                 }
                 Lifecycle.Event.ON_STOP -> {
                     vm.onAppBackgrounded()
-                    CloudSyncRuntime.onAppBackgrounded()
+                    CloudSyncRuntime.onAppBackgrounded(context)
                 }
                 else -> Unit
             }

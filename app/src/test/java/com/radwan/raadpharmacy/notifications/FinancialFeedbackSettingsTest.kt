@@ -6,50 +6,28 @@ import org.junit.Test
 class FinancialFeedbackSettingsTest {
 
     @Test
-    fun operationSound_defaultsToCashRegister() {
+    fun operationSoundAlwaysUsesFixedPixabaySound() {
         assertEquals(
-            OperationSoundPreset.CASH_REGISTER,
+            OperationSoundPreset.PIXABAY_OPERATION,
             OperationSoundPreset.fromStorage(null)
         )
         assertEquals(
-            OperationSoundPreset.CASH_REGISTER,
-            OperationSoundPreset.fromStorage("unknown")
+            OperationSoundPreset.PIXABAY_OPERATION,
+            OperationSoundPreset.fromStorage("cash_register")
         )
+        assertEquals(1, OperationSoundPreset.entries.size)
     }
 
     @Test
-    fun operationSound_restoresPersistedPreset() {
+    fun notificationSoundAlwaysUsesFixedPixabaySound() {
         assertEquals(
-            OperationSoundPreset.COIN_CASCADE,
-            OperationSoundPreset.fromStorage("coin_cascade")
-        )
-        assertEquals(
-            OperationSoundPreset.POS_PREMIUM,
-            OperationSoundPreset.fromStorage("pos_premium")
-        )
-    }
-
-    @Test
-    fun notificationSound_defaultsToCashPing() {
-        assertEquals(
-            NotificationSoundPreset.CASH_PING,
+            NotificationSoundPreset.PIXABAY_NOTIFICATION,
             NotificationSoundPreset.fromStorage(null)
         )
         assertEquals(
-            NotificationSoundPreset.CASH_PING,
-            NotificationSoundPreset.fromStorage("invalid")
+            NotificationSoundPreset.PIXABAY_NOTIFICATION,
+            NotificationSoundPreset.fromStorage("classic_note")
         )
-    }
-
-    @Test
-    fun notificationSound_restoresPersistedPreset() {
-        assertEquals(
-            NotificationSoundPreset.SOFT_BELL,
-            NotificationSoundPreset.fromStorage("soft_bell")
-        )
-        assertEquals(
-            NotificationSoundPreset.DOUBLE_CHIME,
-            NotificationSoundPreset.fromStorage("double_chime")
-        )
+        assertEquals(1, NotificationSoundPreset.entries.size)
     }
 }

@@ -10,19 +10,15 @@ enum class OperationSoundPreset(
     val description: String,
     val resourceId: Int
 ) {
-    CASH_REGISTER("cash_register", "آلة المحاسبة", "رنين نقدي واضح عند اكتمال العملية.", R.raw.cash_register),
-    COIN_CASCADE("coin_cascade", "رنين العملات", "نغمات معدنية سريعة بطابع مالي.", R.raw.coin_cascade),
-    POS_PREMIUM("pos_premium", "تأكيد الدفع", "نغمة دفع إلكتروني ناعمة.", R.raw.pos_premium),
-    TRI_TONE("classic_tri_tone", "ثلاثي النغمات — Tri-tone", "ثلاث نغمات واضحة مستوحاة من تنبيه الآيفون الكلاسيكي.", R.raw.classic_tri_tone),
-    NOTE("classic_note", "نوتة قصيرة — Note", "نغمة واحدة لطيفة مستوحاة من أسلوب الآيفون.", R.raw.classic_note),
-    GLASS("classic_glass", "زجاج — Glass", "رنين زجاجي خفيف مستوحى من تنبيهات الآيفون.", R.raw.classic_glass),
-    CHIME("classic_chime", "جرس — Chime", "جرس موسيقي هادئ بأسلوب التنبيهات الكلاسيكية.", R.raw.classic_chime),
-    COMPLETE("classic_complete", "اكتمال — Complete", "نغمات صاعدة مناسبة لتأكيد التسديد والنجاح.", R.raw.classic_complete),
-    REBOUND("classic_rebound", "ارتداد — Rebound", "نغمات قصيرة متتابعة مستوحاة من تنبيهات الآيفون الحديثة.", R.raw.classic_rebound);
+    PIXABAY_OPERATION(
+        "pixabay_som_matricula",
+        "صوت اكتمال العملية",
+        "Som Matricula من Pixabay — صوت قصير وواضح عند نجاح العملية.",
+        R.raw.cash_register
+    );
 
     companion object {
-        fun fromStorage(value: String?): OperationSoundPreset =
-            entries.firstOrNull { it.storageValue == value } ?: CASH_REGISTER
+        fun fromStorage(value: String?): OperationSoundPreset = PIXABAY_OPERATION
     }
 }
 
@@ -32,21 +28,20 @@ enum class NotificationSoundPreset(
     val description: String,
     val resourceId: Int
 ) {
-    CASH_PING("cash_ping", "تنبيه نقدي", "رنين مالي قصير وواضح.", R.raw.cash_ping),
-    SOFT_BELL("soft_bell", "جرس ناعم", "جرس خفيف دون حدة مزعجة.", R.raw.soft_bell),
-    DOUBLE_CHIME("double_chime", "رنين متتابع", "نغمات متتابعة بطابع تطبيقات الدفع.", R.raw.double_chime),
-    TRI_TONE("classic_tri_tone", "ثلاثي النغمات — Tri-tone", "ثلاث نغمات واضحة مستوحاة من تنبيه الآيفون الكلاسيكي.", R.raw.classic_tri_tone),
-    NOTE("classic_note", "نوتة قصيرة — Note", "نغمة واحدة لطيفة مستوحاة من أسلوب الآيفون.", R.raw.classic_note),
-    GLASS("classic_glass", "زجاج — Glass", "رنين زجاجي خفيف مستوحى من تنبيهات الآيفون.", R.raw.classic_glass),
-    CHIME("classic_chime", "جرس — Chime", "جرس موسيقي هادئ بأسلوب التنبيهات الكلاسيكية.", R.raw.classic_chime),
-    COMPLETE("classic_complete", "اكتمال — Complete", "نغمات صاعدة مناسبة لتأكيد التسديد والنجاح.", R.raw.classic_complete),
-    REBOUND("classic_rebound", "ارتداد — Rebound", "نغمات قصيرة متتابعة مستوحاة من تنبيهات الآيفون الحديثة.", R.raw.classic_rebound);
+    PIXABAY_NOTIFICATION(
+        "pixabay_notification_037",
+        "صوت التنبيه السحابي",
+        "New Notification 037 من Pixabay — للتنبيه الداخلي والخارجي.",
+        R.raw.cash_ping
+    );
 
     companion object {
-        fun fromStorage(value: String?): NotificationSoundPreset =
-            entries.firstOrNull { it.storageValue == value } ?: CASH_PING
+        fun fromStorage(value: String?): NotificationSoundPreset = PIXABAY_NOTIFICATION
     }
 }
 
 internal fun soundResourceUri(context: Context, resourceId: Int): Uri =
-    Uri.parse("android.resource://${context.packageName}/raw/${context.resources.getResourceEntryName(resourceId)}")
+    Uri.parse(
+        "android.resource://${context.packageName}/raw/" +
+            context.resources.getResourceEntryName(resourceId)
+    )

@@ -13,6 +13,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.radwan.raadpharmacy.customer.CustomerPhotoStore
+import com.radwan.raadpharmacy.customer.CustomerPhotoUpdates
 
 @Composable
 internal fun CustomerPhotoPreviewV211(
@@ -69,8 +72,10 @@ internal fun StoredCustomerPhotoV211(
     size: Dp = 50.dp
 ) {
     val context = LocalContext.current
-    val file = remember(customerId) { CustomerPhotoStore(context).file(customerId) }
-    val bitmap = remember(file?.absolutePath, file?.lastModified()) {
+    val revisions by CustomerPhotoUpdates.revision.collectAsState()
+    val revision = revisions[customerId] ?: 0L
+    val file = remember(customerId, revision) { CustomerPhotoStore(context).file(customerId) }
+    val bitmap = remember(file?.absolutePath, file?.lastModified(), revision) {
         file?.takeIf { it.isFile }?.let {
             runCatching { BitmapFactory.decodeFile(it.absolutePath) }.getOrNull()
         }

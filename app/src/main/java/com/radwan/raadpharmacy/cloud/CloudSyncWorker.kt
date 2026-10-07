@@ -21,6 +21,7 @@ class CloudSyncWorker(
     override suspend fun doWork(): Result =
         runCatching {
             CloudSyncEngine(applicationContext).syncOnce()
+            CloudNotificationInbox(applicationContext).catchUp()
             Result.success()
         }.getOrElse {
             FirebaseCrashlytics.getInstance().recordException(it)
@@ -40,7 +41,19 @@ object CloudSyncScheduler {
 
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             "raad-cloud-sync-now",
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    fun ensureNetworkCatchUp(context: Context) {
+        val request = OneTimeWorkRequestBuilder<CloudSyncWorker>()
+            .setConstraints(networkConstraint)
+            .build()
+
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            "raad-cloud-network-catchup",
+            ExistingWorkPolicy.KEEP,
             request
         )
     }
