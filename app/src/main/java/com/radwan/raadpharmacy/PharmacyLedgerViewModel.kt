@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
@@ -106,9 +107,19 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
             ) { customers, entries ->
                 customers to entries
             }.collect { (customers, entries) ->
+                val indexes = withContext(Dispatchers.Default) { buildIndexes(customers, entries) }
+                entriesByCustomer = indexes.groups
+                lastEntryByCustomer = indexes.lastEntries
+                lastPaymentByCustomer = indexes.lastPayments
+                balanceByCustomer = indexes.balances
+                todayEntriesCache = indexes.todayEntries
+                todayDebtEntriesCache = indexes.todayDebts
+                todayPaymentEntriesCache = indexes.todayPayments
+                todayDebtsCache = indexes.todayDebts.sumOf { it.amount }
+                todayCollectionsCache = indexes.todayPayments.sumOf { it.amount }
+                topDebtorsCache = indexes.topDebtors
                 _customers.value = customers
                 _entries.value = entries
-                rebuildIndexes()
             }
         }
     }
@@ -319,13 +330,13 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         repository.setAutoBackupInterval(interval)
     }
 
-    fun unlockWithPin(pin: String): SecurityMutationResult {
-        val success = security.verifyPin(pin)
+    suspend fun unlockWithPin(pin: String): SecurityMutationResult {
+        val success = withContext(Dispatchers.Default) { security.verifyPin(pin) }
         if (success) {
             _isUnlocked.value = true
             return SecurityMutationResult(true, "تم فتح التطبيق.")
         }
-        return SecurityMutationResult(false, "PIN غير صحيح.")
+        return SecurityMutationResult(false, security.pinFailureMessage())
     }
 
     fun unlockWithBiometric() {
@@ -349,8 +360,8 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun setPin(pin: String): SecurityMutationResult {
-        val result = security.setPin(pin)
+    suspend fun setPin(pin: String): SecurityMutationResult {
+        val result = withContext(Dispatchers.Default) { security.setPin(pin) }
         if (result.success) {
             _isUnlocked.value = true
             refreshSecurityState()
@@ -358,14 +369,14 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         return result
     }
 
-    fun changePin(currentPin: String, newPin: String): SecurityMutationResult {
-        val result = security.changePin(currentPin, newPin)
+    suspend fun changePin(currentPin: String, newPin: String): SecurityMutationResult {
+        val result = withContext(Dispatchers.Default) { security.changePin(currentPin, newPin) }
         if (result.success) refreshSecurityState()
         return result
     }
 
-    fun disablePin(currentPin: String): SecurityMutationResult {
-        val result = security.disablePin(currentPin)
+    suspend fun disablePin(currentPin: String): SecurityMutationResult {
+        val result = withContext(Dispatchers.Default) { security.disablePin(currentPin) }
         if (result.success) {
             _isUnlocked.value = true
             refreshSecurityState()
@@ -491,20 +502,30 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         loadAdvancedReport(_advancedReport.value.period)
     }
 
-    private fun rebuildIndexes() {
-        val sortedGroups = _entries.value
+    private data class LedgerIndexes(
+        val groups: Map<String, List<LedgerEntry>>,
+        val lastEntries: Map<String, LedgerEntry>,
+        val lastPayments: Map<String, LedgerEntry>,
+        val balances: Map<String, Long>,
+        val todayEntries: List<LedgerEntry>,
+        val todayDebts: List<LedgerEntry>,
+        val todayPayments: List<LedgerEntry>,
+        val topDebtors: List<Customer>
+    )
+
+    private fun buildIndexes(customers: List<Customer>, entries: List<LedgerEntry>): LedgerIndexes {
+        val sortedGroups = entries
             .groupBy { it.customerId }
             .mapValues { (_, list) -> list.sortedByDescending { it.createdAt } }
 
-        entriesByCustomer = sortedGroups
-        lastEntryByCustomer = sortedGroups.mapNotNull { (id, list) ->
+        val lastEntries = sortedGroups.mapNotNull { (id, list) ->
             list.firstOrNull()?.let { id to it }
         }.toMap()
-        lastPaymentByCustomer = sortedGroups.mapNotNull { (id, list) ->
+        val lastPayments = sortedGroups.mapNotNull { (id, list) ->
             list.firstOrNull { it.type == EntryType.PAYMENT }?.let { id to it }
         }.toMap()
 
-        balanceByCustomer = _customers.value.associate { customer ->
+        val balances = customers.associate { customer ->
             val movement = sortedGroups[customer.id].orEmpty().sumOf { entry ->
                 if (entry.type == EntryType.DEBT) entry.amount else -entry.amount
             }
@@ -512,7 +533,7 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         }
 
         val today = LocalDate.now()
-        todayEntriesCache = _entries.value.asSequence()
+        val todayEntries = entries.asSequence()
             .filter { entry ->
                 Instant.ofEpochMilli(entry.createdAt)
                     .atZone(ZoneId.systemDefault())
@@ -520,15 +541,15 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
             }
             .sortedByDescending { it.createdAt }
             .toList()
-        todayDebtEntriesCache = todayEntriesCache.filter { it.type == EntryType.DEBT }
-        todayPaymentEntriesCache = todayEntriesCache.filter { it.type == EntryType.PAYMENT }
-        todayDebtsCache = todayDebtEntriesCache.sumOf { it.amount }
-        todayCollectionsCache = todayPaymentEntriesCache.sumOf { it.amount }
+        val todayDebts = todayEntries.filter { it.type == EntryType.DEBT }
+        val todayPayments = todayEntries.filter { it.type == EntryType.PAYMENT }
 
-        topDebtorsCache = _customers.value.asSequence()
-            .filter { balanceByCustomer[it.id].orZero() > 0L }
-            .sortedByDescending { balanceByCustomer[it.id].orZero() }
+        val topDebtors = customers.asSequence()
+            .filter { balances[it.id].orZero() > 0L }
+            .sortedByDescending { balances[it.id].orZero() }
             .toList()
+        return LedgerIndexes(sortedGroups, lastEntries, lastPayments, balances,
+            todayEntries, todayDebts, todayPayments, topDebtors)
     }
 
     private fun Long?.orZero(): Long = this ?: 0L

@@ -103,7 +103,6 @@ fun HomeScreenV3(
     onCollections: () -> Unit,
     onDailyDebts: () -> Unit,
     onTopDebtors: () -> Unit,
-    onAreas: () -> Unit,
     onFollowUp: () -> Unit,
     onCustomer: (String) -> Unit
 ) {
@@ -171,7 +170,7 @@ fun HomeScreenV3(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 QuickActionCard("زبون جديد", Icons.Rounded.PersonAdd, onAddCustomer, Modifier.weight(1f))
-                QuickActionCard("المناطق", Icons.Rounded.LocationOn, onAreas, Modifier.weight(1f))
+                QuickActionCard("سجل الحركات", Icons.Rounded.ReceiptLong, onActivity, Modifier.weight(1f))
                 QuickActionCard("المتابعة", Icons.Rounded.Assessment, onFollowUp, Modifier.weight(1f))
             }
         }

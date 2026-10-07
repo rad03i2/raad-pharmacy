@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,6 +48,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
+import kotlinx.coroutines.launch
 
 private enum class PinDialogMode {
     CREATE,
@@ -60,7 +62,9 @@ fun AppLockScreenV9(vm: PharmacyLedgerViewModel) {
     val activity = context as? FragmentActivity
     val security by vm.securityState.collectAsStateWithLifecycle()
 
-    var pin by rememberSaveable { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var pin by remember { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
     var prompted by rememberSaveable { mutableStateOf(false) }
 
@@ -169,16 +173,21 @@ fun AppLockScreenV9(vm: PharmacyLedgerViewModel) {
 
             Button(
                 onClick = {
-                    val result = vm.unlockWithPin(pin)
-                    message = result.message.takeUnless { result.success }
-                    if (result.success) pin = ""
+                    checking = true
+                    scope.launch {
+                        try {
+                            val result = vm.unlockWithPin(pin)
+                            message = result.message.takeUnless { result.success }
+                            pin = ""
+                        } finally { checking = false }
+                    }
                 },
-                enabled = pin.length in 4..6,
+                enabled = !checking && pin.length in 4..6,
                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
                 shape = MaterialTheme.shapes.large
             ) {
                 Icon(Icons.Rounded.LockOpen, null, modifier = Modifier.size(19.dp))
-                Text("فتح التطبيق", modifier = Modifier.padding(horizontal = 7.dp))
+                Text(if (checking) "جارٍ التحقق…" else "فتح التطبيق", modifier = Modifier.padding(horizontal = 7.dp))
             }
 
             if (security.biometricEnabled && biometricAvailable) {
@@ -198,6 +207,8 @@ fun AppLockScreenV9(vm: PharmacyLedgerViewModel) {
 @Composable
 fun SecuritySettingsCardV9(vm: PharmacyLedgerViewModel) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var saving by remember { mutableStateOf(false) }
     val security by vm.securityState.collectAsStateWithLifecycle()
     var mode by remember { mutableStateOf<PinDialogMode?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -211,15 +222,21 @@ fun SecuritySettingsCardV9(vm: PharmacyLedgerViewModel) {
     mode?.let { currentMode ->
         PinManagementDialogV9(
             mode = currentMode,
-            onDismiss = { mode = null },
+            busy = saving,
+            onDismiss = { if (!saving) mode = null },
             onSubmit = { currentPin, newPin ->
-                val result = when (currentMode) {
-                    PinDialogMode.CREATE -> vm.setPin(newPin)
-                    PinDialogMode.CHANGE -> vm.changePin(currentPin, newPin)
-                    PinDialogMode.DISABLE -> vm.disablePin(currentPin)
+                saving = true
+                scope.launch {
+                    try {
+                        val result = when (currentMode) {
+                            PinDialogMode.CREATE -> vm.setPin(newPin)
+                            PinDialogMode.CHANGE -> vm.changePin(currentPin, newPin)
+                            PinDialogMode.DISABLE -> vm.disablePin(currentPin)
+                        }
+                        if (result.success) mode = null
+                        message = result.message
+                    } finally { saving = false }
                 }
-                if (result.success) mode = null
-                message = result.message
             }
         )
     }
@@ -338,7 +355,7 @@ fun SecuritySettingsCardV9(vm: PharmacyLedgerViewModel) {
             PrivacySwitchV9(
                 icon = Icons.Rounded.VisibilityOff,
                 title = "إخفاء المبالغ",
-                subtitle = "يخفي الأرقام المالية في الرئيسية وقائمة الزبائن وملف الزبون.",
+                subtitle = "يخفي الأرقام المالية في الشاشات والإشعارات السحابية.",
                 checked = security.hideAmounts,
                 onCheckedChange = vm::setHideAmounts
             )
@@ -385,6 +402,7 @@ private fun PrivacySwitchV9(
 @Composable
 private fun PinManagementDialogV9(
     mode: PinDialogMode,
+    busy: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (currentPin: String, newPin: String) -> Unit
 ) {
@@ -443,7 +461,7 @@ private fun PinManagementDialogV9(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
+            TextButton(enabled = !busy, onClick = {
                 validation = when {
                     needsCurrent && currentPin.length !in 4..6 -> "أدخل PIN الحالي."
                     needsNew && newPin.length !in 4..6 -> "PIN الجديد يجب أن يكون 4 إلى 6 أرقام."
@@ -462,7 +480,7 @@ private fun PinManagementDialogV9(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("رجوع") }
+            TextButton(enabled = !busy, onClick = onDismiss) { Text("رجوع") }
         }
     )
 }

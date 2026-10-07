@@ -284,6 +284,13 @@ interface PharmacyLedgerDao {
     @Update
     suspend fun updateCustomer(customer: CustomerEntity)
 
+    @Transaction
+    suspend fun upsertCustomerPreservingEntries(customer: CustomerEntity) {
+        val existing = getCustomerById(customer.id)
+        if (existing == null) insertCustomer(customer)
+        else if (existing != customer) updateCustomer(customer)
+    }
+
     @Update
     suspend fun updateEntry(entry: LedgerEntryEntity)
 

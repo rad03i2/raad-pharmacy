@@ -9,6 +9,7 @@ import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.decodeOldRecordOrNull
@@ -64,7 +65,7 @@ class CloudSyncEngine(context: Context) {
         }
 
         pushPending(profile)
-        pullRemoteSnapshot()
+        pullRemoteDelta()
     }
 
     suspend fun flushPendingOnly() = globalSyncMutex.withLock {
@@ -157,7 +158,6 @@ class CloudSyncEngine(context: Context) {
             ) { onConflict = "id" }
         }
 
-        pullRemoteSnapshot()
     }
 
     private suspend fun pushPending(profile: CloudProfileRow) {
@@ -239,21 +239,43 @@ class CloudSyncEngine(context: Context) {
         ) { onConflict = "id" }
     }
 
-    private suspend fun fetchCustomers(): List<CloudCustomerRow> =
-        client.from("customers").select().decodeList()
+    private suspend fun fetchCustomers(since: String? = null): List<CloudCustomerRow> {
+        val rows = mutableListOf<CloudCustomerRow>()
+        do {
+            val page = client.from("customers").select {
+                if (since != null) filter { gte("updated_at", since) }
+                order("id", Order.ASCENDING)
+                range(rows.size.toLong()..(rows.size + 99L))
+            }.decodeList<CloudCustomerRow>()
+            rows.addAll(page)
+        } while (page.size == 100)
+        return rows
+    }
 
-    private suspend fun fetchTransactions(): List<CloudTransactionRow> =
-        client.from("transactions").select().decodeList()
+    private suspend fun fetchTransactions(since: String? = null): List<CloudTransactionRow> {
+        val rows = mutableListOf<CloudTransactionRow>()
+        do {
+            val page = client.from("transactions").select {
+                if (since != null) filter { gte("updated_at", since) }
+                order("id", Order.ASCENDING)
+                range(rows.size.toLong()..(rows.size + 99L))
+            }.decodeList<CloudTransactionRow>()
+            rows.addAll(page)
+        } while (page.size == 100)
+        return rows
+    }
 
     private suspend fun pullRemoteSnapshot() {
+        val pullStartedAt = System.currentTimeMillis()
         val remoteCustomers = fetchCustomers()
         val remoteTransactions = fetchTransactions()
         applyRemoteSnapshot(remoteCustomers, remoteTransactions)
         mediaStore.reconcileCustomerPhotos(remoteCustomers)
-        syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, System.currentTimeMillis()).apply()
+        syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, pullStartedAt).apply()
     }
 
     private suspend fun pullRemoteDelta() {
+        val pullStartedAt = System.currentTimeMillis()
         val lastPullAt = syncPrefs.getLong(KEY_LAST_REMOTE_PULL_AT, 0L)
         if (lastPullAt <= 0L) {
             pullRemoteSnapshot()
@@ -264,18 +286,14 @@ class CloudSyncEngine(context: Context) {
             (lastPullAt - DELTA_SAFETY_WINDOW_MS).coerceAtLeast(0L)
         ).toString()
 
-        val changedCustomers = client.from("customers")
-            .select { filter { gte("updated_at", since) } }
-            .decodeList<CloudCustomerRow>()
-        val changedTransactions = client.from("transactions")
-            .select { filter { gte("updated_at", since) } }
-            .decodeList<CloudTransactionRow>()
+        val changedCustomers = fetchCustomers(since)
+        val changedTransactions = fetchTransactions(since)
 
         changedCustomers.forEach { applyCustomerRealtime(it) }
         changedTransactions.forEach { applyTransactionRealtime(it) }
         mediaStore.reconcileCustomerPhotos(changedCustomers)
 
-        syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, System.currentTimeMillis()).apply()
+        syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, pullStartedAt).apply()
     }
 
     private fun transactionRow(action: PostgresAction): CloudTransactionRow? =
@@ -321,7 +339,8 @@ class CloudSyncEngine(context: Context) {
         }
 
         if (dao.getCustomerById(row.customerId) != null) {
-            dao.insertEntry(row.toLocal())
+            val local = row.toLocal()
+            if (dao.getEntryById(row.id) != local) dao.insertEntry(local)
         }
     }
 
@@ -340,7 +359,9 @@ class CloudSyncEngine(context: Context) {
             dao.deleteCustomerById(row.id)
             com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).remove(row.id)
         } else {
-            dao.insertCustomer(row.toLocal())
+            val local = row.toLocal()
+            // REPLACE deletes the parent and cascades into ledger entries. Update in place.
+            dao.upsertCustomerPreservingEntries(local)
             runCatching { mediaStore.syncCustomerPhoto(row) }
         }
     }

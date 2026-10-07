@@ -13,6 +13,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -26,12 +32,17 @@ object CloudSyncRuntime {
     private val fastSyncRunning = AtomicBoolean(false)
     private val fastSyncRequested = AtomicBoolean(false)
     private val lastBackgroundAt = AtomicLong(0L)
+    private val runtimeStarted = AtomicBoolean(false)
+    private val catchUpRunning = Mutex()
+    private val realtimeMutex = Mutex()
+    private var realtimeJob: Job? = null
+    private var lastSyncStartedAt = 0L
 
     fun start(context: Context) {
         val app = context.applicationContext
         CloudNotificationCenter.ensureChannels(app)
-        CloudSyncScheduler.ensurePeriodic(app)
-        CloudSyncScheduler.ensureNetworkCatchUp(app)
+        CloudSyncScheduler.enable(app)
+        if (!runtimeStarted.compareAndSet(false, true)) return
         CloudDeviceStore(app).refreshFcmToken(app)
         PixabaySoundAssets.prefetch(app)
         startPresenceLoop(app)
@@ -48,6 +59,7 @@ object CloudSyncRuntime {
                 auth.awaitInitialization()
                 auth.sessionStatus.collect { status ->
                     if (status is SessionStatus.Authenticated) {
+                        CloudSyncScheduler.enable(app)
                         fullSyncAndCatchUp(app)
                         startRealtimeIfPossible(app)
                         if (CloudUiEvents.isAppForeground()) {
@@ -70,7 +82,7 @@ object CloudSyncRuntime {
                 do {
                     fastSyncRequested.set(false)
                     runCatching { CloudSyncEngine(app).flushPendingOnly() }
-                        .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
+                        .onFailure { reportFailure(it) }
                     startRealtimeIfPossible(app)
                 } while (fastSyncRequested.getAndSet(false))
             } finally {
@@ -82,12 +94,12 @@ object CloudSyncRuntime {
 
     suspend fun refreshNow(context: Context): Result<Unit> {
         val app = context.applicationContext
-        return runCatching {
-            CloudSyncEngine(app).pullRemoteNow()
-            CloudNotificationInbox(app).catchUp()
-            startRealtimeIfPossible(app)
-        }.onFailure {
-            FirebaseCrashlytics.getInstance().recordException(it)
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                CloudSyncEngine(app).pullRemoteNow()
+                CloudNotificationInbox(app).catchUp()
+                startRealtimeIfPossible(app)
+            }.onFailure { reportFailure(it) }
         }
     }
 
@@ -98,9 +110,7 @@ object CloudSyncRuntime {
 
         scope.launch {
             if (backgroundDuration >= REALTIME_RECONNECT_AFTER_MS) {
-                runCatching { SupabaseProvider.client.realtime.removeAllChannels() }
-                dataRealtimeStarted.set(false)
-                notificationRealtimeStarted.set(false)
+                resetRealtime()
             }
 
             runCatching { CloudTeamStore(app).heartbeat(true) }
@@ -113,38 +123,56 @@ object CloudSyncRuntime {
         CloudUiEvents.setAppForeground(false)
         lastBackgroundAt.set(System.currentTimeMillis())
         context?.applicationContext?.let { app ->
+            CloudSyncScheduler.enqueue(app)
             scope.launch { runCatching { CloudTeamStore(app).heartbeat(false) } }
         }
     }
 
     suspend fun signOut(context: Context) {
         val app = context.applicationContext
+        CloudSyncScheduler.disable(app)
         runCatching { CloudTeamStore(app).heartbeat(false) }
         runCatching { CloudSyncEngine(app).unregisterPushToken() }
-        runCatching { SupabaseProvider.client.realtime.removeAllChannels() }
-        dataRealtimeStarted.set(false)
-        notificationRealtimeStarted.set(false)
+        resetRealtime()
         SupabaseProvider.client.auth.signOut()
+        CloudSyncScheduler.disable(app)
     }
 
     private suspend fun fullSyncAndCatchUp(context: Context) {
-        runCatching { CloudSyncEngine(context).syncOnce() }
-            .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
-        runCatching { CloudPushDispatcher.retryPending(context) }
-            .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
-        runCatching { CloudNotificationInbox(context).catchUp() }
-            .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
+        // Lifecycle, auth and connectivity often arrive together. Share one catch-up.
+        if (!catchUpRunning.tryLock()) return
+        try {
+            if (!CloudSyncScheduler.isEnabled(context)) return
+            val now = SystemClock.elapsedRealtime()
+            if (lastSyncStartedAt != 0L && now - lastSyncStartedAt < 5_000L) return
+            lastSyncStartedAt = now
+            runCatching { CloudSyncEngine(context).syncOnce() }.onFailure { reportFailure(it) }
+            if (!CloudSyncScheduler.isEnabled(context)) return
+            runCatching { CloudPushDispatcher.retryPending(context) }.onFailure { reportFailure(it) }
+            runCatching { CloudNotificationInbox(context).catchUp() }.onFailure { reportFailure(it) }
+        } finally { catchUpRunning.unlock() }
     }
 
-    private fun startRealtimeIfPossible(context: Context) {
+    private suspend fun resetRealtime() = realtimeMutex.withLock {
+        realtimeJob?.cancel()
+        realtimeJob = null
+        runCatching { SupabaseProvider.client.realtime.removeAllChannels() }
+        dataRealtimeStarted.set(false)
+        notificationRealtimeStarted.set(false)
+    }
+
+    private suspend fun startRealtimeIfPossible(context: Context): Unit = realtimeMutex.withLock {
+        if (!CloudSyncScheduler.isEnabled(context)) return@withLock
+        val job = realtimeJob ?: SupervisorJob(scope.coroutineContext[Job]).also { realtimeJob = it }
+        val realtimeScope = CoroutineScope(job + Dispatchers.IO)
         if (!dataRealtimeStarted.get()) {
             val engine = CloudSyncEngine(context.applicationContext)
-            if (engine.startRealtime(scope)) dataRealtimeStarted.set(true)
+            if (engine.startRealtime(realtimeScope)) dataRealtimeStarted.set(true)
         }
 
         if (!notificationRealtimeStarted.get()) {
             val inbox = CloudNotificationInbox(context.applicationContext)
-            if (inbox.startRealtime(scope)) notificationRealtimeStarted.set(true)
+            if (inbox.startRealtime(realtimeScope)) notificationRealtimeStarted.set(true)
         }
     }
 
@@ -177,4 +205,9 @@ object CloudSyncRuntime {
 
     private const val REALTIME_RECONNECT_AFTER_MS = 8_000L
     private const val PRESENCE_HEARTBEAT_MS = 25_000L
+
+    private fun reportFailure(error: Throwable) {
+        if (error is CancellationException) throw error
+        FirebaseCrashlytics.getInstance().recordException(error)
+    }
 }

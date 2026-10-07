@@ -13,6 +13,11 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      RAAD_KEYSTORE_PASSWORD: ${{ secrets.RAAD_KEYSTORE_PASSWORD }}
+      RAAD_KEY_ALIAS: ${{ secrets.RAAD_KEY_ALIAS }}
+      RAAD_KEY_PASSWORD: ${{ secrets.RAAD_KEY_PASSWORD }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -28,11 +33,22 @@ jobs:
         with:
           gradle-version: "9.6.0"
 
+      - name: Prepare private production signing key when configured
+        env:
+          RAAD_SIGNING_KEYSTORE_BASE64: ${{ secrets.RAAD_SIGNING_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          if [ -n "$RAAD_SIGNING_KEYSTORE_BASE64" ]; then
+            umask 077
+            printf %s "$RAAD_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/raad-release.jks"
+            echo "RAAD_KEYSTORE_PATH=$RUNNER_TEMP/raad-release.jks" >> "$GITHUB_ENV"
+          fi
+
       - name: Verify stable version metadata
         shell: bash
         run: |
-          grep -q 'versionName = "3.3.2"' app/build.gradle.kts
-          grep -q 'versionCode = 33' app/build.gradle.kts
+          grep -q 'versionName = "3.3.3"' app/build.gradle.kts
+          grep -q 'versionCode = 34' app/build.gradle.kts
           if grep -q 'versionName = ".*-rc' app/build.gradle.kts; then
             echo "Release candidate suffix is still present."
             exit 1
@@ -47,6 +63,12 @@ jobs:
       - name: Build optimized stable APK
         run: gradle :app:assembleRelease --stacktrace
 
+      - name: Verify APK signature
+        shell: bash
+        run: |
+          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          "$build_tools/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+
       - name: Generate APK checksum
         run: sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/app-release.apk.sha256
 
@@ -54,7 +76,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: raad-pharmacy-v3.3.2-qa-reports
+          name: raad-pharmacy-v3.3.3-qa-reports
           path: |
             app/build/reports/tests/testDebugUnitTest/
             app/build/test-results/testDebugUnitTest/
@@ -65,7 +87,7 @@ jobs:
       - name: Upload stable APK
         uses: actions/upload-artifact@v4
         with:
-          name: raad-pharmacy-v3.3.2-stable-apk
+          name: raad-pharmacy-v3.3.3-stable-apk
           path: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/app-release.apk.sha256

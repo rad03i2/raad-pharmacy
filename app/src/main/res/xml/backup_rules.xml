@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the ledger is backed up, with client-side encryption. Never copy sessions,
+     PIN hashes, device identifiers, sync cursors or queued push payloads. -->
+<full-backup-content>
+    <include domain="database" path="raad_pharmacy_ledger.db" requireFlags="clientSideEncryption" />
+    <include domain="database" path="raad_pharmacy_ledger.db-wal" requireFlags="clientSideEncryption" />
+    <include domain="database" path="raad_pharmacy_ledger.db-shm" requireFlags="clientSideEncryption" />
+</full-backup-content>

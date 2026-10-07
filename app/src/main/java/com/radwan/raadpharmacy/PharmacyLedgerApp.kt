@@ -52,6 +52,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.radwan.raadpharmacy.cloud.CloudActivityBannerHost
 import com.radwan.raadpharmacy.cloud.CloudSyncRuntime
+import com.radwan.raadpharmacy.ui.components.AnimatedBottomIcon
 import com.radwan.raadpharmacy.ui.screens.AddCustomerScreenV12
 import com.radwan.raadpharmacy.ui.screens.AppLockScreenV9
 import com.radwan.raadpharmacy.ui.screens.AddDebtScreenV12
@@ -166,7 +167,7 @@ fun PharmacyLedgerApp(
         BottomDestination(Routes.CUSTOMERS, "الزبائن", Icons.Rounded.People),
         BottomDestination(Routes.COLLECTIONS, "التحصيلات", Icons.Rounded.Payments),
         BottomDestination(Routes.REPORTS, "التقارير", Icons.Rounded.Assessment),
-        BottomDestination(Routes.SETTINGS, "المزيد", Icons.Rounded.Settings)
+        BottomDestination(Routes.SETTINGS, "الضبط", Icons.Rounded.Settings)
     )
     val bottomRoutes = bottomItems.map { it.route }.toSet()
     var lastNavigationAt by remember { mutableLongStateOf(0L) }
@@ -207,7 +208,7 @@ fun PharmacyLedgerApp(
                             containerColor = MaterialTheme.colorScheme.surface,
                             tonalElevation = 0.dp
                         ) {
-                            bottomItems.forEach { item ->
+                            bottomItems.forEachIndexed { index, item ->
                                 NavigationBarItem(
                                     selected = currentRoute == item.route,
                                     onClick = {
@@ -222,7 +223,7 @@ fun PharmacyLedgerApp(
                                             restoreState = true
                                         }
                                     },
-                                    icon = { Icon(item.icon, contentDescription = item.label) },
+                                    icon = { AnimatedBottomIcon(item.icon, item.label, currentRoute == item.route, index) },
                                     label = { Text(item.label, style = MaterialTheme.typography.labelMedium) },
                                     alwaysShowLabel = false,
                                     colors = NavigationBarItemDefaults.colors(
@@ -314,7 +315,6 @@ fun PharmacyLedgerApp(
                             onCollections = { safeNavigate(Routes.COLLECTIONS) },
                             onDailyDebts = { safeNavigate(Routes.DAILY_DEBTS) },
                             onTopDebtors = { safeNavigate(Routes.TOP_DEBTORS) },
-                            onAreas = { safeNavigate(Routes.AREAS) },
                             onFollowUp = { safeNavigate(Routes.FOLLOWUP) },
                             onCustomer = { safeNavigate(Routes.customer(it)) }
                         )

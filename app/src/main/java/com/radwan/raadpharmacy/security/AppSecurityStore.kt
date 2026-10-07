@@ -36,7 +36,7 @@ class AppSecurityStore(context: Context) {
         !prefs.getString(KEY_PIN_HASH, null).isNullOrBlank() &&
             !prefs.getString(KEY_PIN_SALT, null).isNullOrBlank()
 
-    fun setPin(pin: String): SecurityMutationResult {
+    @Synchronized fun setPin(pin: String): SecurityMutationResult {
         val validation = validateNewPin(pin)
         if (validation != null) return SecurityMutationResult(false, validation)
 
@@ -46,23 +46,25 @@ class AppSecurityStore(context: Context) {
         prefs.edit()
             .putString(KEY_PIN_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
             .putString(KEY_PIN_HASH, Base64.encodeToString(hash, Base64.NO_WRAP))
+            .remove(KEY_FAILED_ATTEMPTS)
+            .remove(KEY_RETRY_AT)
             .apply()
 
         return SecurityMutationResult(true, "تم تفعيل قفل PIN.")
     }
 
-    fun changePin(currentPin: String, newPin: String): SecurityMutationResult {
+    @Synchronized fun changePin(currentPin: String, newPin: String): SecurityMutationResult {
         if (!verifyPin(currentPin)) {
-            return SecurityMutationResult(false, "PIN الحالي غير صحيح.")
+            return SecurityMutationResult(false, pinFailureMessage())
         }
         val validation = validateNewPin(newPin)
         if (validation != null) return SecurityMutationResult(false, validation)
         return setPin(newPin).copy(message = "تم تغيير PIN بنجاح.")
     }
 
-    fun disablePin(currentPin: String): SecurityMutationResult {
+    @Synchronized fun disablePin(currentPin: String): SecurityMutationResult {
         if (!verifyPin(currentPin)) {
-            return SecurityMutationResult(false, "PIN الحالي غير صحيح.")
+            return SecurityMutationResult(false, pinFailureMessage())
         }
 
         prefs.edit()
@@ -70,22 +72,43 @@ class AppSecurityStore(context: Context) {
             .remove(KEY_PIN_SALT)
             .putBoolean(KEY_BIOMETRIC, false)
             .remove(KEY_LAST_BACKGROUND_AT)
+            .remove(KEY_FAILED_ATTEMPTS)
+            .remove(KEY_RETRY_AT)
             .apply()
 
         return SecurityMutationResult(true, "تم إلغاء قفل التطبيق.")
     }
 
-    fun verifyPin(pin: String): Boolean {
+    @Synchronized fun verifyPin(pin: String, now: Long = System.currentTimeMillis()): Boolean {
+        if (retryAfterSeconds(now) > 0L) return false
         if (!pin.matches(Regex("\\d{4,6}"))) return false
         val saltText = prefs.getString(KEY_PIN_SALT, null) ?: return false
         val hashText = prefs.getString(KEY_PIN_HASH, null) ?: return false
 
-        return runCatching {
+        val matches = runCatching {
             val salt = Base64.decode(saltText, Base64.NO_WRAP)
             val expected = Base64.decode(hashText, Base64.NO_WRAP)
             val actual = derive(pin, salt)
             MessageDigest.isEqual(expected, actual)
         }.getOrDefault(false)
+        if (matches) {
+            prefs.edit().remove(KEY_FAILED_ATTEMPTS).remove(KEY_RETRY_AT).apply()
+        } else {
+            val failures = (prefs.getInt(KEY_FAILED_ATTEMPTS, 0) + 1).coerceAtMost(20)
+            val pause = if (failures >= 5) {
+                (30_000L * (1L shl (failures - 5).coerceAtMost(4))).coerceAtMost(300_000L)
+            } else 0L
+            prefs.edit().putInt(KEY_FAILED_ATTEMPTS, failures)
+                .putLong(KEY_RETRY_AT, now + pause).apply()
+        }
+        return matches
+    }
+
+    fun retryAfterSeconds(now: Long = System.currentTimeMillis()): Long =
+        ((prefs.getLong(KEY_RETRY_AT, 0L) - now).coerceAtLeast(0L) + 999L) / 1000L
+
+    fun pinFailureMessage(): String = retryAfterSeconds().let { seconds ->
+        if (seconds > 0L) "محاولات كثيرة. حاول بعد $seconds ثانية." else "PIN غير صحيح."
     }
 
     fun setBiometricEnabled(enabled: Boolean) {
@@ -146,6 +169,8 @@ class AppSecurityStore(context: Context) {
         private const val KEY_SECURE_SCREEN = "secure_screen"
         private const val KEY_LOCK_TIMEOUT = "lock_timeout_seconds"
         private const val KEY_LAST_BACKGROUND_AT = "last_background_at"
+        private const val KEY_FAILED_ATTEMPTS = "failed_attempts"
+        private const val KEY_RETRY_AT = "retry_at"
         private const val DEFAULT_LOCK_TIMEOUT_SECONDS = 60
         private const val PBKDF2_ITERATIONS = 120_000
     }

@@ -90,6 +90,7 @@ class CloudNotificationInbox(context: Context) {
     private suspend fun deliver(rows: List<CloudNotificationEventRow>) {
         for ((index, row) in rows.withIndex()) {
             deliveryMutex.withLock {
+                if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
                 if (isSeen(row.id)) return@withLock
                 if (row.actorDeviceId == deviceStore.deviceId()) {
                     rememberSeen(listOf(row.id))
@@ -99,6 +100,7 @@ class CloudNotificationInbox(context: Context) {
                 val item = row.toExternal(name)
                 val wait = 3_000L - (android.os.SystemClock.elapsedRealtime() - lastAlertAt)
                 if (wait > 0L) delay(wait)
+                if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
                 val posted = CloudNotificationCenter.post(
                     appContext, item.title, item.body, item.customerId, true, item.id
                 )

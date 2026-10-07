@@ -11,6 +11,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 class CloudSyncWorker(
@@ -20,16 +21,39 @@ class CloudSyncWorker(
 
     override suspend fun doWork(): Result =
         runCatching {
+            if (!CloudSyncScheduler.isEnabled(applicationContext)) return Result.success()
             CloudSyncEngine(applicationContext).syncOnce()
+            CloudPushDispatcher.retryPending(applicationContext)
             CloudNotificationInbox(applicationContext).catchUp()
             Result.success()
         }.getOrElse {
+            if (it is CancellationException) throw it
             FirebaseCrashlytics.getInstance().recordException(it)
             Result.retry()
         }
 }
 
 object CloudSyncScheduler {
+    fun isEnabled(context: Context): Boolean = context.applicationContext
+        .getSharedPreferences("raad_background_work", Context.MODE_PRIVATE)
+        .getBoolean("enabled", false)
+
+    fun enable(context: Context) {
+        context.applicationContext.getSharedPreferences("raad_background_work", Context.MODE_PRIVATE)
+            .edit().putBoolean("enabled", true).apply()
+        ensurePeriodic(context)
+    }
+
+    fun disable(context: Context) {
+        context.applicationContext.getSharedPreferences("raad_background_work", Context.MODE_PRIVATE)
+            .edit().putBoolean("enabled", false).apply()
+        val manager = WorkManager.getInstance(context.applicationContext)
+        manager.cancelUniqueWork("raad-cloud-sync-now")
+        manager.cancelUniqueWork("raad-cloud-network-catchup")
+        manager.cancelUniqueWork("raad-cloud-sync-periodic")
+        manager.cancelAllWorkByTag("raad-cloud-notifications")
+    }
+
     private val networkConstraint = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()

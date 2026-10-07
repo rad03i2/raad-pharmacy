@@ -41,6 +41,19 @@ class PharmacyLedgerDaoTest {
     }
 
     @Test
+    fun remoteCustomerUpsertPreservesExistingFinancialEntries() = runTest {
+        val customer = CustomerEntity("sync-customer", "أحمد", null, "", "", 0L, "", 1L)
+        dao.upsertCustomerPreservingEntries(customer)
+        val entry = LedgerEntryEntity("sync-entry", customer.id, "DEBT", 5000L, null, null, "", 2L)
+        dao.insertEntry(entry)
+        dao.upsertCustomerPreservingEntries(customer.copy(name = "أحمد علي"))
+        assertEquals("أحمد علي", dao.getCustomerById(customer.id)?.name)
+        assertEquals(entry, dao.getEntryById(entry.id))
+        dao.upsertCustomerPreservingEntries(customer.copy(name = "أحمد علي"))
+        assertEquals(1, dao.getEntriesForCustomer(customer.id).size)
+    }
+
+    @Test
     fun roomFlowAndTargetedQueries_followLedgerChanges() = runTest {
         val customer = CustomerEntity(
             id = "c1",

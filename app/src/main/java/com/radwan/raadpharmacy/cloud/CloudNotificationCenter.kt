@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import com.radwan.raadpharmacy.MainActivity
 import com.radwan.raadpharmacy.R
 import com.radwan.raadpharmacy.notifications.soundResourceUri
+import com.radwan.raadpharmacy.security.AppSecurityStore
 import kotlinx.coroutines.delay
 
 // Versioned because Android does not let an app add sound to an existing silent channel.
@@ -39,11 +40,20 @@ object CloudNotificationCenter {
         }
         val pending = PendingIntent.getActivity(app, id, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val hidden = AppSecurityStore(app).state().hideAmounts
+        val displayTitle = if (hidden) "صيدلية رعد" else title
+        val displayBody = if (hidden) "وصل تحديث مالي جديد. افتح التطبيق للاطلاع عليه." else body
+        val publicVersion = NotificationCompat.Builder(app, CHANNEL_ALERT)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("صيدلية رعد")
+            .setContentText("وصل تحديث مالي جديد.")
+            .build()
         val notification = NotificationCompat.Builder(app, CHANNEL_ALERT)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentTitle(displayTitle)
+            .setContentText(displayBody)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(displayBody))
+            .setPublicVersion(publicVersion)
             .setContentIntent(pending)
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)

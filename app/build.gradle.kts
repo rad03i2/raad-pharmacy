@@ -15,8 +15,8 @@ android {
         applicationId = "com.radwan.raadpharmacy"
         minSdk = 26
         targetSdk = 37
-        versionCode = 33
-        versionName = "3.3.2"
+        versionCode = 34
+        versionName = "3.3.3"
         buildConfigField("String", "SUPABASE_URL", "\"https://gsyrjhqkbfomxqacexle.supabase.co\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_dEvMmAVvoihNljWjLAutRg_lkAD934q\"")
         manifestPlaceholders["debtVoicePermission"] =
@@ -28,11 +28,24 @@ android {
         buildConfig = true
     }
 
+    val signingValues = listOf("RAAD_KEYSTORE_PATH", "RAAD_KEYSTORE_PASSWORD", "RAAD_KEY_ALIAS", "RAAD_KEY_PASSWORD")
+        .map { providers.environmentVariable(it).orNull?.takeIf(String::isNotBlank) }
+    check(signingValues.all { it == null } || signingValues.all { it != null }) {
+        "Production signing requires all four RAAD signing environment variables."
+    }
+    if (signingValues.all { it != null }) {
+        signingConfigs.create("production") {
+            storeFile = file(signingValues[0]!!)
+            storePassword = signingValues[1]
+            keyAlias = signingValues[2]
+            keyPassword = signingValues[3]
+        }
+    }
+
     buildTypes {
         release {
-            // Stable direct-install build: optimized with R8/resource shrinking and signed
-            // with the debug key for sideloading. A private production keystore is required for store publishing.
-            signingConfig = signingConfigs.getByName("debug")
+            // Use a private, stable signing key when configured. The fallback APK is for testing only.
+            signingConfig = signingConfigs.findByName("production") ?: signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
