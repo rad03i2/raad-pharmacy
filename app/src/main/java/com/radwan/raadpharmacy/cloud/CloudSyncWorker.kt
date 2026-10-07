@@ -21,6 +21,7 @@ class CloudSyncWorker(
     override suspend fun doWork(): Result =
         runCatching {
             CloudSyncEngine(applicationContext).syncOnce()
+            CloudNotificationInbox(applicationContext).catchUp()
             Result.success()
         }.getOrElse {
             FirebaseCrashlytics.getInstance().recordException(it)
