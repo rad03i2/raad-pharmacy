@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1038609110196",
+    "project_id": "raad-pharmacy",
+    "storage_bucket": "raad-pharmacy.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1038609110196:android:a5552a5022b140301cb3e1",
+        "android_client_info": {
+          "package_name": "com.radwan.raadpharmacy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCNr54GVfupX5QQsO10msR-UZVxAmEd1Ng"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
