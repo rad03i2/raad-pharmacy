@@ -185,14 +185,18 @@ class CloudSyncEngine(context: Context) {
                     onConflict = "id"
                 }
                 journal.clearTransactionUpsert(id)
+                CloudPushDispatcher.request(appContext, id)
             }
         }
 
         journal.snapshot().transactionDeletes.forEach { id ->
-            client.from("transactions").update(DeletedAtDevicePatch(nowIso(), deviceStore.deviceId())) {
+            client.from("transactions").update(
+                DeletedAtDevicePatch(nowIso(), deviceStore.deviceId())
+            ) {
                 filter { eq("id", id) }
             }
             journal.clearTransactionDelete(id)
+            CloudPushDispatcher.request(appContext, id)
         }
 
         journal.snapshot().customerDeletes.forEach { id ->
