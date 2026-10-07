@@ -4,6 +4,7 @@ import android.content.Context
 import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
 import com.radwan.raadpharmacy.notifications.PixabaySoundAssets
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.PostgresAction
@@ -80,6 +81,14 @@ class CloudNotificationInbox(context: Context) {
             }
             runCatching { channel.subscribe() }
         }
+
+        scope.launch {
+            client.auth.sessionStatus.collect { status ->
+                if (status is SessionStatus.Authenticated) {
+                    runCatching { channel.updateAuth(status.session.accessToken) }
+                }
+            }
+        }
         return true
     }
 
@@ -107,7 +116,7 @@ class CloudNotificationInbox(context: Context) {
                 val item = external.last()
                 CloudUiEvents.emit(
                     CloudUiEvent(
-                        title = item.title,
+                        title = row.uiTitle(),
                         message = item.body,
                         customerId = item.customerId,
                         actorName = row.actorDisplayName,
@@ -165,6 +174,14 @@ class CloudNotificationInbox(context: Context) {
             body = body,
             customerId = customerId
         )
+    }
+
+    private fun CloudNotificationEventRow.uiTitle(): String = when (eventType) {
+        "PAYMENT_CREATED" -> "تحصيل جديد"
+        "DEBT_CREATED" -> "دين جديد"
+        "TRANSACTION_UPDATED" -> "تم تعديل حركة"
+        "TRANSACTION_DELETED" -> "تم حذف حركة"
+        else -> "تحديث سحابي"
     }
 
     private fun CloudNotificationEventRow.uiKind(): CloudUiEvent.Kind = when (eventType) {
