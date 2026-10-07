@@ -72,7 +72,10 @@ class FloatingLedgerNavigationTest {
             composeRule.onNodeWithText(target.label).assertExists()
             val layouts = mutableListOf<TextLayoutResult>()
             composeRule.onNodeWithText(target.label).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            org.junit.Assert.assertFalse("Selected label must fit", layouts.single().hasVisualOverflow)
+            val layout = layouts.single()
+            println("LABEL ${target.label}: size=${layout.size}; widthOverflow=${layout.didOverflowWidth}; heightOverflow=${layout.didOverflowHeight}; paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}; lines=${layout.lineCount}; ellipsized=${layout.isLineEllipsized(0)}")
+            savePreview("navigation-current-${target.route}.png")
+            org.junit.Assert.assertFalse("Selected label must fit", layout.hasVisualOverflow)
             items.filter { it != target }.forEach { composeRule.onNodeWithText(it.label).assertDoesNotExist() }
             items.forEach { composeRule.onNodeWithContentDescription(it.label)
                 .assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp) }
@@ -92,7 +95,10 @@ class FloatingLedgerNavigationTest {
         composeRule.onNodeWithText("التحصيلات").assertExists()
         val layouts = mutableListOf<TextLayoutResult>()
         composeRule.onNodeWithText("التحصيلات").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        org.junit.Assert.assertFalse("Larger Arabic text must fit", layouts.single().hasVisualOverflow)
+        val layout = layouts.single()
+        println("LARGE LABEL: size=${layout.size}; widthOverflow=${layout.didOverflowWidth}; heightOverflow=${layout.didOverflowHeight}; paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}; lines=${layout.lineCount}; ellipsized=${layout.isLineEllipsized(0)}")
+        savePreview("navigation-dark-320.png")
+        org.junit.Assert.assertFalse("Larger Arabic text must fit", layout.hasVisualOverflow)
         composeRule.onNodeWithText("الرئيسية").assertDoesNotExist()
         items.forEach { composeRule.onNodeWithContentDescription(it.label)
             .assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp) }
