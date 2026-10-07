@@ -89,7 +89,6 @@ class CloudSyncEngine(context: Context) {
                 transactionChanges.collect { action ->
                     runCatching {
                         transactionRow(action)?.let { row ->
-                            handleTransactionRealtime(row)
                             applyTransactionRealtime(row)
                         }
                     }.onFailure {
