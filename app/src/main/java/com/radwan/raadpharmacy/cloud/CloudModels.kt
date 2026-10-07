@@ -102,3 +102,9 @@ data class CloudPushTokenWrite(
 data class DeletedAtPatch(
     @SerialName("deleted_at") val deletedAt: String
 )
+
+@Serializable
+data class DeletedAtDevicePatch(
+    @SerialName("deleted_at") val deletedAt: String,
+    @SerialName("device_id") val deviceId: String
+)
