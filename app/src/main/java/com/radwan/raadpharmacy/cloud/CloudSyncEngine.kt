@@ -48,9 +48,9 @@ class CloudSyncEngine(context: Context) {
         applyRemoteSnapshot(remoteCustomers, remoteTransactions)
     }
 
-    fun startRealtime(scope: CoroutineScope) {
-        val session = client.auth.currentSessionOrNull() ?: return
-        val userId = session.user?.id ?: return
+    fun startRealtime(scope: CoroutineScope): Boolean {
+        val session = client.auth.currentSessionOrNull() ?: return false
+        val userId = session.user?.id ?: return false
         val channel = client.channel("raad-ledger-$userId")
 
         val customers = channel.postgresListDataFlow(
@@ -81,6 +81,7 @@ class CloudSyncEngine(context: Context) {
                 }
             }
         }
+        return true
     }
 
     private suspend fun bootstrap(profile: CloudProfileRow) {
