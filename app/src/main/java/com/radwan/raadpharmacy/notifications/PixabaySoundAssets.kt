@@ -79,6 +79,9 @@ object PixabaySoundAssets {
         }
     }
 
+    fun isNotificationReady(context: Context): Boolean =
+        notificationFile(context.applicationContext).isFile
+
     fun notificationFile(context: Context): File =
         File(soundDir(context), "pixabay_notification_037.mp3")
 
