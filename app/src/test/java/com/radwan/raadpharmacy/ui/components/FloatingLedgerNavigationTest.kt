@@ -70,12 +70,7 @@ class FloatingLedgerNavigationTest {
             composeRule.waitForIdle()
             composeRule.onNodeWithContentDescription(target.label).assertIsSelected()
             composeRule.onNodeWithText(target.label).assertExists()
-            val layouts = mutableListOf<TextLayoutResult>()
-            composeRule.onNodeWithText(target.label).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            val layout = layouts.single()
-            println("LABEL ${target.label}: size=${layout.size}; widthOverflow=${layout.didOverflowWidth}; heightOverflow=${layout.didOverflowHeight}; paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}; lines=${layout.lineCount}; ellipsized=${layout.isLineEllipsized(0)}")
-            savePreview("navigation-current-${target.route}.png")
-            org.junit.Assert.assertFalse("Selected label must fit", layout.hasVisualOverflow)
+            assertLabelFits(target.label)
             items.filter { it != target }.forEach { composeRule.onNodeWithText(it.label).assertDoesNotExist() }
             items.forEach { composeRule.onNodeWithContentDescription(it.label)
                 .assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp) }
@@ -93,12 +88,7 @@ class FloatingLedgerNavigationTest {
             }
         }
         composeRule.onNodeWithText("التحصيلات").assertExists()
-        val layouts = mutableListOf<TextLayoutResult>()
-        composeRule.onNodeWithText("التحصيلات").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        val layout = layouts.single()
-        println("LARGE LABEL: size=${layout.size}; widthOverflow=${layout.didOverflowWidth}; heightOverflow=${layout.didOverflowHeight}; paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}; lines=${layout.lineCount}; ellipsized=${layout.isLineEllipsized(0)}")
-        savePreview("navigation-dark-320.png")
-        org.junit.Assert.assertFalse("Larger Arabic text must fit", layout.hasVisualOverflow)
+        assertLabelFits("التحصيلات")
         composeRule.onNodeWithText("الرئيسية").assertDoesNotExist()
         items.forEach { composeRule.onNodeWithContentDescription(it.label)
             .assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp) }
@@ -106,6 +96,18 @@ class FloatingLedgerNavigationTest {
         val settings = composeRule.onNodeWithContentDescription("الضبط").fetchSemanticsNode().boundsInRoot
         org.junit.Assert.assertTrue(home.left > settings.left)
         savePreview("navigation-dark-320.png")
+    }
+    private fun assertLabelFits(label: String) {
+        val layouts = mutableListOf<TextLayoutResult>()
+        val node = composeRule.onNodeWithText(label, useUnmergedTree = true)
+        node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        val layout = layouts.single()
+        org.junit.Assert.assertFalse("Selected label must not be shortened", layout.isLineEllipsized(0))
+        org.junit.Assert.assertEquals(1, layout.lineCount)
+        val text = node.fetchSemanticsNode().boundsInRoot
+        val tab = composeRule.onNodeWithContentDescription(label).fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("Label must stay inside its tab", text.left >= tab.left - 1f &&
+            text.right <= tab.right + 1f && text.top >= tab.top - 1f && text.bottom <= tab.bottom + 1f)
     }
     private fun savePreview(name: String) {
         val folder = File("build/reports/navigation-preview").apply { mkdirs() }
