@@ -317,8 +317,9 @@ class AppRepository(context: Context) {
     suspend fun restoreBackup(raw: String): BackupRestoreResult {
         return runCatching {
             val payload = BackupValidator.parseValid(raw)
+            val previousCustomerIds = dao.getCustomers().mapTo(hashSetOf()) { it.id }
+            val previousEntryIds = dao.getEntries().mapTo(hashSetOf()) { it.id }
 
-            // Always protect the current state before replacing it.
             writeRecoveryBackup(createBackupJson())
 
             dao.replaceAll(
@@ -328,6 +329,22 @@ class AppRepository(context: Context) {
 
             customersCache = payload.customers
             entriesCache = payload.entries
+            normalizeLegacyIdsForCloud()
+
+            val restoredCustomers = dao.getCustomers()
+            val restoredEntries = dao.getEntries()
+            val restoredCustomerIds = restoredCustomers.mapTo(hashSetOf()) { it.id }
+            val restoredEntryIds = restoredEntries.mapTo(hashSetOf()) { it.id }
+
+            previousEntryIds
+                .filter { it !in restoredEntryIds && it.isCloudUuid() }
+                .forEach(cloudJournal::markTransactionDelete)
+            previousCustomerIds
+                .filter { it !in restoredCustomerIds && it.isCloudUuid() }
+                .forEach(cloudJournal::markCustomerDelete)
+            restoredCustomers.forEach { cloudJournal.markCustomerUpsert(it.id) }
+            restoredEntries.forEach { cloudJournal.markTransactionUpsert(it.id) }
+            CloudSyncRuntime.requestSync(appContext)
 
             val now = System.currentTimeMillis()
             prefs.edit()
@@ -337,9 +354,9 @@ class AppRepository(context: Context) {
 
             BackupRestoreResult(
                 success = true,
-                message = "تمت الاستعادة بنجاح، وتم حفظ نسخة أمان من البيانات السابقة.",
-                customerCount = payload.customers.size,
-                entryCount = payload.entries.size
+                message = "تمت الاستعادة بنجاح، وتم حفظ نسخة أمان من البيانات السابقة وستتم مزامنتها سحابيًا.",
+                customerCount = restoredCustomers.size,
+                entryCount = restoredEntries.size
             )
         }.getOrElse {
             BackupRestoreResult(
@@ -493,6 +510,9 @@ class AppRepository(context: Context) {
     private fun String.toCloudUuid(): String =
         runCatching { UUID.fromString(this).toString() }
             .getOrElse { UUID.randomUUID().toString() }
+
+    private fun String.isCloudUuid(): Boolean =
+        runCatching { UUID.fromString(this) }.isSuccess
 
 
     private fun customersToJson(): JSONArray = JSONArray().apply {
