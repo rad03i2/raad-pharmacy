@@ -1,7 +1,6 @@
 package com.radwan.raadpharmacy.notifications
 
 import android.content.Context
-import com.radwan.raadpharmacy.R
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
@@ -47,22 +46,36 @@ object PixabaySoundAssets {
 
     fun playNotification(context: Context, silent: Boolean = false) {
         if (silent) return
-        val file = notificationFile(context)
+        val app = context.applicationContext
+        val file = notificationFile(app)
         if (file.isFile) {
-            FeedbackSoundPlayer.playFile(context, file, notification = true)
+            FeedbackSoundPlayer.playFile(app, file, notification = true)
         } else {
-            prefetch(context)
-            FeedbackSoundPlayer.play(context, R.raw.cash_ping, notification = true)
+            scope.launch {
+                runCatching { ensureCached(app) }
+                    .onSuccess {
+                        notificationFile(app).takeIf { it.isFile }?.let { cached ->
+                            FeedbackSoundPlayer.playFile(app, cached, notification = true)
+                        }
+                    }
+            }
         }
     }
 
     fun playOperation(context: Context) {
-        val file = operationFile(context)
+        val app = context.applicationContext
+        val file = operationFile(app)
         if (file.isFile) {
-            FeedbackSoundPlayer.playFile(context, file, notification = false)
+            FeedbackSoundPlayer.playFile(app, file, notification = false)
         } else {
-            prefetch(context)
-            FeedbackSoundPlayer.play(context, R.raw.cash_register, notification = false)
+            scope.launch {
+                runCatching { ensureCached(app) }
+                    .onSuccess {
+                        operationFile(app).takeIf { it.isFile }?.let { cached ->
+                            FeedbackSoundPlayer.playFile(app, cached, notification = false)
+                        }
+                    }
+            }
         }
     }
 
