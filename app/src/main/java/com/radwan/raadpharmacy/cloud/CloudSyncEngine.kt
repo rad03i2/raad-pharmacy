@@ -28,7 +28,6 @@ class CloudSyncEngine(context: Context) {
     private val journal = CloudSyncJournal(appContext)
     private val deviceStore = CloudDeviceStore(appContext)
     private val mediaStore = CloudMediaStore(appContext)
-    private val actorNames = mutableMapOf<String, String?>()
 
     suspend fun unregisterPushToken() = globalSyncMutex.withLock {
         client.auth.awaitInitialization()
@@ -190,7 +189,7 @@ class CloudSyncEngine(context: Context) {
         }
 
         journal.snapshot().transactionDeletes.forEach { id ->
-            client.from("transactions").update(DeletedAtPatch(nowIso())) {
+            client.from("transactions").update(DeletedAtDevicePatch(nowIso(), deviceStore.deviceId())) {
                 filter { eq("id", id) }
             }
             journal.clearTransactionDelete(id)
@@ -198,7 +197,7 @@ class CloudSyncEngine(context: Context) {
 
         journal.snapshot().customerDeletes.forEach { id ->
             val deletedAt = nowIso()
-            client.from("transactions").update(DeletedAtPatch(deletedAt)) {
+            client.from("transactions").update(DeletedAtDevicePatch(deletedAt, deviceStore.deviceId())) {
                 filter { eq("customer_id", id) }
             }
             client.from("customers").update(DeletedAtPatch(deletedAt)) {
@@ -264,77 +263,6 @@ class CloudSyncEngine(context: Context) {
             is PostgresAction.Select -> action.decodeRecordOrNull<CloudCustomerRow>()
         }
 
-    private suspend fun handleTransactionRealtime(row: CloudTransactionRow) {
-        if (row.deviceId == deviceStore.deviceId()) return
-
-        val local = dao.getEntryById(row.id)
-        val amount = row.amount.toLong()
-        val customerName = dao.getCustomerById(row.customerId)?.name
-            ?: runCatching {
-                client.from("customers")
-                    .select { filter { eq("id", row.customerId) } }
-                    .decodeSingle<CloudCustomerRow>()
-                    .name
-            }.getOrNull()
-            ?: "الزبون"
-
-        val actorUserId = when {
-            row.deletedAt != null -> row.deletedBy ?: row.updatedBy ?: row.createdBy
-            local == null -> row.createdBy ?: row.updatedBy
-            else -> row.updatedBy ?: row.createdBy
-        }
-        val actorName = actorNameFor(actorUserId)
-
-        val event = when {
-            row.deletedAt != null && local != null -> CloudUiEvent(
-                title = "تم حذف حركة من جهاز آخر",
-                message = "تم حذف حركة بقيمة " + amount + " د.ع من حساب " + customerName,
-                customerId = row.customerId,
-                actorName = actorName,
-                kind = CloudUiEvent.Kind.DELETE
-            )
-            row.deletedAt == null && local == null && row.type == "PAYMENT" -> CloudUiEvent(
-                title = "تحصيل جديد",
-                message = "تم تسجيل تحصيل " + amount + " د.ع لحساب " + customerName,
-                customerId = row.customerId,
-                actorName = actorName,
-                kind = CloudUiEvent.Kind.PAYMENT
-            )
-            row.deletedAt == null && local == null -> CloudUiEvent(
-                title = "دين جديد",
-                message = "تم تسجيل دين " + amount + " د.ع على حساب " + customerName,
-                customerId = row.customerId,
-                actorName = actorName,
-                kind = CloudUiEvent.Kind.DEBT
-            )
-            row.deletedAt == null && local != null && (
-                local.customerId != row.customerId ||
-                    local.type != row.type ||
-                    local.amount != amount ||
-                    local.details != row.notes.orEmpty()
-            ) -> CloudUiEvent(
-                title = "تم تعديل حركة",
-                message = "تم تحديث حركة بقيمة " + amount + " د.ع في حساب " + customerName,
-                customerId = row.customerId,
-                actorName = actorName,
-                kind = CloudUiEvent.Kind.EDIT
-            )
-            else -> null
-        } ?: return
-
-        CloudUiEvents.emit(event)
-
-        if (!CloudUiEvents.isAppForeground()) {
-            val notificationTitle = event.actorName?.let { event.title + " • " + it } ?: event.title
-            CloudNotificationCenter.post(
-                context = appContext,
-                title = notificationTitle,
-                body = event.message,
-                customerId = event.customerId
-            )
-        }
-    }
-
     private suspend fun applyTransactionRealtime(row: CloudTransactionRow) {
         val pending = journal.snapshot()
         if (
@@ -384,22 +312,6 @@ class CloudSyncEngine(context: Context) {
             dao.insertCustomer(row.toLocal())
             runCatching { mediaStore.syncCustomerPhoto(row) }
         }
-    }
-
-    private suspend fun actorNameFor(userId: String?): String? {
-        if (userId.isNullOrBlank()) return null
-        if (actorNames.containsKey(userId)) return actorNames[userId]
-
-        val name = runCatching {
-            client.from("profiles")
-                .select { filter { eq("id", userId) } }
-                .decodeSingle<CloudProfileRow>()
-                .takeUnless { it.isHidden }
-                ?.displayName
-        }.getOrNull()
-
-        actorNames[userId] = name
-        return name
     }
 
     private suspend fun applyRemoteSnapshot(
