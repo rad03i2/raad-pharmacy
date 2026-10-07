@@ -27,6 +27,7 @@ class CloudSyncEngine(context: Context) {
     private val dao = PharmacyLedgerDatabase.get(appContext).dao()
     private val journal = CloudSyncJournal(appContext)
     private val deviceStore = CloudDeviceStore(appContext)
+    private val mediaStore = CloudMediaStore(appContext)
     private val actorNames = mutableMapOf<String, String?>()
 
     suspend fun unregisterPushToken() = globalSyncMutex.withLock {
@@ -244,6 +245,7 @@ class CloudSyncEngine(context: Context) {
         val remoteCustomers = fetchCustomers()
         val remoteTransactions = fetchTransactions()
         applyRemoteSnapshot(remoteCustomers, remoteTransactions)
+        mediaStore.reconcileCustomerPhotos(remoteCustomers)
     }
 
     private fun transactionRow(action: PostgresAction): CloudTransactionRow? =
@@ -377,8 +379,10 @@ class CloudSyncEngine(context: Context) {
             dao.getEntriesForCustomer(row.id)
                 .forEach { dao.deleteEntryById(it.id) }
             dao.deleteCustomerById(row.id)
+            com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).remove(row.id)
         } else {
             dao.insertCustomer(row.toLocal())
+            runCatching { mediaStore.syncCustomerPhoto(row) }
         }
     }
 
