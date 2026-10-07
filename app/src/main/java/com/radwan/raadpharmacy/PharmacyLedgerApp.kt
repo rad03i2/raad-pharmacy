@@ -8,15 +8,12 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Assessment
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.People
-import androidx.compose.material.icons.rounded.Payments
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -52,7 +49,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.radwan.raadpharmacy.cloud.CloudActivityBannerHost
 import com.radwan.raadpharmacy.cloud.CloudSyncRuntime
-import com.radwan.raadpharmacy.ui.components.AnimatedBottomIcon
+import com.radwan.raadpharmacy.ui.components.FloatingLedgerNavigation
+import com.radwan.raadpharmacy.ui.components.LedgerNavigationItem
 import com.radwan.raadpharmacy.ui.screens.AddCustomerScreenV12
 import com.radwan.raadpharmacy.ui.screens.AppLockScreenV9
 import com.radwan.raadpharmacy.ui.screens.AddDebtScreenV12
@@ -100,12 +98,6 @@ object Routes {
     fun statement(id: String) = "statement/$id"
     fun search(intent: String = "open") = "search?intent=$intent"
 }
-
-private data class BottomDestination(
-    val route: String,
-    val label: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector
-)
 
 @Composable
 fun PharmacyLedgerApp(
@@ -163,11 +155,11 @@ fun PharmacyLedgerApp(
     }
 
     val bottomItems = listOf(
-        BottomDestination(Routes.HOME, "الرئيسية", Icons.Rounded.Home),
-        BottomDestination(Routes.CUSTOMERS, "الزبائن", Icons.Rounded.People),
-        BottomDestination(Routes.COLLECTIONS, "التحصيلات", Icons.Rounded.Payments),
-        BottomDestination(Routes.REPORTS, "التقارير", Icons.Rounded.Assessment),
-        BottomDestination(Routes.SETTINGS, "الضبط", Icons.Rounded.Settings)
+        LedgerNavigationItem(Routes.HOME, "الرئيسية", Icons.Rounded.Home),
+        LedgerNavigationItem(Routes.CUSTOMERS, "الزبائن", Icons.Rounded.Groups),
+        LedgerNavigationItem(Routes.COLLECTIONS, "التحصيلات", Icons.Rounded.AccountBalanceWallet),
+        LedgerNavigationItem(Routes.REPORTS, "التقارير", Icons.Rounded.BarChart),
+        LedgerNavigationItem(Routes.SETTINGS, "الضبط", Icons.Rounded.Tune)
     )
     val bottomRoutes = bottomItems.map { it.route }.toSet()
     var lastNavigationAt by remember { mutableLongStateOf(0L) }
@@ -204,38 +196,17 @@ fun PharmacyLedgerApp(
                 Scaffold(
                 bottomBar = {
                     if (currentRoute != null && currentRoute in bottomRoutes) {
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 0.dp
-                        ) {
-                            bottomItems.forEachIndexed { index, item ->
-                                NavigationBarItem(
-                                    selected = currentRoute == item.route,
-                                    onClick = {
-                                        val now = SystemClock.elapsedRealtime()
-                                        if (now - lastNavigationAt < 280L) return@NavigationBarItem
-                                        lastNavigationAt = now
-                                        navController.navigate(item.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = true
-                                            }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
-                                    },
-                                    icon = { AnimatedBottomIcon(item.icon, item.label, currentRoute == item.route, index) },
-                                    label = { Text(item.label, style = MaterialTheme.typography.labelMedium) },
-                                    alwaysShowLabel = true,
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                )
+                        FloatingLedgerNavigation(items = bottomItems, selectedRoute = currentRoute, onSelect = { route ->
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastNavigationAt >= 280L) {
+                                lastNavigationAt = now
+                                navController.navigate(route) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
                             }
-                        }
+                        })
                     }
                 }
             ) { innerPadding ->

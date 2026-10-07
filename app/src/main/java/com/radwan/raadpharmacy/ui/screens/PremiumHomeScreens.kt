@@ -88,6 +88,12 @@ import com.radwan.raadpharmacy.ui.components.TransactionRow
 import com.radwan.raadpharmacy.ui.theme.DebtRed
 import com.radwan.raadpharmacy.ui.theme.MedicalBlueDark
 import com.radwan.raadpharmacy.ui.theme.PaidGreen
+import com.radwan.raadpharmacy.util.CustomerOrdering
+import com.radwan.raadpharmacy.util.orderCustomers
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.radwan.raadpharmacy.util.formatDate
 import com.radwan.raadpharmacy.util.formatMoney
 import com.radwan.raadpharmacy.util.normalizeIraqPhone
@@ -471,13 +477,6 @@ private fun V3Stat(
     }
 }
 
-private enum class CustomerSortV3(val label: String) {
-    HIGHEST("الأعلى دينًا"),
-    NAME("الاسم"),
-    LATEST("آخر تعامل"),
-    AREA("المنطقة")
-}
-
 @Composable
 fun CustomersScreenV3(
     vm: PharmacyLedgerViewModel,
@@ -488,20 +487,16 @@ fun CustomersScreenV3(
     val entries by vm.entries.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
-    var sort by remember { mutableStateOf(CustomerSortV3.HIGHEST) }
+    var sort by rememberSaveable { mutableStateOf(CustomerOrdering.NAME) }
 
-    val visible = remember(customers, entries, query, sort) {
-        val filtered = customers.filter {
-            query.isBlank() ||
-                it.name.contains(query, true) ||
-                it.phone.orEmpty().contains(query) ||
-                it.area.contains(query, true)
-        }
-        when (sort) {
-            CustomerSortV3.HIGHEST -> filtered.sortedByDescending { vm.balance(it) }
-            CustomerSortV3.NAME -> filtered.sortedBy { it.name }
-            CustomerSortV3.LATEST -> filtered.sortedByDescending { vm.lastEntryFor(it.id)?.createdAt ?: it.createdAt }
-            CustomerSortV3.AREA -> filtered.sortedWith(compareBy<Customer> { it.area }.thenBy { it.name })
+    val visible by produceState(emptyList<Customer>(), customers, entries, query, sort) {
+        value = withContext(Dispatchers.Default) {
+            val term = query.trim()
+            val filtered = customers.filter {
+                term.isBlank() || it.name.contains(term, true) ||
+                    it.phone.orEmpty().contains(term) || it.area.contains(term, true)
+            }
+            orderCustomers(filtered, entries, sort)
         }
     }
 
@@ -560,7 +555,7 @@ fun CustomersScreenV3(
                     modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    CustomerSortV3.entries.forEach { option ->
+                    CustomerOrdering.entries.forEach { option ->
                         FilterChip(
                             selected = sort == option,
                             onClick = { sort = option },
@@ -580,7 +575,8 @@ fun CustomersScreenV3(
                 CustomerCard(
                     customer = customer,
                     balance = vm.balance(customer),
-                    lastActivity = vm.lastEntryFor(customer.id)?.let { "آخر تعامل " + formatDate(it.createdAt) },
+                    lastActivity = if (sort == CustomerOrdering.MOST_ACTIVE) "عدد الحركات " + vm.entriesFor(customer.id).size
+                        else vm.lastEntryFor(customer.id)?.let { "آخر تعامل " + formatDate(it.createdAt) },
                     hideBalance = security.hideAmounts,
                     onClick = { onCustomer(customer.id) }
                 )
