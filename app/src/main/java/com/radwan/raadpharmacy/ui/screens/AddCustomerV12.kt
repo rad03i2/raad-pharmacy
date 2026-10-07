@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.customer.CustomerPhotoStore
+import com.radwan.raadpharmacy.cloud.CloudMediaStore
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
 import com.radwan.raadpharmacy.util.formatMoney
 import kotlinx.coroutines.Dispatchers
@@ -210,7 +211,10 @@ fun AddCustomerScreenV12(
                         notes = notes.trim()
                     )
                     selectedPhoto?.let { uri ->
-                        runCatching { photoStore.save(customer.id, uri) }
+                        runCatching {
+                            val file = photoStore.save(customer.id, uri)
+                            CloudMediaStore(context).uploadCustomerPhoto(customer.id, file)
+                        }
                     }
                     customer
                 }
