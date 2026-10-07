@@ -9,7 +9,8 @@ data class CloudProfileRow(
     @SerialName("pharmacy_id") val pharmacyId: String,
     @SerialName("display_name") val displayName: String,
     val role: String,
-    @SerialName("is_hidden") val isHidden: Boolean = false
+    @SerialName("is_hidden") val isHidden: Boolean = false,
+    @SerialName("avatar_path") val avatarPath: String? = null
 )
 
 @Serializable
@@ -22,6 +23,7 @@ data class CloudCustomerRow(
     val address: String? = null,
     @SerialName("opening_debt") val openingDebt: Long = 0L,
     val notes: String? = null,
+    @SerialName("photo_path") val photoPath: String? = null,
     @SerialName("created_at") val createdAt: String,
     @SerialName("updated_at") val updatedAt: String,
     @SerialName("deleted_at") val deletedAt: String? = null
