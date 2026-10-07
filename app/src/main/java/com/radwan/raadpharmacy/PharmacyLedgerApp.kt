@@ -50,6 +50,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.radwan.raadpharmacy.cloud.CloudActivityBannerHost
+import com.radwan.raadpharmacy.cloud.CloudSyncRuntime
 import com.radwan.raadpharmacy.ui.screens.AddCustomerScreenV12
 import com.radwan.raadpharmacy.ui.screens.AppLockScreenV9
 import com.radwan.raadpharmacy.ui.screens.AddDebtScreenV12
@@ -132,8 +134,14 @@ fun PharmacyLedgerApp(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> vm.onAppForegrounded()
-                Lifecycle.Event.ON_STOP -> vm.onAppBackgrounded()
+                Lifecycle.Event.ON_START -> {
+                    vm.onAppForegrounded()
+                    CloudSyncRuntime.onAppForegrounded(context)
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    vm.onAppBackgrounded()
+                    CloudSyncRuntime.onAppBackgrounded()
+                }
                 else -> Unit
             }
         }
@@ -437,6 +445,14 @@ fun PharmacyLedgerApp(
                     }
                 }
             }
+
+            CloudActivityBannerHost(
+                onCustomerClick = { customerId ->
+                    if (unlocked && vm.customer(customerId) != null) {
+                        safeNavigate(Routes.customer(customerId))
+                    }
+                }
+            )
             }
         }
     }

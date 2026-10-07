@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.TrendingUp
 import androidx.compose.material.icons.rounded.Wallet
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +48,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +68,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
+import com.radwan.raadpharmacy.cloud.CloudSyncRuntime
+import com.radwan.raadpharmacy.cloud.CloudUiEvent
+import com.radwan.raadpharmacy.cloud.CloudUiEvents
 import com.radwan.raadpharmacy.data.Customer
 import com.radwan.raadpharmacy.ui.components.CustomerAvatar
 import com.radwan.raadpharmacy.ui.components.CustomerCard
@@ -85,6 +90,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreenV3(
     vm: PharmacyLedgerViewModel,
@@ -110,8 +116,40 @@ fun HomeScreenV3(
     val topDebtors = remember(customers, entries) { vm.topDebtors().take(3) }
     val recent = remember(entries) { entries.sortedByDescending { it.createdAt }.take(4) }
     val customerById = remember(customers) { customers.associateBy { it.id } }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var cloudRefreshing by remember { mutableStateOf(false) }
 
-    LazyColumn(
+    PullToRefreshBox(
+        isRefreshing = cloudRefreshing,
+        onRefresh = {
+            if (!cloudRefreshing) {
+                cloudRefreshing = true
+                scope.launch {
+                    val result = CloudSyncRuntime.refreshNow(context)
+                    cloudRefreshing = false
+
+                    CloudUiEvents.emit(
+                        if (result.isSuccess) {
+                            CloudUiEvent(
+                                title = "تم التحديث",
+                                message = "تم جلب أحدث العمليات من السحابة.",
+                                kind = CloudUiEvent.Kind.REFRESH
+                            )
+                        } else {
+                            CloudUiEvent(
+                                title = "تعذر التحديث",
+                                message = "تحقق من الإنترنت ثم اسحب للأسفل مرة أخرى.",
+                                kind = CloudUiEvent.Kind.INFO
+                            )
+                        }
+                    )
+                }
+            }
+        },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 28.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -230,6 +268,7 @@ fun HomeScreenV3(
                 }
             }
         }
+    }
     }
 }
 
