@@ -94,7 +94,7 @@ internal fun FloatingLedgerNavigation(
             border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.55f)),
             shadowElevation = 9.dp) {
             BoxWithConstraints(Modifier.fillMaxWidth().padding(6.dp)) {
-                val activeWidth = minOf(maxWidth * 1.9f, maxWidth - 48.dp * (items.size - 1))
+                val activeWidth = minOf((maxWidth / items.size) * 1.9f, maxWidth - 48.dp * (items.size - 1))
                     .coerceAtLeast(maxWidth / items.size)
                 val inactiveWidth = if (items.size > 1) (maxWidth - activeWidth) / (items.size - 1) else maxWidth
                 val compact = maxWidth < 296.dp || density.fontScale * labelStyle.fontSize.value / 13f > 1.25f

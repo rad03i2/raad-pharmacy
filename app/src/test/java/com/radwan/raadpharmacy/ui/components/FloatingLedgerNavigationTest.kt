@@ -29,6 +29,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.radwan.raadpharmacy.ui.theme.PharmacyLedgerTheme
@@ -41,7 +44,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@Config(sdk = [35], qualifiers = "w420dp-h800dp-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class FloatingLedgerNavigationTest {
     @get:Rule val composeRule = createComposeRule()
@@ -67,6 +70,9 @@ class FloatingLedgerNavigationTest {
             composeRule.waitForIdle()
             composeRule.onNodeWithContentDescription(target.label).assertIsSelected()
             composeRule.onNodeWithText(target.label).assertExists()
+            val layouts = mutableListOf<TextLayoutResult>()
+            composeRule.onNodeWithText(target.label).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            org.junit.Assert.assertFalse("Selected label must fit", layouts.single().hasVisualOverflow)
             items.filter { it != target }.forEach { composeRule.onNodeWithText(it.label).assertDoesNotExist() }
             items.forEach { composeRule.onNodeWithContentDescription(it.label)
                 .assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp) }
@@ -84,6 +90,9 @@ class FloatingLedgerNavigationTest {
             }
         }
         composeRule.onNodeWithText("التحصيلات").assertExists()
+        val layouts = mutableListOf<TextLayoutResult>()
+        composeRule.onNodeWithText("التحصيلات").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        org.junit.Assert.assertFalse("Larger Arabic text must fit", layouts.single().hasVisualOverflow)
         composeRule.onNodeWithText("الرئيسية").assertDoesNotExist()
         items.forEach { composeRule.onNodeWithContentDescription(it.label)
             .assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp) }
