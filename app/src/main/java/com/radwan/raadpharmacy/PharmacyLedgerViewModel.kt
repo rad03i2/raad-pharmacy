@@ -107,19 +107,12 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
             ) { customers, entries ->
                 customers to entries
             }.collect { (customers, entries) ->
-                val indexes = withContext(Dispatchers.Default) { buildIndexes(customers, entries) }
-                entriesByCustomer = indexes.groups
-                lastEntryByCustomer = indexes.lastEntries
-                lastPaymentByCustomer = indexes.lastPayments
-                balanceByCustomer = indexes.balances
-                todayEntriesCache = indexes.todayEntries
-                todayDebtEntriesCache = indexes.todayDebts
-                todayPaymentEntriesCache = indexes.todayPayments
-                todayDebtsCache = indexes.todayDebts.sumOf { it.amount }
-                todayCollectionsCache = indexes.todayPayments.sumOf { it.amount }
-                topDebtorsCache = indexes.topDebtors
-                _customers.value = customers
-                _entries.value = entries
+                writeMutex.withLock {
+                    val indexes = withContext(Dispatchers.Default) { buildIndexes(customers, entries) }
+                    applyIndexes(indexes)
+                    _customers.value = customers
+                    _entries.value = entries
+                }
             }
         }
     }
@@ -500,6 +493,26 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
             repository.resetDemoData()
         }
         loadAdvancedReport(_advancedReport.value.period)
+    }
+
+    private suspend fun rebuildIndexes() {
+        val customers = _customers.value
+        val entries = _entries.value
+        val indexes = withContext(Dispatchers.Default) { buildIndexes(customers, entries) }
+        applyIndexes(indexes)
+    }
+
+    private fun applyIndexes(indexes: LedgerIndexes) {
+        entriesByCustomer = indexes.groups
+        lastEntryByCustomer = indexes.lastEntries
+        lastPaymentByCustomer = indexes.lastPayments
+        balanceByCustomer = indexes.balances
+        todayEntriesCache = indexes.todayEntries
+        todayDebtEntriesCache = indexes.todayDebts
+        todayPaymentEntriesCache = indexes.todayPayments
+        todayDebtsCache = indexes.todayDebts.sumOf { it.amount }
+        todayCollectionsCache = indexes.todayPayments.sumOf { it.amount }
+        topDebtorsCache = indexes.topDebtors
     }
 
     private data class LedgerIndexes(
