@@ -56,6 +56,17 @@ class CloudNotificationInbox(context: Context) {
         rememberSeen(remote.map { it.id })
     }
 
+    suspend fun deliverPush(row: CloudNotificationEventRow) {
+        if (isSeen(row.id)) return
+        if (row.actorDeviceId == deviceStore.deviceId()) {
+            rememberSeen(listOf(row.id))
+            return
+        }
+
+        deliver(listOf(row), catchUp = false)
+        rememberSeen(listOf(row.id))
+    }
+
     fun startRealtime(scope: CoroutineScope): Boolean {
         val session = client.auth.currentSessionOrNull() ?: return false
         val userId = session.user?.id ?: return false
