@@ -88,17 +88,22 @@ class CloudSyncEngine(context: Context) {
             launch {
                 transactionChanges.collect { action ->
                     runCatching {
-                        handleTransactionRealtime(action)
-                        pullRemoteNow()
+                        transactionRow(action)?.let { row ->
+                            handleTransactionRealtime(row)
+                            applyTransactionRealtime(row)
+                        }
                     }.onFailure {
                         Log.w(TAG, "Realtime transaction sync failed", it)
                     }
                 }
             }
             launch {
-                customerChanges.collect {
-                    runCatching { pullRemoteNow() }
-                        .onFailure { Log.w(TAG, "Realtime customer sync failed", it) }
+                customerChanges.collect { action ->
+                    runCatching {
+                        customerRow(action)?.let { applyCustomerRealtime(it) }
+                    }.onFailure {
+                        Log.w(TAG, "Realtime customer sync failed", it)
+                    }
                 }
             }
             runCatching { channel.subscribe() }
@@ -229,14 +234,23 @@ class CloudSyncEngine(context: Context) {
         applyRemoteSnapshot(remoteCustomers, remoteTransactions)
     }
 
-    private suspend fun handleTransactionRealtime(action: PostgresAction) {
-        val row = when (action) {
+    private fun transactionRow(action: PostgresAction): CloudTransactionRow? =
+        when (action) {
             is PostgresAction.Insert -> action.decodeRecordOrNull<CloudTransactionRow>()
             is PostgresAction.Update -> action.decodeRecordOrNull<CloudTransactionRow>()
             is PostgresAction.Delete -> action.decodeOldRecordOrNull<CloudTransactionRow>()
             is PostgresAction.Select -> action.decodeRecordOrNull<CloudTransactionRow>()
-        } ?: return
+        }
 
+    private fun customerRow(action: PostgresAction): CloudCustomerRow? =
+        when (action) {
+            is PostgresAction.Insert -> action.decodeRecordOrNull<CloudCustomerRow>()
+            is PostgresAction.Update -> action.decodeRecordOrNull<CloudCustomerRow>()
+            is PostgresAction.Delete -> action.decodeOldRecordOrNull<CloudCustomerRow>()
+            is PostgresAction.Select -> action.decodeRecordOrNull<CloudCustomerRow>()
+        }
+
+    private suspend fun handleTransactionRealtime(row: CloudTransactionRow) {
         if (row.deviceId == deviceStore.deviceId()) return
 
         val local = dao.getEntryById(row.id)
@@ -298,6 +312,55 @@ class CloudSyncEngine(context: Context) {
                 body = event.message,
                 customerId = event.customerId
             )
+        }
+    }
+
+    private suspend fun applyTransactionRealtime(row: CloudTransactionRow) {
+        val pending = journal.snapshot()
+        if (
+            row.id in pending.transactionUpserts ||
+            row.id in pending.transactionDeletes
+        ) {
+            return
+        }
+
+        if (row.deletedAt != null) {
+            dao.deleteEntryById(row.id)
+            return
+        }
+
+        if (dao.getCustomerById(row.customerId) == null) {
+            val customer = runCatching {
+                client.from("customers")
+                    .select { filter { eq("id", row.customerId) } }
+                    .decodeSingle<CloudCustomerRow>()
+            }.getOrNull()
+
+            if (customer != null && customer.deletedAt == null) {
+                dao.insertCustomer(customer.toLocal())
+            }
+        }
+
+        if (dao.getCustomerById(row.customerId) != null) {
+            dao.insertEntry(row.toLocal())
+        }
+    }
+
+    private suspend fun applyCustomerRealtime(row: CloudCustomerRow) {
+        val pending = journal.snapshot()
+        if (
+            row.id in pending.customerUpserts ||
+            row.id in pending.customerDeletes
+        ) {
+            return
+        }
+
+        if (row.deletedAt != null) {
+            dao.getEntriesForCustomer(row.id)
+                .forEach { dao.deleteEntryById(it.id) }
+            dao.deleteCustomerById(row.id)
+        } else {
+            dao.insertCustomer(row.toLocal())
         }
     }
 
