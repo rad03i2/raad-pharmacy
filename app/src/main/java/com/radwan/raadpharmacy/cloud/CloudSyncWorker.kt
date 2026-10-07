@@ -41,7 +41,7 @@ object CloudSyncScheduler {
 
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             "raad-cloud-sync-now",
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             request
         )
     }
