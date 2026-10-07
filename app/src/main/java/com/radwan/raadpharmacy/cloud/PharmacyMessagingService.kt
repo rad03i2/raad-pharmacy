@@ -64,4 +64,8 @@ class PharmacyMessagingService : FirebaseMessagingService() {
             audible = !CloudUiEvents.isAppForeground()
         )
     }
+
+    companion object {
+        private const val DELAYED_PUSH_BATCH_AFTER_MS = 20_000L
+    }
 }
