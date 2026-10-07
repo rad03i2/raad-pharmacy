@@ -129,6 +129,8 @@ object CloudSyncRuntime {
     private suspend fun fullSyncAndCatchUp(context: Context) {
         runCatching { CloudSyncEngine(context).syncOnce() }
             .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
+        runCatching { CloudPushDispatcher.retryPending(context) }
+            .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
         runCatching { CloudNotificationInbox(context).catchUp() }
             .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
     }
