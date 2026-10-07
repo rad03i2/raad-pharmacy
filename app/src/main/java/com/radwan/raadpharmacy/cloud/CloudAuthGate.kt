@@ -230,3 +230,5 @@ private fun canonicalUsername(raw: String): String? {
 
 private const val CLOUD_AUTH_PREFS = "raad_cloud_auth"
 private const val KEY_HAS_OFFLINE_SESSION = "has_offline_session"
+
+private const val KEY_NOTIFICATION_PERMISSION_PROMPTED = "notification_permission_prompted"
