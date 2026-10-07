@@ -4,9 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -30,13 +28,13 @@ class FinancialSoundSettingsTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private val settings = mutableStateOf(
-        FinancialFeedbackSettings(
-            OperationSoundPreset.PIXABAY_OPERATION,
-            NotificationSoundPreset.PIXABAY_NOTIFICATION
-        )
+    private val settings = FinancialFeedbackSettings(
+        OperationSoundPreset.PIXABAY_OPERATION,
+        NotificationSoundPreset.PIXABAY_NOTIFICATION
     )
-    private var previews = 0
+
+    private var operationPreviews = 0
+    private var notificationPreviews = 0
     private var popupTests = 0
     private var openedSettings = 0
 
@@ -45,15 +43,9 @@ class FinancialSoundSettingsTest {
             MaterialTheme {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     FinancialSoundSettingsContent(
-                        settings = settings.value,
-                        onOperationSelected = {
-                            settings.value = settings.value.copy(operationSound = it)
-                        },
-                        onNotificationSelected = {
-                            settings.value = settings.value.copy(notificationSound = it)
-                        },
-                        onPreviewOperation = { previews++ },
-                        onPreviewNotification = { previews++ },
+                        settings = settings,
+                        onPreviewOperation = { operationPreviews++ },
+                        onPreviewNotification = { notificationPreviews++ },
                         onOpenNotificationSettings = { openedSettings++ },
                         onTestNotification = { popupTests++ }
                     )
@@ -63,27 +55,33 @@ class FinancialSoundSettingsTest {
     }
 
     @Test
-    fun onlyTwoFixedSoundGroupsAreExposed() {
+    fun onlyTwoFixedPixabaySoundCardsAreShown() {
         showSettings()
-        composeRule.onNodeWithText("صوت نجاح العملية").assertExists()
-        composeRule.onNodeWithText("صوت إشعار الهاتف").assertExists()
 
-        composeRule.onNodeWithText("صوت نجاح العملية").performClick()
+        composeRule.onNodeWithText("صوت اكتمال العملية").assertExists()
+        composeRule.onNodeWithText("صوت التنبيه السحابي").assertExists()
         composeRule.onNodeWithText(OperationSoundPreset.PIXABAY_OPERATION.title).assertExists()
-
-        composeRule.onNodeWithText("صوت إشعار الهاتف").performScrollTo().performClick()
         composeRule.onNodeWithText(NotificationSoundPreset.PIXABAY_NOTIFICATION.title).assertExists()
     }
 
     @Test
-    fun previewAndPopupControlsRemainAvailable() {
+    fun bothFixedSoundsCanBePreviewed() {
         showSettings()
-        composeRule.onNodeWithText("صوت إشعار الهاتف").performClick()
-        composeRule.onAllNodesWithText("تجربة").onFirst().performScrollTo().performClick()
-        assertEquals(1, previews)
 
-        composeRule.onNodeWithText("تجربة إشعار منبثق").performScrollTo().performClick()
-        composeRule.onNodeWithText("إعدادات التنبيه المنبثق").performScrollTo().performClick()
+        composeRule.onAllNodesWithText("تجربة الصوت").onFirst().performClick()
+        assertEquals(1, operationPreviews)
+
+        composeRule.onAllNodesWithText("تجربة الصوت")[1].performScrollTo().performClick()
+        assertEquals(1, notificationPreviews)
+    }
+
+    @Test
+    fun externalNotificationControlsRemainAvailable() {
+        showSettings()
+
+        composeRule.onNodeWithText("تجربة إشعار خارجي").performScrollTo().performClick()
+        composeRule.onNodeWithText("إعدادات إشعارات الهاتف").performScrollTo().performClick()
+
         assertEquals(1, popupTests)
         assertEquals(1, openedSettings)
     }
