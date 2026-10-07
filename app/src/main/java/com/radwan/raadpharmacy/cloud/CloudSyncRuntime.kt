@@ -1,6 +1,7 @@
 package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.realtime.realtime
@@ -22,6 +23,7 @@ object CloudSyncRuntime {
 
         scope.launch {
             runCatching { CloudSyncEngine(appContext).syncOnce() }
+                .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
             startRealtimeIfPossible(appContext)
         }
 
@@ -32,6 +34,7 @@ object CloudSyncRuntime {
                 auth.sessionStatus.collect { status ->
                     if (status is SessionStatus.Authenticated) {
                         runCatching { CloudSyncEngine(appContext).syncOnce() }
+                            .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
                         startRealtimeIfPossible(appContext)
                     }
                 }
@@ -44,6 +47,7 @@ object CloudSyncRuntime {
         CloudSyncScheduler.enqueue(appContext)
         scope.launch {
             runCatching { CloudSyncEngine(appContext).syncOnce() }
+                .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
             startRealtimeIfPossible(appContext)
         }
     }

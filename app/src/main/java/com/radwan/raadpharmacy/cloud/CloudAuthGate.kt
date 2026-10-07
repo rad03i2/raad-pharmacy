@@ -1,6 +1,11 @@
 package com.radwan.raadpharmacy.cloud
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.radwan.raadpharmacy.ui.theme.PharmacyLedgerTheme
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -52,11 +58,27 @@ fun CloudAuthGate(content: @Composable () -> Unit) {
         mutableStateOf(prefs.getBoolean(KEY_HAS_OFFLINE_SESSION, false))
     }
 
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
     LaunchedEffect(status) {
         when (val current = status) {
             is SessionStatus.Authenticated -> {
                 hasOfflineSession = true
                 prefs.edit().putBoolean(KEY_HAS_OFFLINE_SESSION, true).apply()
+
+                if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) != PackageManager.PERMISSION_GRANTED &&
+                    !prefs.getBoolean(KEY_NOTIFICATION_PERMISSION_PROMPTED, false)
+                ) {
+                    prefs.edit().putBoolean(KEY_NOTIFICATION_PERMISSION_PROMPTED, true).apply()
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
             }
             is SessionStatus.NotAuthenticated -> {
                 if (current.isSignOut) {
@@ -208,3 +230,5 @@ private fun canonicalUsername(raw: String): String? {
 
 private const val CLOUD_AUTH_PREFS = "raad_cloud_auth"
 private const val KEY_HAS_OFFLINE_SESSION = "has_offline_session"
+
+private const val KEY_NOTIFICATION_PERMISSION_PROMPTED = "notification_permission_prompted"
