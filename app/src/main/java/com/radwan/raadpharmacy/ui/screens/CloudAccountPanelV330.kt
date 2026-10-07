@@ -77,9 +77,10 @@ internal fun CloudAccountPanelV330() {
     val lifecycleOwner = LocalLifecycleOwner.current
 
     suspend fun refresh() {
-        runCatching { withContext(Dispatchers.IO) { store.load() } }
-            .onSuccess { snapshot = it }
-        loading = false
+        try { snapshot = withContext(Dispatchers.IO) { store.load() } }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Keep the last successful snapshot while offline. */ }
+        finally { loading = false }
     }
 
     val picker = rememberLauncherForActivityResult(
@@ -91,7 +92,7 @@ internal fun CloudAccountPanelV330() {
                 runCatching {
                     val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
                         ?: error("تعذر قراءة الصورة")
-                    store.uploadMyAvatar(bytes)
+                    withContext(Dispatchers.IO) { store.uploadMyAvatar(bytes) }
                 }
                 refresh()
                 uploading = false
@@ -290,9 +291,10 @@ private fun TeamAvatar(file: File?, size: Dp) {
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer
     ) {
-        if (bitmap != null) {
+        val loadedBitmap = bitmap
+        if (loadedBitmap != null) {
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = loadedBitmap.asImageBitmap(),
                 contentDescription = "صورة المستخدم",
                 modifier = Modifier.clip(CircleShape),
                 contentScale = ContentScale.Crop

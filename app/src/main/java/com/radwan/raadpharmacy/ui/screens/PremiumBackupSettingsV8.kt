@@ -256,7 +256,8 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
                             try {
                                 CloudSyncRuntime.signOut(context)
                                 showSignOutConfirm = false
-                            } catch (_: Exception) {
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                            catch (_: Exception) {
                                 message = "تعذر تسجيل الخروج. حاول مرة أخرى."
                             } finally { working = false }
                         }
