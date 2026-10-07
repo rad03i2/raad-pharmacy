@@ -63,7 +63,7 @@ object CloudNotificationCenter {
             requestCode = id
         )
             .setGroup(GROUP_KEY)
-            .setSilent(true)
+            .setSilent(!audible)
             .build()
 
         notifySafely(app, id, notification)
@@ -134,8 +134,8 @@ object CloudNotificationCenter {
             .setGroup(GROUP_KEY)
             .setGroupSummary(true)
             .setAutoCancel(true)
-            .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setSilent(!audible)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .build()
 
         notifySafely(app, SUMMARY_ID, summary)
