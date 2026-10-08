@@ -12,7 +12,7 @@ import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
-import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -159,7 +159,7 @@ fun PharmacyLedgerApp(
         LedgerNavigationItem(Routes.CUSTOMERS, "الزبائن", Icons.Rounded.Groups),
         LedgerNavigationItem(Routes.COLLECTIONS, "التحصيلات", Icons.Rounded.AccountBalanceWallet),
         LedgerNavigationItem(Routes.REPORTS, "التقارير", Icons.Rounded.BarChart),
-        LedgerNavigationItem(Routes.SETTINGS, "الضبط", Icons.Rounded.Tune)
+        LedgerNavigationItem(Routes.SETTINGS, "الضبط", Icons.Rounded.Settings)
     )
     val bottomRoutes = bottomItems.map { it.route }.toSet()
     var lastNavigationAt by remember { mutableLongStateOf(0L) }

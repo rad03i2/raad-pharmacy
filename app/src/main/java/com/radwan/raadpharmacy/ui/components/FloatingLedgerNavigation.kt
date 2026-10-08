@@ -43,7 +43,7 @@ import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -159,7 +159,7 @@ private fun LedgerNavigationButton(item: LedgerNavigationItem, index: Int, selec
         1 -> Icons.Outlined.Groups
         2 -> Icons.Outlined.AccountBalanceWallet
         3 -> Icons.Outlined.BarChart
-        else -> Icons.Outlined.Tune
+        else -> Icons.Outlined.Settings
     } }
     val style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
     Box(Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp))

@@ -9,6 +9,14 @@ import kotlinx.serialization.json.put
 import java.util.UUID
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.withLock
+import android.os.SystemClock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -21,7 +29,8 @@ data class CloudTeamMember(
     val isCurrent: Boolean,
     val avatarFile: File?,
     val isOnline: Boolean,
-    val lastSeenAt: Long?
+    val lastSeenAt: Long?,
+    val avatarRevision: Long = 0L
 )
 
 data class CloudTeamSnapshot(
@@ -35,48 +44,80 @@ class CloudTeamStore(context: Context) {
     private val deviceStore = CloudDeviceStore(appContext)
     private val mediaStore = CloudMediaStore(appContext)
 
-    suspend fun load(): CloudTeamSnapshot {
+    private val cache = CloudTeamCache.get(appContext)
+
+    fun cachedSnapshot(): CloudTeamSnapshot =
+        cache.current(client.auth.currentSessionOrNull()?.user?.id)
+
+    fun snapshots(): Flow<CloudTeamSnapshot> =
+        combine(cache.changes, client.auth.sessionStatus, flow {
+            emit(Unit)
+            while (true) { delay(10_000L); emit(Unit) }
+        }) { _, _, _ -> cachedSnapshot() }
+
+    suspend fun load(force: Boolean = false): CloudTeamSnapshot {
         client.auth.awaitInitialization()
-        val userId = client.auth.currentSessionOrNull()?.user?.id
-            ?: return CloudTeamSnapshot(null, emptyList())
-
-        val (profiles, presence) = coroutineScope {
-            val profilesRequest = async { client.from("profiles").select().decodeList<CloudTeamProfileRow>() }
-            val presenceRequest = async { client.from("user_presence").select().decodeList<CloudPresenceRow>().associateBy { it.userId } }
-            profilesRequest.await() to presenceRequest.await()
-        }
-
-        val visible = profiles.filter { profile ->
-            profile.id == userId || (profile.role == "MANAGER" && !profile.isHidden)
-        }
-
-        val members = visible.map { profile ->
-            val seen = presence[profile.id]
-            val lastSeen = seen?.lastSeenAt?.let(::parseIso)
-            val online = seen?.isOnline == true &&
-                lastSeen != null &&
-                System.currentTimeMillis() - lastSeen <= ONLINE_STALE_MS
-
-            val avatar = runCatching {
-                mediaStore.syncProfilePhoto(profile.id, profile.avatarPath)
-            }.getOrElse {
-                mediaStore.profilePhotoFile(profile.id).takeIf(File::isFile)
+        return cache.refreshMutex.withLock {
+            val userId = client.auth.currentSessionOrNull()?.user?.id
+                ?: return@withLock CloudTeamSnapshot(null, emptyList())
+            cache.restore(userId)
+            val now = SystemClock.elapsedRealtime()
+            if (!force && cache.refreshedOwner == userId && now - cache.refreshedAt < 5_000L) {
+                return@withLock cachedSnapshot()
             }
-
-            CloudTeamMember(
-                id = profile.id,
-                displayName = profile.displayName,
-                isCurrent = profile.id == userId,
-                avatarFile = avatar,
-                isOnline = online,
-                lastSeenAt = lastSeen
-            )
+            fun publish(snapshot: CloudTeamSnapshot) {
+                // A request started under the previous session must never fill the new account's panel.
+                if (client.auth.currentSessionOrNull()?.user?.id == userId) cache.publish(userId, snapshot)
+            }
+            coroutineScope {
+                val profilesRequest = async { client.from("profiles").select().decodeList<CloudTeamProfileRow>() }
+                val presenceRequest = async {
+                    try { client.from("user_presence").select().decodeList<CloudPresenceRow>().associateBy { it.userId } }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { emptyMap() }
+                }
+                val profiles = profilesRequest.await()
+                val pharmacyId = profiles.firstOrNull { it.id == userId }?.pharmacyId
+                val visible = profiles.filter {
+                    it.pharmacyId == pharmacyId &&
+                        (it.id == userId || (it.role == "MANAGER" && !it.isHidden))
+                }
+                val previous = cachedSnapshot().let { listOfNotNull(it.current) + it.others }.associateBy { it.id }
+                fun snapshot(members: List<CloudTeamMember>) = CloudTeamSnapshot(
+                    members.firstOrNull { it.isCurrent }, members.filterNot { it.isCurrent }.sortedBy { it.displayName })
+                val localMembers = visible.map { profile ->
+                    val old = previous[profile.id]
+                    val local = mediaStore.profilePhotoFile(profile.id).takeIf(File::isFile)
+                    CloudTeamMember(profile.id, profile.displayName, profile.id == userId,
+                        local, old?.isOnline == true, old?.lastSeenAt, local?.lastModified() ?: 0L)
+                }
+                // Names and saved photos appear before either presence or avatar downloads finish.
+                publish(snapshot(localMembers))
+                val avatarRequests = visible.map { profile -> async {
+                    try { mediaStore.syncProfilePhoto(profile.id, profile.avatarPath) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { mediaStore.profilePhotoFile(profile.id).takeIf(File::isFile) }
+                } }
+                val presence = presenceRequest.await()
+                val withPresence = localMembers.map { member ->
+                    val seen = presence[member.id]
+                    val lastSeen = seen?.lastSeenAt?.let(::parseIso) ?: member.lastSeenAt
+                    member.copy(lastSeenAt = lastSeen, isOnline = seen?.isOnline == true &&
+                        lastSeen != null && System.currentTimeMillis() - lastSeen in 0..CloudTeamCache.ONLINE_STALE_MS)
+                }
+                publish(snapshot(withPresence))
+                val avatars = avatarRequests.awaitAll()
+                publish(snapshot(withPresence.mapIndexed { index, member ->
+                    val avatar = avatars[index]
+                    member.copy(avatarFile = avatar, avatarRevision = avatar?.lastModified() ?: 0L)
+                }))
+                if (client.auth.currentSessionOrNull()?.user?.id == userId) {
+                    cache.refreshedOwner = userId
+                    cache.refreshedAt = SystemClock.elapsedRealtime()
+                }
+                cachedSnapshot()
+            }
         }
-
-        return CloudTeamSnapshot(
-            current = members.firstOrNull { it.isCurrent },
-            others = members.filterNot { it.isCurrent }.sortedBy { it.displayName }
-        )
     }
 
     suspend fun sendAlert(recipientId: String) {
@@ -127,7 +168,4 @@ class CloudTeamStore(context: Context) {
         @SerialName("last_seen_at") val lastSeenAt: String
     )
 
-    companion object {
-        private const val ONLINE_STALE_MS = 70_000L
-    }
 }

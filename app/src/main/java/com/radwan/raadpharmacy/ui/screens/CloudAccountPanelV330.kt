@@ -1,7 +1,8 @@
 package com.radwan.raadpharmacy.ui.screens
 
-import android.graphics.BitmapFactory
 import android.graphics.Bitmap
+import com.radwan.raadpharmacy.cloud.CloudTeamAvatars
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.produceState
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.rounded.Vibration
@@ -53,7 +54,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.radwan.raadpharmacy.cloud.CloudTeamMember
-import com.radwan.raadpharmacy.cloud.CloudTeamSnapshot
 import com.radwan.raadpharmacy.cloud.CloudTeamStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,7 +68,8 @@ internal fun CloudAccountPanelV330() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val store = remember(context) { CloudTeamStore(context) }
-    var snapshot by remember { mutableStateOf(CloudTeamSnapshot(null, emptyList())) }
+    val updates = remember(store) { store.snapshots() }
+    val snapshot by updates.collectAsStateWithLifecycle(initialValue = store.cachedSnapshot())
     var loading by remember { mutableStateOf(true) }
     var uploading by remember { mutableStateOf(false) }
     var sendingTo by remember { mutableStateOf(emptySet<String>()) }
@@ -76,8 +77,8 @@ internal fun CloudAccountPanelV330() {
     val lastSent = remember { mutableMapOf<String, Long>() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    suspend fun refresh() {
-        try { snapshot = withContext(Dispatchers.IO) { store.load() } }
+    suspend fun refresh(force: Boolean = false) {
+        try { withContext(Dispatchers.IO) { store.load(force) } }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { /* Keep the last successful snapshot while offline. */ }
         finally { loading = false }
@@ -94,7 +95,7 @@ internal fun CloudAccountPanelV330() {
                         ?: error("تعذر قراءة الصورة")
                     withContext(Dispatchers.IO) { store.uploadMyAvatar(bytes) }
                 }
-                refresh()
+                refresh(force = true)
                 uploading = false
             }
         }
@@ -128,7 +129,7 @@ internal fun CloudAccountPanelV330() {
                             picker.launch("image/*")
                         }
                     ) {
-                        TeamAvatar(current.avatarFile, 72.dp)
+                        TeamAvatar(current.avatarFile, current.avatarRevision, 72.dp)
                         Surface(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
@@ -235,7 +236,7 @@ private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, onAlert: ()
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box {
-            TeamAvatar(member.avatarFile, 48.dp)
+            TeamAvatar(member.avatarFile, member.avatarRevision, 48.dp)
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -271,19 +272,9 @@ private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, onAlert: ()
 }
 
 @Composable
-private fun TeamAvatar(file: File?, size: Dp) {
-    val bitmap by produceState<Bitmap?>(null, file?.absolutePath, file?.lastModified()) {
-        value = withContext(Dispatchers.IO) {
-            file?.takeIf(File::isFile)?.let { image ->
-                runCatching {
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(image.absolutePath, bounds)
-                    var sample = 1
-                    while (bounds.outWidth / sample > 256 || bounds.outHeight / sample > 256) sample *= 2
-                    BitmapFactory.decodeFile(image.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
-                }.getOrNull()
-            }
-        }
+private fun TeamAvatar(file: File?, revision: Long, size: Dp) {
+    val bitmap by produceState<Bitmap?>(CloudTeamAvatars.cached(file, revision), file?.absolutePath, revision) {
+        value = withContext(Dispatchers.IO) { CloudTeamAvatars.load(file, revision) }
     }
 
     Surface(

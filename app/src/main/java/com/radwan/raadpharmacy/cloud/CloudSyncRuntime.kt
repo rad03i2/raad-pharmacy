@@ -47,6 +47,8 @@ object CloudSyncRuntime {
         PixabaySoundAssets.prefetch(app)
         startPresenceLoop(app)
         startConnectivityObserver(app)
+        // Warm saved accounts independently of financial sync and the settings screen.
+        scope.launch { runCatching { CloudTeamStore(app).load() }.onFailure { reportFailure(it) } }
 
         scope.launch {
             fullSyncAndCatchUp(app)
@@ -59,6 +61,7 @@ object CloudSyncRuntime {
                 auth.awaitInitialization()
                 auth.sessionStatus.collect { status ->
                     if (status is SessionStatus.Authenticated) {
+                        scope.launch { runCatching { CloudTeamStore(app).load() }.onFailure { reportFailure(it) } }
                         CloudSyncScheduler.enable(app)
                         fullSyncAndCatchUp(app)
                         startRealtimeIfPossible(app)
@@ -135,6 +138,7 @@ object CloudSyncRuntime {
         runCatching { CloudSyncEngine(app).unregisterPushToken() }
         resetRealtime()
         SupabaseProvider.client.auth.signOut()
+        CloudTeamCache.get(app).clear()
         CloudSyncScheduler.disable(app)
     }
 
