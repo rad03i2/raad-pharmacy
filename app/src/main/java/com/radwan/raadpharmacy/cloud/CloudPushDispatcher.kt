@@ -57,10 +57,12 @@ object CloudPushDispatcher {
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) {
                     FirebaseCrashlytics.getInstance().recordException(error)
+                    CloudPushDispatchWorker.enqueue(app, transactionId = event.transactionId, eventId = event.id)
                     break // A shared server/configuration failure must not retry every row at once.
                 }
             }
         }.onFailure {
+            if (it is CancellationException) throw it
             FirebaseCrashlytics.getInstance().recordException(it)
         }
     }
@@ -68,7 +70,7 @@ object CloudPushDispatcher {
     internal suspend fun dispatchNow(transactionId: String?, eventId: String? = null) {
         val auth = SupabaseProvider.client.auth
         auth.awaitInitialization()
-        val token = auth.currentSessionOrNull()?.accessToken ?: return
+        val token = checkNotNull(auth.currentSessionOrNull()?.accessToken) { "Push session is not ready" }
 
         val response = http.post(
             BuildConfig.SUPABASE_URL +

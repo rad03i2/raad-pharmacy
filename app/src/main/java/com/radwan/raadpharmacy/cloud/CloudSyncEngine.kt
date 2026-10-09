@@ -50,7 +50,7 @@ class CloudSyncEngine(context: Context) {
 
     suspend fun refreshPushRegistration() = globalSyncMutex.withLock {
         client.auth.awaitInitialization()
-        val userId = client.auth.currentSessionOrNull()?.user?.id ?: return@withLock
+        val userId = checkNotNull(client.auth.currentSessionOrNull()?.user?.id) { "Push registration session is not ready" }
         val profile = client.from("profiles").select { filter { eq("id", userId) } }.decodeSingle<CloudProfileRow>()
         registerDevice(profile, userId)
         registerPushToken(profile, userId)
