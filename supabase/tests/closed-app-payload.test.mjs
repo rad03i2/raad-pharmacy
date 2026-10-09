@@ -13,8 +13,8 @@ test("closed Android app receives a visible notification and its routing data", 
   assert.equal(message.data.event_id, event.id);
   assert.equal(message.data.customer_id, event.customer_id);
   assert.equal(message.data.native_display, "1");
-  assert.equal(message.android.notification.channel_id, "raad_cloud_alerts_v7_iphone");
-  assert.equal(message.android.notification.sound, "iphone_notification_myinstants");
+  assert.equal(message.android.notification.channel_id, undefined);
+  assert.equal(message.android.notification.sound, undefined);
 });
 
 test("visible notification keeps financial values and private messages off the lock screen", () => {
