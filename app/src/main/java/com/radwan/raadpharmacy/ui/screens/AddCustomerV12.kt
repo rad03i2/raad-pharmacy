@@ -1,5 +1,7 @@
 package com.radwan.raadpharmacy.ui.screens
 
+import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
+
 import android.content.Intent
 import android.net.Uri
 import android.provider.ContactsContract
@@ -311,7 +313,7 @@ fun AddCustomerScreenV12(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState(), flingBehavior = rememberLedgerFlingBehavior())
                 .padding(PaddingValues(14.dp, 8.dp, 14.dp, 20.dp)),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {

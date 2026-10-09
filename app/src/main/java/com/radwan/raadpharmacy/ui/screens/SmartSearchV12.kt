@@ -1,5 +1,7 @@
 package com.radwan.raadpharmacy.ui.screens
 
+import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -97,6 +99,7 @@ fun SmartSearchScreenV12(
 
     Scaffold(topBar = { ScreenTopBar(intent.title, onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(14.dp, 6.dp, 14.dp, 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)

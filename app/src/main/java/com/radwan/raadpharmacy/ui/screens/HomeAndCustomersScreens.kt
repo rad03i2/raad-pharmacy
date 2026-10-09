@@ -1,5 +1,7 @@
 package com.radwan.raadpharmacy.ui.screens
 
+import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
+
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.BorderStroke
@@ -104,6 +106,7 @@ fun HomeScreen(
     val recent = remember(entries) { entries.sortedByDescending { it.createdAt }.take(4) }
 
     LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 22.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -359,6 +362,7 @@ fun CustomersScreen(
         }
     ) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 90.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
@@ -425,7 +429,7 @@ fun AddCustomerScreen(
 
     Scaffold(topBar = { ScreenTopBar("زبون جديد", onBack) }) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState(), flingBehavior = rememberLedgerFlingBehavior()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp)
         ) {
             Text("أدخل المعلومات الأساسية فقط، ويمكن إكمال الباقي لاحقًا.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -561,6 +565,7 @@ fun CustomerProfileScreen(
         }
     ) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)

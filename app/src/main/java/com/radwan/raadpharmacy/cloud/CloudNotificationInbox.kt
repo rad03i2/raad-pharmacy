@@ -91,13 +91,17 @@ class CloudNotificationInbox(context: Context) {
         for ((index, row) in rows.withIndex()) {
             deliveryMutex.withLock {
                 if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
-                if (isSeen(row.id)) return@withLock
                 client.auth.awaitInitialization()
                 val userId = client.auth.currentSessionOrNull()?.user?.id ?: return@withLock
                 if (!row.isAddressedTo(userId)) {
                     rememberSeen(listOf(row.id))
                     return@withLock
                 }
+                if (row.eventType == "TEAM_MESSAGE" && !CloudTeamMessageStore(appContext).receive(row)) {
+                    rememberSeen(listOf(row.id))
+                    return@withLock
+                }
+                if (isSeen(row.id)) return@withLock
                 if (row.actorDeviceId == deviceStore.deviceId()) {
                     rememberSeen(listOf(row.id))
                     return@withLock
@@ -108,7 +112,8 @@ class CloudNotificationInbox(context: Context) {
                 if (wait > 0L) delay(wait)
                 if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
                 val posted = CloudNotificationCenter.post(
-                    appContext, item.title, item.body, item.customerId, true, item.id
+                    appContext, item.title, item.body, item.customerId, true, item.id,
+                    openSettings = row.eventType in setOf("TEAM_ALERT", "TEAM_MESSAGE"), isMessage = row.eventType == "TEAM_MESSAGE"
                 )
                 if (posted) {
                     lastAlertAt = android.os.SystemClock.elapsedRealtime()
@@ -133,6 +138,10 @@ class CloudNotificationInbox(context: Context) {
         val body: String
 
         when (eventType) {
+            "TEAM_MESSAGE" -> {
+                title = "رسالة من " + actor
+                body = messageBody.orEmpty()
+            }
             "TEAM_ALERT" -> {
                 title = "تنبيه من " + actor
                 body = actor + " يطلب انتباهك. افتح التطبيق للتواصل."
@@ -168,6 +177,7 @@ class CloudNotificationInbox(context: Context) {
     }
 
     private fun CloudNotificationEventRow.uiTitle(): String = when (eventType) {
+        "TEAM_MESSAGE" -> "رسالة جديدة"
         "TEAM_ALERT" -> "تنبيه من مستخدم"
         "PAYMENT_CREATED" -> "تحصيل جديد"
         "DEBT_CREATED" -> "دين جديد"

@@ -1,5 +1,7 @@
 package com.radwan.raadpharmacy.ui.screens
 
+import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -122,6 +124,7 @@ fun DailyCollectionsScreen(
 
     Scaffold(topBar = { ScreenTopBar("التحصيلات اليومية") }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp)
@@ -200,6 +203,7 @@ fun DailyDebtsScreen(
 
     Scaffold(topBar = { ScreenTopBar("ديون اليوم", onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp)
@@ -261,6 +265,7 @@ fun TopDebtorsScreen(
 
     Scaffold(topBar = { ScreenTopBar("أعلى المديونيات", onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
@@ -368,6 +373,7 @@ fun AreasScreen(
 
     Scaffold(topBar = { ScreenTopBar("المناطق / الأحياء", onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)

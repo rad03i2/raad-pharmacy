@@ -1,5 +1,7 @@
 package com.radwan.raadpharmacy.ui.screens
 
+import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
+
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.BorderStroke
@@ -172,6 +174,7 @@ fun HomeScreenV3(
         modifier = Modifier.fillMaxSize()
     ) {
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 28.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -190,7 +193,6 @@ fun HomeScreenV3(
             )
         }
         item { V3Search(onSearch) }
-        item { SectionTitle("اختصارات الجولة") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 QuickActionCard("زبون جديد", Icons.Rounded.PersonAdd, onAddCustomer, Modifier.weight(1f))
@@ -245,7 +247,7 @@ fun HomeScreenV3(
                 }
             }
         } else {
-            items(topDebtors, key = { it.id }) { customer ->
+            items(topDebtors, key = { it.id }, contentType = { "customer" }) { customer ->
                 CustomerCard(
                     customer,
                     vm.balance(customer),
@@ -255,7 +257,7 @@ fun HomeScreenV3(
             }
         }
         item { SectionTitle("آخر الحركات", "التحصيلات", onCollections) }
-        items(recent, key = { it.id }) { entry ->
+        items(recent, key = { it.id }, contentType = { "movement" }) { entry ->
             val customer = customerById[entry.customerId]
             Surface(
                 modifier = Modifier.fillMaxWidth().clickable { customer?.let { onCustomer(it.id) } },
@@ -512,6 +514,7 @@ fun CustomersScreenV3(
         }
     ) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 94.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -571,12 +574,15 @@ fun CustomersScreenV3(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            items(visible, key = { it.id }) { customer ->
+            items(visible, key = { it.id }, contentType = { "customer" }) { customer ->
+                val lastActivity = remember(customer.id, entries, sort) {
+                    if (sort == CustomerOrdering.MOST_ACTIVE) "عدد الحركات " + vm.entriesFor(customer.id).size
+                    else vm.lastEntryFor(customer.id)?.let { "آخر تعامل " + formatDate(it.createdAt) }
+                }
                 CustomerCard(
                     customer = customer,
                     balance = vm.balance(customer),
-                    lastActivity = if (sort == CustomerOrdering.MOST_ACTIVE) "عدد الحركات " + vm.entriesFor(customer.id).size
-                        else vm.lastEntryFor(customer.id)?.let { "آخر تعامل " + formatDate(it.createdAt) },
+                    lastActivity = lastActivity,
                     hideBalance = security.hideAmounts,
                     onClick = { onCustomer(customer.id) }
                 )
@@ -602,7 +608,7 @@ fun AddCustomerScreenV3(
 
     Scaffold(topBar = { ScreenTopBar("زبون جديد", onBack) }) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState(), flingBehavior = rememberLedgerFlingBehavior()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -767,6 +773,7 @@ fun CustomerProfileScreenV3(
         }
     ) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)

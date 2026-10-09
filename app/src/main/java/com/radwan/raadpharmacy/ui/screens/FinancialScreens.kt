@@ -1,5 +1,7 @@
 package com.radwan.raadpharmacy.ui.screens
 
+import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
+
 import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
@@ -115,6 +117,7 @@ fun AddDebtScreen(
 
     Scaffold(topBar = { ScreenTopBar("إضافة دين", onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -318,6 +321,7 @@ fun AddPaymentScreen(
 
     Scaffold(topBar = { ScreenTopBar("تسجيل تحصيل", onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -458,6 +462,7 @@ fun CustomerTransactionsScreen(
 
     Scaffold(topBar = { ScreenTopBar("حركات " + customer.name, onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
@@ -572,6 +577,7 @@ fun StatementScreen(
 
     Scaffold(topBar = { ScreenTopBar("كشف الحساب", onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)

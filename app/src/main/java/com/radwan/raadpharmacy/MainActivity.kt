@@ -11,6 +11,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.radwan.raadpharmacy.cloud.CloudAuthGate
 
 class MainActivity : FragmentActivity() {
+    private val notificationOpenSettings = mutableStateOf(false)
     private val notificationCustomerId = mutableStateOf<String?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -32,12 +33,14 @@ class MainActivity : FragmentActivity() {
             )
         }
         enableEdgeToEdge()
+        notificationOpenSettings.value = intent?.getBooleanExtra(EXTRA_OPEN_SETTINGS, false) == true
         notificationCustomerId.value = intent?.getStringExtra(EXTRA_CUSTOMER_ID)
         setContent {
             CloudAuthGate {
                 PharmacyLedgerApp(
                     notificationCustomerId = notificationCustomerId.value,
-                    onNotificationHandled = { notificationCustomerId.value = null }
+                    notificationOpenSettings = notificationOpenSettings.value,
+                    onNotificationHandled = { notificationCustomerId.value = null; notificationOpenSettings.value = false }
                 )
             }
         }
@@ -46,10 +49,12 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        notificationOpenSettings.value = intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)
         notificationCustomerId.value = intent.getStringExtra(EXTRA_CUSTOMER_ID)
     }
 
     companion object {
+        const val EXTRA_OPEN_SETTINGS = "notification_open_settings"
         const val EXTRA_CUSTOMER_ID = "notification_customer_id"
     }
 }

@@ -1,5 +1,7 @@
 package com.radwan.raadpharmacy.ui.screens
 
+import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
+
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.BorderStroke
@@ -116,6 +118,7 @@ fun SmartSearchScreen(
 
     Scaffold(topBar = { ScreenTopBar("البحث السريع", onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
@@ -244,6 +247,7 @@ fun ReportsScreen(vm: PharmacyLedgerViewModel) {
 
     Scaffold(topBar = { ScreenTopBar("التقارير") }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp)
@@ -395,6 +399,7 @@ fun FollowUpScreen(
 
     Scaffold(topBar = { ScreenTopBar("المتابعة", onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
@@ -544,6 +549,7 @@ fun SettingsScreen(vm: PharmacyLedgerViewModel) {
 
     Scaffold(topBar = { ScreenTopBar("المزيد") }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)

@@ -1,5 +1,7 @@
 package com.radwan.raadpharmacy.ui.screens
 
+import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -109,6 +111,7 @@ fun DailyCollectionsScreenV4(vm: PharmacyLedgerViewModel, onCustomer: (String) -
 
     Scaffold(topBar = { ScreenTopBar("التحصيلات") }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -172,6 +175,7 @@ fun DailyDebtsScreenV4(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustom
 
     Scaffold(topBar = { ScreenTopBar("ديون اليوم", onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -210,6 +214,7 @@ fun TopDebtorsScreenV4(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustom
 
     Scaffold(topBar = { ScreenTopBar("أعلى المديونيات", onBack) }) { padding ->
         LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -304,7 +309,7 @@ fun AreasScreenV4(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustomer: (
     }
     val maximumDebt = groups.maxOfOrNull { it.debt }?.coerceAtLeast(1L) ?: 1L
     Scaffold(topBar = { ScreenTopBar("المناطق والأحياء", onBack) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp),
+        LazyColumn(flingBehavior = rememberLedgerFlingBehavior(), modifier = Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {

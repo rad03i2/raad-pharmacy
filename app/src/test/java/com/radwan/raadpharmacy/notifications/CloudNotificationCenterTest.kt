@@ -66,4 +66,14 @@ class CloudNotificationCenterTest {
         assertEquals("صيدلية رعد", hidden.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertFalse(hidden.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("5000"))
     }
+    @Test fun messageNotificationOpensSettingsAndKeepsPrivateTextOffTheLockScreen() {
+        CloudNotificationCenter.post(context,"رسالة من أحمد","رسالة خاصة",eventId="message",
+            openSettings=true,isMessage=true)
+        val notification=manager.activeNotifications.single().notification
+        assertTrue(shadowOf(notification.contentIntent).savedIntent
+            .getBooleanExtra(com.radwan.raadpharmacy.MainActivity.EXTRA_OPEN_SETTINGS,false))
+        assertEquals("رسالة خاصة",notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+        assertFalse(notification.publicVersion.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("رسالة خاصة"))
+    }
+
 }

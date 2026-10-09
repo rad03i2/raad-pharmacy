@@ -24,6 +24,8 @@ class PharmacyMessagingService : FirebaseMessagingService() {
                 actorDeviceId = data["actor_device_id"],
                 eventType = data["event_type"].orEmpty(),
                 recipientUserId = data["recipient_user_id"],
+                messageBody = data["message_body"],
+                messageReadAt = data["message_read_at"]?.takeIf(String::isNotBlank),
                 customerId = data["customer_id"],
                 transactionId = data["transaction_id"],
                 amount = data["amount"]?.toDoubleOrNull() ?: 0.0,

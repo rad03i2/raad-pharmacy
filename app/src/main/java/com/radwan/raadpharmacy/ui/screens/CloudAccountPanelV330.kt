@@ -4,8 +4,6 @@ import android.graphics.Bitmap
 import com.radwan.raadpharmacy.cloud.CloudTeamAvatars
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.produceState
-import androidx.compose.material3.IconButton
-import androidx.compose.material.icons.rounded.Vibration
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
@@ -54,7 +52,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.radwan.raadpharmacy.cloud.CloudTeamMember
+import com.radwan.raadpharmacy.cloud.CloudTeamMessageStore
+import com.radwan.raadpharmacy.cloud.CloudNotificationEventRow
 import com.radwan.raadpharmacy.cloud.CloudTeamStore
+import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -74,6 +75,17 @@ internal fun CloudAccountPanelV330() {
     var uploading by remember { mutableStateOf(false) }
     var sendingTo by remember { mutableStateOf(emptySet<String>()) }
     var alertMessage by remember { mutableStateOf<String?>(null) }
+    val messagesStore = remember(context) { CloudTeamMessageStore(context) }
+    val messageUpdates = remember(messagesStore) { messagesStore.snapshots() }
+    val unread by messageUpdates.collectAsStateWithLifecycle(initialValue = messagesStore.current())
+    var composeTo by remember { mutableStateOf<CloudTeamMember?>(null) }
+    var messageText by remember { mutableStateOf("") }
+    var messageId by remember { mutableStateOf(UUID.randomUUID().toString()) }
+    var messageSending by remember { mutableStateOf(false) }
+    var messageError by remember { mutableStateOf<String?>(null) }
+    var readFrom by remember { mutableStateOf<CloudTeamMember?>(null) }
+    var displayedMessages by remember { mutableStateOf(emptyList<CloudNotificationEventRow>()) }
+    var reading by remember { mutableStateOf(false) }
     val lastSent = remember { mutableMapOf<String, Long>() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -106,6 +118,55 @@ internal fun CloudAccountPanelV330() {
             refresh()
             while (true) { delay(30_000L); refresh() }
         }
+    }
+
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                try { withContext(Dispatchers.IO) { messagesStore.refresh() } }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* Retain the offline inbox. */ }
+                delay(10_000L)
+            }
+        }
+    }
+    composeTo?.let { recipient ->
+        ComposeTeamMessageDialog(recipient.displayName, messageText, messageSending, messageError,
+            onText = { messageText = it; messageId = UUID.randomUUID().toString(); messageError = null },
+            onDismiss = { composeTo = null }, onSend = {
+                if (!messageSending) {
+                    messageSending = true
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) { messagesStore.send(recipient.id, messageId, messageText) }
+                            alertMessage = "تم إرسال الرسالة إلى " + recipient.displayName
+                            composeTo = null
+                            messageText = ""
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (error: Exception) {
+                            messageError = if (error.message.orEmpty().contains("MESSAGE_RATE_LIMIT"))
+                                "انتظر 3 ثوانٍ قبل إرسال رسالة أخرى."
+                            else "تعذر إرسال الرسالة. تحقق من الإنترنت ثم أعد المحاولة."
+                        } finally { messageSending = false }
+                    }
+                }
+            })
+    }
+    readFrom?.let { sender ->
+        ReadTeamMessagesDialog(sender.displayName, displayedMessages, reading,
+            onDismiss = { readFrom = null }, onRead = {
+                if (!reading) {
+                    reading = true
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) { messagesStore.markRead(displayedMessages.map { it.id }.toSet()) }
+                            readFrom = null
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { alertMessage = "تعذر حفظ حالة القراءة. أعد المحاولة." }
+                        finally { reading = false }
+                    }
+                }
+            })
     }
 
     Surface(
@@ -200,7 +261,16 @@ internal fun CloudAccountPanelV330() {
                 )
 
                 snapshot.others.forEach { member ->
-                    TeamMemberRow(member, member.id in sendingTo) {
+                    TeamMemberRow(member, member.id in sendingTo,
+                        hasUnread = unread.any { it.actorUserId == member.id },
+                        onCompose = {
+                            composeTo = member; messageText = ""; messageError = null
+                            messageId = UUID.randomUUID().toString()
+                        },
+                        onRead = {
+                            displayedMessages = unread.filter { it.actorUserId == member.id }
+                            readFrom = member
+                        }) {
                         val last = lastSent[member.id] ?: 0L
                         if (System.currentTimeMillis() - last < 30_000L) {
                             alertMessage = "انتظر 30 ثانية قبل تنبيه المستخدم مرة أخرى."
@@ -229,11 +299,12 @@ internal fun CloudAccountPanelV330() {
 }
 
 @Composable
-private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, onAlert: () -> Unit) {
+private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, hasUnread: Boolean,
+    onCompose: () -> Unit, onRead: () -> Unit, onAlert: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box {
             TeamAvatar(member.avatarFile, member.avatarRevision, 48.dp)
@@ -250,6 +321,7 @@ private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, onAlert: ()
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 member.displayName,
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
             )
@@ -263,11 +335,7 @@ private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, onAlert: ()
                 }
             )
         }
-        IconButton(onClick = onAlert, enabled = !sending) {
-            if (sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            else Icon(Icons.Rounded.Vibration, contentDescription = "تنبيه " + member.displayName,
-                tint = MaterialTheme.colorScheme.primary)
-        }
+        TeamMessageActions(member.displayName, sending, hasUnread, onAlert, onCompose, onRead)
     }
 }
 

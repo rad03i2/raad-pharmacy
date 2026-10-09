@@ -1,6 +1,12 @@
 package com.radwan.raadpharmacy.ui.components
 
-import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.radwan.raadpharmacy.customer.CustomerAvatarImages
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,7 +29,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.radwan.raadpharmacy.customer.CustomerPhotoStore
 import com.radwan.raadpharmacy.customer.CustomerPhotoUpdates
 
 @Composable
@@ -35,13 +40,11 @@ fun CustomerAvatar(
     val context = LocalContext.current
     val revisions by CustomerPhotoUpdates.revision.collectAsState()
     val revision = revisions[customerId] ?: 0L
-    val file = remember(customerId, revision) {
-        CustomerPhotoStore(context).file(customerId)
+    var bitmap by remember(customerId, revision) {
+        mutableStateOf<Bitmap?>(CustomerAvatarImages.cached(customerId, revision))
     }
-    val bitmap = remember(file?.absolutePath, file?.lastModified(), revision) {
-        file?.takeIf { it.isFile }?.let {
-            runCatching { BitmapFactory.decodeFile(it.absolutePath) }.getOrNull()
-        }
+    LaunchedEffect(context, customerId, revision) {
+        bitmap = withContext(Dispatchers.IO) { CustomerAvatarImages.load(context.applicationContext, customerId, revision) }
     }
 
     Surface(
@@ -49,9 +52,10 @@ fun CustomerAvatar(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
-        if (bitmap != null) {
+        val image = bitmap
+        if (image != null) {
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = image.asImageBitmap(),
                 contentDescription = "صورة الزبون",
                 modifier = Modifier.fillMaxSize().clip(CircleShape),
                 contentScale = ContentScale.Crop

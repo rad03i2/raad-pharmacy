@@ -103,6 +103,7 @@ object Routes {
 fun PharmacyLedgerApp(
     vm: PharmacyLedgerViewModel = viewModel(),
     notificationCustomerId: String? = null,
+    notificationOpenSettings: Boolean = false,
     onNotificationHandled: () -> Unit = {}
 ) {
     val navController = rememberNavController()
@@ -114,7 +115,12 @@ fun PharmacyLedgerApp(
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
 
-    LaunchedEffect(notificationCustomerId, unlocked) {
+    LaunchedEffect(notificationCustomerId, notificationOpenSettings, unlocked) {
+        if (unlocked && notificationOpenSettings) {
+            navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+            onNotificationHandled()
+            return@LaunchedEffect
+        }
         val customerId = notificationCustomerId
         if (unlocked && !customerId.isNullOrBlank()) {
             if (vm.customer(customerId) != null) {

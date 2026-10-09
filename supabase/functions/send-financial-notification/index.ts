@@ -117,7 +117,7 @@ Deno.serve(async (req: Request) => {
     .eq("pharmacy_id", event.pharmacy_id)
     .is("deleted_at", null)
     .neq("device_id", event.actor_device_id ?? "");
-  if (event.event_type === "TEAM_ALERT") {
+  if (event.event_type === "TEAM_ALERT" || event.event_type === "TEAM_MESSAGE") {
     if (!event.recipient_user_id) return json({ error: "invalid_alert_recipient" }, 400);
     tokenQuery = tokenQuery.eq("user_id", event.recipient_user_id);
   }
@@ -161,6 +161,8 @@ Deno.serve(async (req: Request) => {
       amount: String(event.amount ?? 0),
       transaction_type: event.transaction_type ? String(event.transaction_type) : "",
       created_at: String(event.created_at),
+      message_body: event.message_body ? String(event.message_body) : "",
+      message_read_at: event.message_read_at ? String(event.message_read_at) : "",
     };
     const response = await fetch(fcmUrl, {
       method: "POST",
