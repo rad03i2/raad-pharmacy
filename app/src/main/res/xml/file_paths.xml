@@ -6,4 +6,5 @@
     <cache-path
         name="customer_photos_tmp"
         path="customer_photos_tmp/" />
+    <cache-path name="verified_apk_updates" path="updates/" />
 </paths>
