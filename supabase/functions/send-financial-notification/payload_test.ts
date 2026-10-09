@@ -14,7 +14,8 @@ Deno.test("3.3.17 provides Android-native notification with correct details", ()
   const message = buildFcmMessage(event, "token", {
     app_version_code: 50, hide_notification_details: false,
   });
-  check(message.notification?.body.includes("محمود العواد"), "missing customer");
+  if (!("notification" in message)) throw new Error("Native notification missing");
+  check(message.notification.body.includes("محمود العواد"), "missing customer");
   check(message.notification?.body.includes("25,000"), "missing amount");
   check(message.notification?.body.includes("75,000"), "missing balance");
   check(message.data.native_display === "1", "must acknowledge native display");
