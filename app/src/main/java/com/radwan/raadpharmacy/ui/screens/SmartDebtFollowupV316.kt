@@ -65,7 +65,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.data.DebtFollowupEngine
-import com.radwan.raadpharmacy.data.FollowupDemoData
 import com.radwan.raadpharmacy.data.EntryType
 import com.radwan.raadpharmacy.ui.components.CustomerAvatar
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
@@ -117,7 +116,6 @@ fun SmartDebtFollowupV316(
 
     var today by remember { mutableStateOf(LocalDate.now(DebtFollowupEngine.IRAQ_ZONE)) }
     var refreshTick by remember { mutableIntStateOf(0) }
-    var previewSamples by remember { mutableStateOf(false) }
     var hasNetwork by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf(FollowupFilter.DAYS_30) }
     var sort by remember { mutableStateOf<FollowupSort?>(null) }
@@ -166,16 +164,10 @@ fun SmartDebtFollowupV316(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(customers, movements, today, refreshTick, previewSamples) {
+    LaunchedEffect(customers, movements, today, refreshTick) {
         loading = true
         records = withContext(Dispatchers.Default) {
-            if (previewSamples) {
-                // Do not persist or sync demo accounts. Preview replaces real data, never merges.
-                val demo = FollowupDemoData.create(today)
-                DebtFollowupEngine.build(demo.customers, demo.movements, today)
-            } else {
-                DebtFollowupEngine.build(customers, movements, today)
-            }
+            DebtFollowupEngine.build(customers, movements, today)
         }
         loading = false
     }
@@ -218,7 +210,6 @@ fun SmartDebtFollowupV316(
     }
 
     fun share(id: String) {
-        if (previewSamples || FollowupDemoData.isDemoCustomer(id)) return
         if (sharing != null) return
         val record = records.firstOrNull { it.customer.id == id } ?: return
         val customer = record.customer
@@ -322,49 +313,6 @@ fun SmartDebtFollowupV316(
                         }) { Icon(Icons.Rounded.Refresh, "تحديث") }
                         IconButton(onClick = { showSearch = !showSearch }) {
                             Icon(Icons.Rounded.Search, "بحث")
-                        }
-                    }
-                }
-            }
-            item {
-                Surface(
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.fillMaxWidth(),
-                    color = if (previewSamples) MaterialTheme.colorScheme.tertiaryContainer
-                        else MaterialTheme.colorScheme.surfaceContainerLow
-                ) {
-                    Column(
-                        Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text("معاينة 20 حسابًا تجريبيًا",
-                                    style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    if (previewSamples)
-                                        "وضع تجريبي: 20 حسابًا افتراضيًا، غير محفوظة ولا تُزامَن"
-                                    else "جرّب تصنيفات التأخير والتحصيلات الجزئية دون تغيير الحسابات الحقيقية",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            OutlinedButton(onClick = {
-                                previewSamples = !previewSamples
-                                filter = FollowupFilter.ALL
-                                query = ""
-                            }) {
-                                Text(if (previewSamples) "العودة للحسابات الحقيقية" else "عرض التجربة")
-                            }
-                        }
-                        if (previewSamples) {
-                            Text(
-                                "وضع المعاينة فقط — لا تُضاف ديون فعلية، ولا تُرسل كشوف واتساب، ولا تُحتسب في أرصدة الصيدلية.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
                         }
                     }
                 }
@@ -491,8 +439,7 @@ fun SmartDebtFollowupV316(
                         isSharing = sharing == item.customer.id,
                         isBusy = sharing != null,
                         onShare = { share(item.customer.id) },
-                        onOpen = { onCustomer(item.customer.id) },
-                        isDemo = previewSamples
+                        onOpen = { onCustomer(item.customer.id) }
                     )
                 }
             }
@@ -530,8 +477,7 @@ private fun FollowupAccountCard(
     isSharing: Boolean,
     isBusy: Boolean,
     onShare: () -> Unit,
-    onOpen: () -> Unit,
-    isDemo: Boolean = false
+    onOpen: () -> Unit
 ) {
     val shade = when (record.bucket) {
         DebtFollowupEngine.Bucket.DAYS_30_TO_59 -> orange
@@ -570,8 +516,7 @@ private fun FollowupAccountCard(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(record.customer.name, style = MaterialTheme.typography.titleMedium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(if (isDemo) "حساب تجريبي • غير متصل بالزبائن" else
-                        record.customer.phone.orEmpty().ifEmpty { "لا يوجد رقم هاتف" },
+                    Text(record.customer.phone.orEmpty().ifEmpty { "لا يوجد رقم هاتف" },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -601,15 +546,10 @@ private fun FollowupAccountCard(
             Text("أقدم دين غير مسدد: $dateText   •   آخر تحصيل: $lastPaymentText",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (isDemo) {
-                Text("معاينة فقط: أزرار الإرسال وفتح الحساب غير مفعلة للحسابات الافتراضية.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = onShare,
-                    enabled = !isBusy && !isDemo,
+                    enabled = !isBusy,
                     modifier = Modifier.weight(1f)
                 ) {
                     if (isSharing) CircularProgressIndicator(
@@ -618,7 +558,7 @@ private fun FollowupAccountCard(
                     Spacer(Modifier.size(6.dp))
                     Text("إرسال كشف الحساب", maxLines = 1)
                 }
-                OutlinedButton(onClick = onOpen, enabled = !isDemo) {
+                OutlinedButton(onClick = onOpen) {
                     Text("عرض الحساب")
                     Icon(Icons.Rounded.ChevronLeft, null, modifier = Modifier.size(17.dp))
                 }
