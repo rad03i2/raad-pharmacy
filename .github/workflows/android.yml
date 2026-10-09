@@ -47,8 +47,8 @@ jobs:
       - name: Verify stable version metadata
         shell: bash
         run: |
-          grep -q 'versionName = "3.3.15"' app/build.gradle.kts
-          grep -q 'versionCode = 47' app/build.gradle.kts
+          grep -q 'versionName = "3.3.16"' app/build.gradle.kts
+          grep -q 'versionCode = 48' app/build.gradle.kts
           if grep -q 'versionName = ".*-rc' app/build.gradle.kts; then
             echo "Release candidate suffix is still present."
             exit 1
@@ -76,7 +76,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: raad-pharmacy-v3.3.15-qa-reports
+          name: raad-pharmacy-v3.3.16-qa-reports
           path: |
             app/build/reports/navigation-preview/
             app/build/reports/tests/testDebugUnitTest/
@@ -89,7 +89,7 @@ jobs:
       - name: Upload QA-only APK
         uses: actions/upload-artifact@v4
         with:
-          name: raad-pharmacy-v3.3.15-qa-only-not-for-update
+          name: raad-pharmacy-v3.3.16-qa-only-not-for-update
           path: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/app-release.apk.sha256
