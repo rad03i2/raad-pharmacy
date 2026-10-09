@@ -25,9 +25,7 @@ export function buildFcmMessage(event: Record<string, unknown>, token: string) {
       ttl: "2419200s",
       restricted_package_name: "com.radwan.raadpharmacy",
       notification: {
-        channel_id: "raad_cloud_alerts_v7_iphone",
-        sound: "iphone_notification_myinstants",
-        icon: "ic_notification",
+        // Use each installed APK\u0027s manifest default channel (v6 on older APKs, v7 on 3.3.12+).\n        // Android channels own their bundled sound; a server-forced channel can break old devices.\n        icon: "ic_notification",
         tag: "raad-event-" + text("id"),
         notification_priority: "PRIORITY_MAX",
         visibility: "PRIVATE",
