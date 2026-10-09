@@ -1,8 +1,5 @@
 package com.radwan.raadpharmacy.ui.screens
 
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -116,7 +113,6 @@ fun SmartDebtFollowupV316(
 
     var today by remember { mutableStateOf(LocalDate.now(DebtFollowupEngine.IRAQ_ZONE)) }
     var refreshTick by remember { mutableIntStateOf(0) }
-    var hasNetwork by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf(FollowupFilter.DAYS_30) }
     var sort by remember { mutableStateOf<FollowupSort?>(null) }
     var query by remember { mutableStateOf("") }
@@ -126,25 +122,6 @@ fun SmartDebtFollowupV316(
     var sharing by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var missingPhoneFor by remember { mutableStateOf<String?>(null) }
-
-    DisposableEffect(context) {
-        val cm = context.getSystemService(ConnectivityManager::class.java)
-        fun connected(): Boolean {
-            val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-            return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        }
-        hasNetwork = connected()
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) { hasNetwork = connected() }
-            override fun onLost(network: Network) { hasNetwork = connected() }
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                hasNetwork = connected()
-            }
-        }
-        val registered = runCatching { cm.registerDefaultNetworkCallback(callback) }.isSuccess
-        onDispose { if (registered) runCatching { cm.unregisterNetworkCallback(callback) } }
-    }
 
     // Dates are derived, never stored; recompute when midnight passes in Baghdad.
     LaunchedEffect(Unit) {
@@ -297,15 +274,6 @@ fun SmartDebtFollowupV316(
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text("مركز المتابعة الذكي", style = MaterialTheme.typography.titleLarge)
-                            Text("مراقبة الديون المتأخرة والحسابات غير المسددة",
-                                style = MaterialTheme.typography.bodySmall)
-                            Text("حساب الأيام بتوقيت العراق • التحصيلات حسب الأقدم أولًا",
-                                style = MaterialTheme.typography.labelSmall)
-                            Text(if (hasNetwork)
-                                "الإنترنت متاح • البيانات المحلية تتحدث مع المزامنة السحابية"
-                                else "غير متصل • عرض آخر بيانات محلية محفوظة",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (hasNetwork) MaterialTheme.colorScheme.primary else orange)
                         }
                         IconButton(onClick = {
                             today = LocalDate.now(DebtFollowupEngine.IRAQ_ZONE)
