@@ -14,6 +14,7 @@ import com.radwan.raadpharmacy.cloud.CloudNotificationInbox
 class MainActivity : FragmentActivity() {
     private val notificationOpenSettings = mutableStateOf(false)
     private val notificationCustomerId = mutableStateOf<String?>(null)
+    private val notificationOpenFollowup = mutableStateOf(false)
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
@@ -40,7 +41,8 @@ class MainActivity : FragmentActivity() {
                 PharmacyLedgerApp(
                     notificationCustomerId = notificationCustomerId.value,
                     notificationOpenSettings = notificationOpenSettings.value,
-                    onNotificationHandled = { notificationCustomerId.value = null; notificationOpenSettings.value = false }
+                    notificationOpenFollowup = notificationOpenFollowup.value,
+                    onNotificationHandled = { notificationCustomerId.value = null; notificationOpenSettings.value = false; notificationOpenFollowup.value = false }
                 )
             }
         }
@@ -54,6 +56,7 @@ class MainActivity : FragmentActivity() {
 
     private fun readNotificationIntent(incoming: Intent?) {
         notificationOpenSettings.value = incoming?.getBooleanExtra(EXTRA_OPEN_SETTINGS, false) == true
+        notificationOpenFollowup.value = incoming?.getBooleanExtra(EXTRA_OPEN_FOLLOWUP, false) == true
         notificationCustomerId.value = incoming?.getStringExtra(EXTRA_CUSTOMER_ID)
         if (incoming?.getStringExtra("native_display") == "1" &&
             CloudNotificationInbox(this).markSystemNotificationOpened(incoming)) {
@@ -64,6 +67,7 @@ class MainActivity : FragmentActivity() {
 
     companion object {
         const val EXTRA_OPEN_SETTINGS = "notification_open_settings"
+        const val EXTRA_OPEN_FOLLOWUP = "notification_open_followup"
         const val EXTRA_CUSTOMER_ID = "notification_customer_id"
     }
 }
