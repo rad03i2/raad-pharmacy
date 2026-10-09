@@ -48,7 +48,7 @@ class CloudNotificationInbox(context: Context) {
                 range(offset..(offset + 99L))
             }.decodeList<CloudNotificationEventRow>()
             if (rows.isEmpty()) break
-            deliver(rows)
+            deliver(rows, paceBacklog = true)
             allDelivered = allDelivered && rows.all { isSeen(it.id) }
             latestAt = maxOf(latestAt, rows.maxOf { parseIso(it.createdAt) })
             offset += rows.size
@@ -133,7 +133,7 @@ class CloudNotificationInbox(context: Context) {
         return true
     }
 
-    private suspend fun deliver(rows: List<CloudNotificationEventRow>) {
+    private suspend fun deliver(rows: List<CloudNotificationEventRow>, paceBacklog: Boolean = false) {
         for ((index, row) in rows.withIndex()) {
             deliveryMutex.withLock {
                 if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
@@ -154,8 +154,6 @@ class CloudNotificationInbox(context: Context) {
                 }
                 val name = row.customerId?.let { dao.getCustomerById(it)?.name } ?: "الزبون"
                 val item = row.toExternal(name)
-                val wait = 3_000L - (android.os.SystemClock.elapsedRealtime() - lastAlertAt)
-                if (wait > 0L) delay(wait)
                 if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
                 val posted = CloudNotificationCenter.post(
                     appContext, item.title, item.body, item.customerId, true, item.id,
@@ -173,7 +171,9 @@ class CloudNotificationInbox(context: Context) {
                     ))
                 }
             }
-            if (index < rows.lastIndex) delay(3_000L)
+            // Avoid artificial latency for single live Realtime/FCM events.
+            // Only space out bulk alerts accumulated while offline.
+            if (paceBacklog && index < rows.lastIndex) delay(3_000L)
         }
     }
 

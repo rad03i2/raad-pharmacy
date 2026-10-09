@@ -10,6 +10,11 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import io.ktor.client.request.header
@@ -21,17 +26,27 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 object CloudPushDispatcher {
+    private val immediateDispatch = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val http by lazy { HttpClient(CIO) {
         expectSuccess = true
         install(HttpTimeout) { requestTimeoutMillis = 45_000L; connectTimeoutMillis = 10_000L }
     } }
 
     fun request(context: Context, transactionId: String) {
+        // Persist the fallback BEFORE attempting immediate network dispatch.
+        // Foreground and background running processes can send immediately,
+        // while WorkManager survives process death, lost internet or FCM errors.
         CloudPushDispatchWorker.enqueue(context, transactionId = transactionId)
+        immediateDispatch.launch {
+            runCatching { withTimeout(10_000L) { dispatchNow(transactionId) } }
+        }
     }
 
     fun requestEvent(context: Context, eventId: String) {
         CloudPushDispatchWorker.enqueue(context, eventId = eventId)
+        immediateDispatch.launch {
+            runCatching { withTimeout(10_000L) { dispatchNow(null, eventId) } }
+        }
     }
 
     suspend fun retryPending(context: Context) {
