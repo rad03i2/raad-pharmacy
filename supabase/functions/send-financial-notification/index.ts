@@ -1,6 +1,5 @@
 
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.49.4";
 import { buildFcmMessage } from "./payload.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -20,7 +19,7 @@ function b64url(input: Uint8Array | string): string {
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
-function pemToBytes(pem: string): Uint8Array {
+function pemToBytes(pem: string): Uint8Array<ArrayBuffer> {
   const normalized = pem.replace(/-----BEGIN PRIVATE KEY-----/g, "").replace(/-----END PRIVATE KEY-----/g, "").replace(/\s+/g, "");
   return Uint8Array.from(atob(normalized), (c) => c.charCodeAt(0));
 }
@@ -58,155 +57,175 @@ async function accessToken(serviceAccount: Record<string, string>): Promise<stri
   return body.access_token;
 }
 
+type Event = Record<string, any>;
+let oauthCache: { token: string; expires: number } | undefined;
+let oauthPromise: Promise<string> | undefined;
+async function cachedAccessToken(account: Record<string,string>): Promise<string> {
+  if (oauthCache && oauthCache.expires > Date.now()) return oauthCache.token;
+  if (!oauthPromise) oauthPromise = accessToken(account).then(token => {
+    oauthCache = {token, expires: Date.now()+50*60_000}; return token;
+  }).finally(() => { oauthPromise = undefined; });
+  return oauthPromise;
+}
+async function fingerprint(token: string): Promise<string> {
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))))
+    .map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
 Deno.serve(async (req: Request) => {
-  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-  const authorization = req.headers.get("authorization");
-  if (!authorization?.startsWith("Bearer ")) return json({ error: "missing_authorization" }, 401);
-
-  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: authorization } },
-    auth: { persistSession: false },
-  });
-  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  });
-
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-  if (userError || !userData.user) return json({ error: "invalid_user" }, 401);
-
-  const payload = await req.json().catch(() => ({}));
-  const transactionId = String(payload.transaction_id || "");
-  const eventId = String(payload.event_id || "");
+  if (req.method !== 'POST') return json({error:'method_not_allowed'},405);
+  const admin = createClient(SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false}});
+  const dispatchSecret = req.headers.get('x-raad-dispatch-secret');
+  let server = false;
+  if (dispatchSecret) {
+    const {data,error} = await admin.rpc('authorize_push_dispatch',{candidate:dispatchSecret});
+    if (error || data !== true) return json({error:'invalid_dispatch_authorization'},401);
+    server = true;
+  }
+  let userId: string | undefined;
+  let userClient = admin;
+  if (!server) {
+    const authorization = req.headers.get('authorization');
+    if (!authorization?.startsWith('Bearer ')) return json({error:'missing_authorization'},401);
+    userClient = createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{
+      global:{headers:{Authorization:authorization}},auth:{persistSession:false}});
+    const {data,error} = await userClient.auth.getUser();
+    if (error || !data.user) return json({error:'invalid_user'},401);
+    userId = data.user.id;
+  }
+  const payload = await req.json().catch(()=>({}));
+  const eventId = String(payload.event_id || '');
+  const transactionId = String(payload.transaction_id || '');
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if ((!transactionId && !eventId) || (transactionId && !uuid.test(transactionId)) || (eventId && !uuid.test(eventId)))
-    return json({ error: "invalid_event_identifier" }, 400);
-
-  let eventQuery = userClient
-    .from("notification_events").select("*")
-    .eq("actor_user_id", userData.user.id)
-    .is("push_dispatched_at", null)
-    .order("created_at", { ascending: false })
-    .limit(1);
-  if (transactionId) eventQuery = eventQuery.eq("transaction_id", transactionId);
-  if (eventId) eventQuery = eventQuery.eq("id", eventId);
-  const { data: event, error: eventError } = await eventQuery.maybeSingle();
-
-  if (eventError) return json({ error: "event_lookup_failed", detail: eventError.message }, 400);
-  if (!event) return json({ ok: true, skipped: "no_pending_event" });
-
-  const rawServiceAccount = Deno.env.get("FIREBASE_SERVICE_ACCOUNT_JSON");
-  if (!rawServiceAccount) {
-    console.error("FCM dispatch blocked: FIREBASE_SERVICE_ACCOUNT_JSON is not configured");
-    await admin.from("notification_events").update({
-      push_last_error: "FIREBASE_SERVICE_ACCOUNT_JSON is not configured",
-    }).eq("id", event.id);
-    return json({ error: "firebase_service_account_missing" }, 503);
+  if ((!server || !payload.dispatch_due) && ((!eventId && !transactionId) ||
+      (eventId && !uuid.test(eventId)) || (transactionId && !uuid.test(transactionId))))
+    return json({error:'invalid_event_identifier'},400);
+  let query = userClient.from('notification_events').select('*');
+  if (!server || !payload.validate_only) query = query.is('push_dispatched_at',null);
+  if (!server) query = query.eq('actor_user_id',userId);
+  if (eventId) query = query.eq('id',eventId);
+  else if (transactionId) query = query.eq('transaction_id',transactionId);
+  else query = query.eq('push_server_managed',true).lte('push_next_attempt_at',new Date().toISOString())
+    .gt('created_at',new Date(Date.now()-7*86400_000).toISOString());
+  const {data:events,error} = await query.order('created_at',{ascending:!transactionId}).limit(eventId || transactionId ? 1 : 10);
+  if (error) return json({error:'event_lookup_failed'},503);
+  if (!events?.length) return json({ok:true,skipped:'no_pending_event'});
+  if (server && payload.validate_only) {
+    try { return json(await validate(events[0],admin)); }
+    catch { return json({error:'fcm_validation_failed'},503); }
   }
-
-  let serviceAccount: Record<string, string>;
-  try {
-    serviceAccount = JSON.parse(rawServiceAccount);
-    if (serviceAccount.type !== "service_account" || serviceAccount.project_id !== "raad-pharmacy" ||
-        !serviceAccount.client_email || !serviceAccount.private_key) throw new Error("Invalid service account");
-  }
-  catch {
-    await admin.from("notification_events").update({
-      push_attempts: (event.push_attempts ?? 0) + 1,
-      push_last_error: "FIREBASE_SERVICE_ACCOUNT_JSON is invalid JSON",
-    }).eq("id", event.id);
-    return json({ error: "firebase_service_account_invalid" }, 503);
-  }
-
-  // Only one sender may dispatch an event at a time. An interrupted lock expires.
-  const { data: claimed, error: claimError } = await admin.from("notification_events")
-    .update({ push_locked_until: new Date(Date.now() + 180_000).toISOString() })
-    .eq("id", event.id).is("push_dispatched_at", null)
-    .or("push_locked_until.is.null,push_locked_until.lt." + new Date().toISOString())
-    .select("push_delivered_token_ids").maybeSingle();
-  if (claimError) return json({ error: "event_claim_failed" }, 503);
-  if (!claimed) return json({ error: "event_dispatch_busy" }, 503);
-  const deliveredIds = new Set<string>(claimed.push_delivered_token_ids ?? []);
-
-  let tokenQuery = admin.from("push_tokens")
-    .select("id,token,device_id")
-    .eq("pharmacy_id", event.pharmacy_id)
-    .is("deleted_at", null)
-    .neq("device_id", event.actor_device_id ?? "");
-  if (event.event_type === "TEAM_ALERT" || event.event_type === "TEAM_MESSAGE") {
-    if (!event.recipient_user_id) {
-      await admin.from("notification_events").update({ push_locked_until: null }).eq("id", event.id);
-      return json({ error: "invalid_alert_recipient" }, 400);
-    }
-    tokenQuery = tokenQuery.eq("user_id", event.recipient_user_id);
-  }
-  const { data: tokens, error: tokenError } = await tokenQuery;
-  if (tokenError) {
-    await admin.from("notification_events").update({ push_locked_until: null }).eq("id", event.id);
-    return json({ error: "token_lookup_failed" }, 500);
-  }
-
-  if (!tokens?.length) {
-    await admin.from("notification_events").update({
-      push_locked_until: null,
-      push_last_error: "No registered recipient device; keep event pending",
-    }).eq("id", event.id);
-    return json({ error: "recipient_device_not_registered" }, 503);
-  }
-
-  let oauth: string;
-  try { oauth = await accessToken(serviceAccount); }
-  catch (error) {
-    await admin.from("notification_events").update({
-      push_attempts: (event.push_attempts ?? 0) + 1,
-      push_last_error: "Google OAuth token exchange failed",
-      push_locked_until: null,
-    }).eq("id", event.id);
-    return json({ error: "google_oauth_failed" }, 503);
-  }
-
-  const fcmUrl = "https://fcm.googleapis.com/v1/projects/" + serviceAccount.project_id + "/messages:send";
-  let sent = 0;
-  const failures: string[] = [];
-
-  const pendingTokens = tokens.filter((token) => !deliveredIds.has(String(token.id)));
-  for (let offset = 0; offset < pendingTokens.length; offset += 8) {
-    await Promise.all(pendingTokens.slice(offset, offset + 8).map(async (token) => {
-    try {
-    const response = await fetch(fcmUrl, {
-      signal: AbortSignal.timeout(8_000),
-      method: "POST",
-      headers: { authorization: "Bearer " + oauth, "content-type": "application/json" },
-      body: JSON.stringify({ message: buildFcmMessage(event, token.token) }),
-    });
-    if (response.ok) {
-      sent++;
-      deliveredIds.add(String(token.id));
-    } else {
-      const errorBody = await response.json().catch(() => ({}));
-      const unregistered = errorBody?.error?.details?.some((d: { errorCode?: string }) => d.errorCode === "UNREGISTERED");
-      if (unregistered) {
-        const { error: retireError } = await admin.from("push_tokens")
-          .update({ deleted_at: new Date().toISOString() }).eq("id", token.id).eq("token", token.token);
-        if (retireError) failures.push("token_retirement_failed");
-      } else failures.push("FCM HTTP " + response.status + ": " + String(errorBody?.error?.status ?? "SEND_FAILED"));
-    }
-    } catch { failures.push("FCM transport or delivery persistence failed"); }
-    }));
-    const { error: saveError } = await admin.from("notification_events")
-      .update({ push_delivered_token_ids: Array.from(deliveredIds) }).eq("id", event.id);
-    if (saveError) {
-      failures.push("delivery_record_failed");
-      break;
-    }
-  }
-
-  await admin.from("notification_events").update({
-    push_locked_until: null,
-    push_dispatched_at: failures.length === 0 && deliveredIds.size > 0 ? new Date().toISOString() : null,
-    push_attempts: (event.push_attempts ?? 0) + 1,
-    push_last_error: failures.length ? failures.join(" | ").slice(0, 1000) : deliveredIds.size === 0 ? "No valid recipient device" : null,
-  }).eq("id", event.id);
-
-  return json({ ok: failures.length === 0 && deliveredIds.size > 0, sent, failed: failures.length }, failures.length || deliveredIds.size === 0 ? 503 : 200);
+  const results = [];
+  for (let offset=0;offset<events.length;offset+=3)
+    results.push(...await Promise.all(events.slice(offset,offset+3).map(event=>dispatch(event,admin))));
+  // Phone callers retain durable WorkManager retries while any target remains pending.
+  return json({ok:results.every(r=>r.ok),results},results.every(r=>r.ok) ? 200 : 503);
 });
 
+async function dispatch(event: Event, admin: SupabaseClient) {
+  const claimId = crypto.randomUUID();
+  const {data:claimed,error:claimError} = await admin.from('notification_events').update({
+    push_locked_until:new Date(Date.now()+120_000).toISOString(),push_claim_id:claimId
+  }).eq('id',event.id).is('push_dispatched_at',null)
+    .or('push_locked_until.is.null,push_locked_until.lt.'+new Date().toISOString()).select('id').maybeSingle();
+  if (claimError) return {ok:false,error:'event_claim_failed'};
+  if (!claimed) return {ok:true,skipped:'already_claimed'};
+  let sent=0;
+  const accepted = new Set<string>(event.push_delivered_token_ids ?? []);
+  const failures: string[] = [];
+  const finish = async (complete: boolean) => {
+    const attempts = Number(event.push_attempts ?? 0)+1;
+    const next = new Date(Date.now()+Math.min(6*3600_000,30_000*2**Math.min(attempts-1,10))).toISOString();
+    const {error} = await admin.from('notification_events').update({push_locked_until:null,push_claim_id:null,
+      push_dispatched_at:complete ? new Date().toISOString() : null,push_attempts:attempts,
+      push_next_attempt_at:next,push_delivered_token_ids:Array.from(accepted),
+      push_last_error:failures.length ? failures.join(' | ').slice(0,1000) : null
+    }).eq('id',event.id).eq('push_claim_id',claimId);
+    console.info(JSON.stringify({event_id:event.id,created_at:event.created_at,sent,complete:complete && !error,
+      error:error ? 'event_result_persistence_failed' : failures.join('|'),next_attempt_at:complete ? null : next}));
+    return {ok:complete && !error,sent,failed:failures.length};
+  };
+  try {
+    const raw = Deno.env.get('FIREBASE_SERVICE_ACCOUNT_JSON');
+    if (!raw) throw new Error('firebase_service_account_missing');
+    const account = JSON.parse(raw);
+    if (account.type !== 'service_account' || account.project_id !== 'raad-pharmacy' ||
+        !account.client_email || !account.private_key) throw new Error('firebase_service_account_invalid');
+    const {data:profiles,error:profileError} = await admin.from('profiles').select('id')
+      .eq('pharmacy_id',event.pharmacy_id).eq('role','MANAGER').eq('is_hidden',false);
+    if (profileError) throw new Error('recipient_membership_lookup_failed');
+    const memberIds = (profiles ?? []).map(p=>p.id);
+    let tokenQuery = admin.from('push_tokens').select('id,token,device_id,user_id,app_version_code,hide_notification_details')
+      .eq('pharmacy_id',event.pharmacy_id).is('deleted_at',null).neq('device_id',event.actor_device_id ?? '')
+      .in('user_id',memberIds).order('updated_at',{ascending:false});
+    if (event.event_type === 'TEAM_ALERT' || event.event_type === 'TEAM_MESSAGE') {
+      if (!event.recipient_user_id) throw new Error('invalid_alert_recipient');
+      if (event.event_type === 'TEAM_MESSAGE' && event.message_read_at) return await finish(true);
+      tokenQuery = tokenQuery.eq('user_id',event.recipient_user_id);
+    }
+    const {data:registered,error:tokenError} = await tokenQuery;
+    if (tokenError) throw new Error('token_lookup_failed');
+    const tokens = (registered ?? []).filter((t,i,a)=>a.findIndex(x=>x.token===t.token)===i);
+    const expectedUsers = event.recipient_user_id ? [event.recipient_user_id]
+      : memberIds.filter(id=>id !== event.actor_user_id);
+    const missing = expectedUsers.filter(id=>!tokens.some(t=>t.user_id===id));
+    if (missing.length) failures.push('recipient_device_not_registered:'+missing.length);
+    const {data:receipts,error:receiptError} = await admin.from('notification_deliveries').select('*').eq('event_id',event.id);
+    if (receiptError) throw new Error('receipt_lookup_failed');
+    const oauth = tokens.length ? await cachedAccessToken(account) : '';
+    const fcmUrl = 'https://fcm.googleapis.com/v1/projects/'+account.project_id+'/messages:send';
+    for (const token of tokens) {
+      const hash = await fingerprint(token.token);
+      const receipt = receipts?.find(r=>r.token_id===token.id);
+      if (receipt?.device_displayed_at || (receipt?.fcm_accepted_at && receipt.token_fingerprint===hash) ||
+          (!event.push_server_managed && accepted.has(String(token.id)))) continue;
+      const attempt = Number(receipt?.attempts ?? 0)+1;
+      let lastError: string | null = null;
+      let acceptedAt: string | null = null;
+      try {
+        const response = await fetch(fcmUrl,{method:'POST',signal:AbortSignal.timeout(8_000),
+          headers:{authorization:'Bearer '+oauth,'content-type':'application/json'},
+          body:JSON.stringify({message:buildFcmMessage(event,token.token,token)})});
+        if (response.ok) {sent++;accepted.add(String(token.id));acceptedAt=new Date().toISOString();}
+        else {
+          const body = await response.json().catch(()=>({}));
+          const unregistered = body?.error?.details?.some((d:{errorCode?:string})=>d.errorCode==='UNREGISTERED');
+          if (unregistered) {
+            const {error} = await admin.from('push_tokens').update({deleted_at:new Date().toISOString()})
+              .eq('id',token.id).eq('token',token.token);
+            lastError = error ? 'token_retirement_failed' : 'token_unregistered';
+          } else lastError = 'FCM_HTTP_'+response.status;
+        }
+      } catch {lastError='fcm_transport_failed';}
+      const patch: Record<string,unknown> = {event_id:event.id,token_id:token.id,token_fingerprint:hash,attempts:attempt,last_error:lastError};
+      if (acceptedAt) patch.fcm_accepted_at=acceptedAt;
+      const {error:saveError} = await admin.from('notification_deliveries').upsert(patch,{onConflict:'event_id,token_id'});
+      if (saveError) failures.push('delivery_record_failed');
+      if (lastError) failures.push(lastError);
+      console.info(JSON.stringify({event_id:event.id,target_id:token.id,fcm_accepted_at:acceptedAt,error:lastError}));
+    }
+    return await finish(failures.length===0);
+  } catch (error) {
+    // Do not log OAuth credentials, FCM tokens or customer data.
+    const safe = error instanceof Error && /^[a-z_]+$/.test(error.message) ? error.message : 'dispatch_failed';
+    failures.push(safe); return await finish(false);
+  }
+}
+
+/** FCM validation performs no sends and changes no financial or delivery records. Server auth only. */
+async function validate(event: Event, admin: SupabaseClient) {
+  const account = JSON.parse(Deno.env.get('FIREBASE_SERVICE_ACCOUNT_JSON') || '{}');
+  if (account.project_id !== 'raad-pharmacy') throw new Error('invalid_account');
+  const oauth = await cachedAccessToken(account);
+  const {data:tokens,error} = await admin.from('push_tokens').select('token').eq('pharmacy_id',event.pharmacy_id)
+    .is('deleted_at',null).limit(1);
+  if (error || !tokens?.length) throw new Error('validation_device_missing');
+  const results = [];
+  for (const device of [{app_version_code:0,hide_notification_details:true},
+    {app_version_code:47,hide_notification_details:false},{app_version_code:47,hide_notification_details:true}]) {
+    const response = await fetch('https://fcm.googleapis.com/v1/projects/raad-pharmacy/messages:send',{
+      method:'POST',signal:AbortSignal.timeout(8_000),headers:{authorization:'Bearer '+oauth,'content-type':'application/json'},
+      body:JSON.stringify({validate_only:true,message:buildFcmMessage(event,tokens[0].token,device)})});
+    results.push({version_code:device.app_version_code,hidden:device.hide_notification_details,status:response.status});
+  }
+  return {ok:results.every(r=>r.status===200),validation_only:true,results};
+}
