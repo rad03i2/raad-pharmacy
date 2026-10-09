@@ -62,6 +62,7 @@ jobs:
       - name: Verify privacy and Android FCM compatibility
         run: |
           deno check supabase/functions/send-financial-notification/index.ts
+          deno check supabase/functions/handover-register/index.ts
           deno test supabase/functions/send-financial-notification/*_test.ts
           node --test supabase/tests/closed-app-payload.test.mjs
 
