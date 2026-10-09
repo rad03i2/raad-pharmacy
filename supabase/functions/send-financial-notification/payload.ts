@@ -29,8 +29,9 @@ export function buildFcmMessage(event: Record<string, unknown>, token: string,
   for (const key of ['id','pharmacy_id','actor_user_id','actor_device_id','event_type','recipient_user_id',
     'customer_id','transaction_id','transaction_type','created_at','message_read_at'])
     data[key === 'id' ? 'event_id' : key] = text(key);
-  // Legacy callbacks need the original event data, but their native notification is always generic.
-  if (!modern || !hidden) {
+  // Never include customer, amount or message contents in a redacted FCM payload,
+  // even for old APKs whose token metadata defaults to privacy-on.
+  if (!hidden) {
     for (const key of ['actor_display_name','customer_name','message_body']) data[key] = text(key).slice(0,key === 'message_body' ? 500 : 128);
     data.amount = text('amount');
     if (event.balance_after != null) data.balance_after = text('balance_after');
