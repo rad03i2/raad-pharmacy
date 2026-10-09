@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class LedgerReleaseCleanupTest {
-    @Test fun customerAndLedgerAreEmptyButUsersAndSettingsRemain() = runTest {
+    @Test fun laterUpgradePreservesCustomersLedgerUsersSettingsAndPendingWrites() = runTest {
         val app = ApplicationProvider.getApplicationContext<Context>()
         app.getSharedPreferences("raad_release_33182", Context.MODE_PRIVATE).edit().clear().commit()
         app.getSharedPreferences("raad_cloud_auth", Context.MODE_PRIVATE)
@@ -29,16 +29,12 @@ class LedgerReleaseCleanupTest {
 
         LedgerReleaseCleanup.clearOnce(app)
 
-        assertEquals(0, dao.customerCount())
-        assertEquals(0, dao.entryCount())
-        assertTrue(CloudSyncJournal(app).snapshot().isEmpty)
+        assertEquals(1, dao.customerCount())
+        assertEquals(1, dao.entryCount())
+        assertEquals(setOf(customerId), CloudSyncJournal(app).snapshot().customerUpserts)
         assertTrue(app.getSharedPreferences("raad_cloud_auth", Context.MODE_PRIVATE)
             .getBoolean("has_offline_session", false))
-        assertTrue(app.getSharedPreferences("raad_pharmacy_data", Context.MODE_PRIVATE)
-            .getBoolean("room_initialized_v1", false))
-        assertNull(app.getSharedPreferences("raad_pharmacy_data", Context.MODE_PRIVATE)
-            .getString("customers", null))
         LedgerReleaseCleanup.clearOnce(app)
-        assertEquals(0, dao.customerCount())
+        assertEquals(1, dao.customerCount())
     }
 }

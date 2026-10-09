@@ -89,131 +89,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
     var signOutAnswer by remember { mutableStateOf("") }
     var showTypography by remember { mutableStateOf(false) }
     var showAppUpdater by rememberSaveable { mutableStateOf(false) }
-
-    val createBackupLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                working = true
-                val timestamp = System.currentTimeMillis()
-                val result = runCatching {
-                    val raw = withContext(Dispatchers.IO) { vm.createBackupJson() }
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(uri, "w")?.use { output ->
-                            output.write(raw.toByteArray(Charsets.UTF_8))
-                        } ?: error("تعذر فتح الملف للكتابة.")
-                    }
-                    vm.markManualBackupCreated(timestamp)
-                }
-                working = false
-                if (result.isSuccess) {
-                    lastBackupAt = timestamp
-                    message = "تم إنشاء النسخة الاحتياطية وحفظها بنجاح."
-                } else {
-                    message = "تعذر حفظ النسخة الاحتياطية."
-                }
-            }
-        }
-    }
-
-    val restoreLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                working = true
-                val result = runCatching {
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
-                            it.readText()
-                        } ?: error("تعذر قراءة الملف.")
-                    }
-                }
-                working = false
-
-                result.onSuccess { raw ->
-                    val preview = withContext(Dispatchers.Default) {
-                        vm.previewBackup(raw)
-                    }
-                    if (preview.valid) {
-                        pendingRestoreRaw = raw
-                        pendingPreview = preview
-                    } else {
-                        message = preview.message
-                    }
-                }.onFailure {
-                    message = "تعذر قراءة ملف النسخة الاحتياطية."
-                }
-            }
-        }
-    }
-
-    pendingPreview?.let { preview ->
-        AlertDialog(
-            onDismissRequest = {
-                pendingPreview = null
-                pendingRestoreRaw = null
-            },
-            title = { Text("تأكيد استعادة النسخة") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("تم فحص الملف بنجاح قبل الاستعادة.")
-                    Text("الزبائن: " + preview.customerCount)
-                    Text("الحركات: " + preview.entryCount)
-                    if (preview.createdAt > 0L) {
-                        Text(
-                            "تاريخ النسخة: " +
-                                formatDate(preview.createdAt) + " • " +
-                                formatTime(preview.createdAt)
-                        )
-                    }
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Text(
-                            "قبل الاستبدال سيحفظ التطبيق تلقائيًا نسخة أمان داخلية من بياناتك الحالية.",
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val raw = pendingRestoreRaw ?: return@Button
-                    pendingPreview = null
-                    pendingRestoreRaw = null
-                    scope.launch {
-                        working = true
-                        val result = withContext(Dispatchers.IO) {
-                            vm.restoreBackup(raw)
-                        }
-                        working = false
-                        message = result.message +
-                            if (result.success) {
-                                " (" + result.customerCount + " زبون، " +
-                                    result.entryCount + " حركة)"
-                            } else {
-                                ""
-                            }
-                    }
-                }) {
-                    Text("استعادة")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    pendingPreview = null
-                    pendingRestoreRaw = null
-                }) {
-                    Text("إلغاء")
-                }
-            }
-        )
-    }
+    var showLocalBackups by rememberSaveable { mutableStateOf(false) }
 
     if (showAbout) {
         AboutDialogV15(onDismiss = { showAbout = false })
@@ -289,6 +165,11 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
         )
     }
 
+    if (showLocalBackups) {
+        StorageBackupScreen(onBack = { showLocalBackups = false })
+        return
+    }
+
     if (showAppUpdater) {
         AppUpdateScreenV314(onBack = { showAppUpdater = false })
         return
@@ -345,7 +226,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
                                     "آخر نسخة: " + formatDate(lastBackupAt) +
                                         " • " + formatTime(lastBackupAt)
                                 } else {
-                                    "لم يتم إنشاء نسخة احتياطية بعد"
+                                    "إدارة الحماية المحلية من التخزين والنسخ الاحتياطي"
                                 },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -355,56 +236,9 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
                 }
             }
 
-            item { SectionTitle("النسخ الاحتياطي") }
-
             item {
-                V8SettingsRow(
-                    Icons.Rounded.Backup,
-                    "إنشاء نسخة احتياطية",
-                    "اختر مكان الحفظ على الهاتف أو خدمة ملفات متصلة",
-                    enabled = !working
-                ) {
-                    createBackupLauncher.launch(backupFileName())
-                }
-            }
-
-            item {
-                V8SettingsRow(
-                    Icons.Rounded.Restore,
-                    "استعادة نسخة",
-                    "فحص الملف ومعاينته قبل استبدال البيانات",
-                    enabled = !working
-                ) {
-                    restoreLauncher.launch(
-                        arrayOf(
-                            "application/json",
-                            "text/plain",
-                            "application/octet-stream"
-                        )
-                    )
-                }
-            }
-
-            if (working) {
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Text("جاري معالجة البيانات...")
-                        }
-                    }
-                }
+                V8SettingsRow(Icons.Rounded.Backup, "التخزين والنسخ الاحتياطي",
+                    "حماية محلية مستمرة • الهاتف • بطاقة SD • الاستعادة الآمنة") { showLocalBackups = true }
             }
 
             item { SectionTitle("التطبيق") }

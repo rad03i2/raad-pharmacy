@@ -8,6 +8,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
+import com.radwan.raadpharmacy.backup.BackupPhotoEntity
+import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
 
 object CustomerPhotoUpdates {
     private val _revision = MutableStateFlow<Map<String, Long>>(emptyMap())
@@ -46,6 +50,7 @@ class CustomerPhotoStore(context: Context) {
             .putString(customerId, destination.absolutePath)
             .remove(remotePathKey(customerId))
             .apply()
+        journalPhoto(customerId, destination.readBytes(), "LOCAL")
         CustomerPhotoUpdates.bump(customerId)
         return destination
     }
@@ -57,6 +62,7 @@ class CustomerPhotoStore(context: Context) {
             .putString(customerId, destination.absolutePath)
             .putString(remotePathKey(customerId), remotePath)
             .apply()
+        journalPhoto(customerId, bytes, "REMOTE")
         CustomerPhotoUpdates.bump(customerId)
         return destination
     }
@@ -73,12 +79,41 @@ class CustomerPhotoStore(context: Context) {
         file(customerId) == null || remotePath(customerId) != remotePath
 
     fun remove(customerId: String) {
+        journalPhoto(customerId, null, "LOCAL")
         file(customerId)?.delete()
         prefs.edit()
             .remove(customerId)
             .remove(remotePathKey(customerId))
             .apply()
         CustomerPhotoUpdates.bump(customerId)
+    }
+
+    private fun journalPhoto(id: String, bytes: ByteArray?, origin: String) = runBlocking(Dispatchers.IO) {
+        PharmacyLedgerDatabase.get(appContext).dao().setBackupPhoto(id, bytes, origin)
+    }
+
+    suspend fun importExistingToBackup() {
+        val dao = PharmacyLedgerDatabase.get(appContext).dao()
+        for (customer in if (dao.restoreHold() == "1") emptyList() else dao.getCustomers()) {
+            if (dao.backupPhoto(customer.id) == null) file(customer.id)?.let {
+                dao.setBackupPhoto(customer.id, it.readBytes(), "LOCAL")
+            }
+        }
+        rebuildFromBackup(dao.backupPhotos())
+    }
+
+    fun rebuildFromBackup(photos: List<BackupPhotoEntity>) {
+        val known = photos.mapTo(hashSetOf()) { it.customerId }
+        File(appContext.filesDir, "customer_photos").listFiles()?.filter { it.nameWithoutExtension !in known }?.forEach { it.delete() }
+        val editor = prefs.edit().clear()
+        for (photo in photos) {
+            require(photo.customerId.matches(Regex("[a-zA-Z0-9_-]+"))) { "معرف صورة غير صالح." }
+            val dest = destination(photo.customerId)
+            dest.writeBytes(photo.bytes)
+            editor.putString(photo.customerId, dest.absolutePath)
+            CustomerPhotoUpdates.bump(photo.customerId)
+        }
+        check(editor.commit())
     }
 
     private fun destination(customerId: String): File {

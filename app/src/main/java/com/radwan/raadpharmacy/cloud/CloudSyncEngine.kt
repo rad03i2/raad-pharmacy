@@ -62,6 +62,7 @@ class CloudSyncEngine(context: Context) {
     }
 
     suspend fun syncOnce() = globalSyncMutex.withLock {
+        if (dao.restoreHold() == "1") return@withLock
         LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         val session = client.auth.currentSessionOrNull() ?: return@withLock
@@ -83,6 +84,7 @@ class CloudSyncEngine(context: Context) {
     }
 
     suspend fun flushPendingOnly() = globalSyncMutex.withLock {
+        if (dao.restoreHold() == "1") return@withLock
         LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         val session = client.auth.currentSessionOrNull() ?: return@withLock
@@ -97,6 +99,7 @@ class CloudSyncEngine(context: Context) {
     }
 
     suspend fun pullRemoteNow() = globalSyncMutex.withLock {
+        if (dao.restoreHold() == "1") return@withLock
         LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         if (client.auth.currentSessionOrNull() == null) return@withLock
@@ -120,7 +123,9 @@ class CloudSyncEngine(context: Context) {
                 transactionChanges.collect { action ->
                     runCatching {
                         transactionRow(action)?.let { row ->
-                            applyTransactionRealtime(row)
+                            globalSyncMutex.withLock {
+                                if (dao.restoreHold() != "1") applyTransactionRealtime(row)
+                            }
                         }
                     }.onFailure {
                         Log.w(TAG, "Realtime transaction sync failed", it)
@@ -130,7 +135,9 @@ class CloudSyncEngine(context: Context) {
             launch {
                 customerChanges.collect { action ->
                     runCatching {
-                        customerRow(action)?.let { applyCustomerRealtime(it) }
+                        customerRow(action)?.let { row -> globalSyncMutex.withLock {
+                            if (dao.restoreHold() != "1") applyCustomerRealtime(row)
+                        } }
                     }.onFailure {
                         Log.w(TAG, "Realtime customer sync failed", it)
                     }
@@ -353,7 +360,7 @@ class CloudSyncEngine(context: Context) {
         }
 
         if (row.deletedAt != null) {
-            dao.deleteEntryById(row.id)
+            dao.deleteEntryById(row.id, "REMOTE")
             return
         }
 
@@ -365,13 +372,13 @@ class CloudSyncEngine(context: Context) {
             }.getOrNull()
 
             if (customer != null && customer.deletedAt == null) {
-                dao.insertCustomer(customer.toLocal())
+                dao.insertCustomer(customer.toLocal(), "REMOTE")
             }
         }
 
         if (dao.getCustomerById(row.customerId) != null) {
             val local = row.toLocal()
-            if (dao.getEntryById(row.id) != local) dao.insertEntry(local)
+            if (dao.getEntryById(row.id) != local) dao.insertEntry(local, "REMOTE")
         }
     }
 
@@ -386,13 +393,13 @@ class CloudSyncEngine(context: Context) {
 
         if (row.deletedAt != null) {
             dao.getEntriesForCustomer(row.id)
-                .forEach { dao.deleteEntryById(it.id) }
-            dao.deleteCustomerById(row.id)
+                .forEach { dao.deleteEntryById(it.id, "REMOTE") }
+            dao.deleteCustomerById(row.id, "REMOTE")
             com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).remove(row.id)
         } else {
             val local = row.toLocal()
             // REPLACE deletes the parent and cascades into ledger entries. Update in place.
-            dao.upsertCustomerPreservingEntries(local)
+            dao.upsertCustomerPreservingEntries(local, "REMOTE")
             runCatching { mediaStore.syncCustomerPhoto(row) }
         }
     }
@@ -430,8 +437,30 @@ class CloudSyncEngine(context: Context) {
 
         dao.replaceAll(
             customers = customerMap.values.sortedByDescending { it.createdAt },
-            entries = validEntries.sortedByDescending { it.createdAt }
+            entries = validEntries.sortedByDescending { it.createdAt },
+            origin = "REMOTE"
         )
+    }
+
+    /** Explicit reconciliation chooses current server state; restored offline operations stay quarantined. */
+    suspend fun reconcileRestoredFromServer() = globalSyncMutex.withLock {
+        check(dao.restoreHold() == "1") { "لا توجد استعادة محلية معلقة." }
+        client.auth.awaitInitialization()
+        val userId = checkNotNull(client.auth.currentSessionOrNull()?.user?.id) { "سجل الدخول أولًا." }
+        val profile = client.from("profiles").select { filter { eq("id", userId) } }.decodeSingle<CloudProfileRow>()
+        val customers = fetchCustomers()
+        val transactions = fetchTransactions()
+        val validCustomers = customers.filter { it.deletedAt == null }.map { it.toLocal() }
+        val ids = validCustomers.mapTo(hashSetOf()) { it.id }
+        val validEntries = transactions.filter { it.deletedAt == null && it.customerId in ids }.map { it.toLocal() }
+        // Keep the hold on any network/storage error. Clearing it is the final step.
+        // Snapshot and journal were encrypted in Recovery at restore; preserve any post-restore writes as well.
+        com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).protectCurrentBeforeReconciliation()
+        check(appContext.getSharedPreferences("raad_cloud_sync_journal", Context.MODE_PRIVATE).edit().clear().commit())
+        deviceStore.markBootstrapped(profile.pharmacyId)
+        check(syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, System.currentTimeMillis()).commit())
+        dao.completeReconciliation(validCustomers, validEntries)
+        com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).wake()
     }
 
     private fun CustomerEntity.toCloud(pharmacyId: String) = CloudCustomerWrite(
@@ -495,6 +524,7 @@ class CloudSyncEngine(context: Context) {
         private const val KEY_LAST_REMOTE_PULL_AT = "last_remote_pull_at"
         private const val DELTA_SAFETY_WINDOW_MS = 5_000L
         private val globalSyncMutex = Mutex()
+        suspend fun <T> withLedgerSyncLock(block: suspend () -> T): T = globalSyncMutex.withLock { block() }
         private val pushRegistrationMutex = Mutex()
         private val tokenRegistrationMutex = Mutex()
     }
