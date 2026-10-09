@@ -54,6 +54,7 @@ object CloudSyncScheduler {
     }
 
     fun disable(context: Context) {
+        CloudContinuousListening.stop(context)
         context.applicationContext.getSharedPreferences("raad_background_work", Context.MODE_PRIVATE)
             .edit().putBoolean("enabled", false).apply()
         val manager = WorkManager.getInstance(context.applicationContext)

@@ -111,6 +111,7 @@ object CloudSyncRuntime {
     fun onAppForegrounded(context: Context) {
         val app = context.applicationContext
         CloudUiEvents.setAppForeground(true)
+        CloudContinuousListening.startFromVisibleApp(app)
         val backgroundDuration = System.currentTimeMillis() - lastBackgroundAt.get()
 
         scope.launch {
@@ -135,6 +136,7 @@ object CloudSyncRuntime {
 
     suspend fun signOut(context: Context) {
         val app = context.applicationContext
+        CloudContinuousListening.stop(app)
         CloudSyncScheduler.disable(app)
         CloudDeviceStore(app).clearPushIdentity()
         runCatching { CloudTeamStore(app).heartbeat(false) }
@@ -171,11 +173,21 @@ object CloudSyncRuntime {
         notificationRealtimeStarted.set(false)
     }
 
-    private suspend fun startRealtimeIfPossible(context: Context): Unit = realtimeMutex.withLock {
+    /** Keep the alert subscription healthy; do not turn continuous monitoring into bulk sync. */
+    internal suspend fun maintainNotificationListening(context: Context) {
+        if (!CloudSyncScheduler.isEnabled(context)) return
+        val auth = SupabaseProvider.client.auth
+        auth.awaitInitialization()
+        if (auth.currentSessionOrNull() == null) return
+        startRealtimeIfPossible(context, includeLedger = false)
+        CloudNotificationInbox(context).catchUp()
+    }
+
+    private suspend fun startRealtimeIfPossible(context: Context, includeLedger: Boolean = true): Unit = realtimeMutex.withLock {
         if (!CloudSyncScheduler.isEnabled(context)) return@withLock
         val job = realtimeJob ?: SupervisorJob(scope.coroutineContext[Job]).also { realtimeJob = it }
         val realtimeScope = CoroutineScope(job + Dispatchers.IO)
-        if (!dataRealtimeStarted.get()) {
+        if (includeLedger && !dataRealtimeStarted.get()) {
             val engine = CloudSyncEngine(context.applicationContext)
             if (engine.startRealtime(realtimeScope)) dataRealtimeStarted.set(true)
         }

@@ -9,14 +9,17 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,6 +31,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.radwan.raadpharmacy.cloud.CloudNotificationCenter
+import com.radwan.raadpharmacy.cloud.CloudContinuousListening
 
 internal data class BackgroundNotificationHealth(val notificationsAllowed: Boolean, val backgroundRestricted: Boolean, val batteryExempt: Boolean)
 
@@ -42,9 +46,14 @@ internal fun BackgroundNotificationSettings() {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     var health by remember { mutableStateOf(notificationHealth(context)) }
+    var continuous by remember { mutableStateOf(CloudContinuousListening.isEnabled(context)) }
+    val running by CloudContinuousListening.running.collectAsState()
     DisposableEffect(owner, context) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) health = notificationHealth(context)
+            if (event == Lifecycle.Event.ON_RESUME) {
+                health = notificationHealth(context)
+                continuous = CloudContinuousListening.isEnabled(context)
+            }
         }
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
@@ -58,6 +67,18 @@ internal fun BackgroundNotificationSettings() {
     Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("الإشعارات والعمل في الخلفية", style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("التشغيل المستمر في الخلفية", style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = continuous, onCheckedChange = { enabled ->
+                    continuous = enabled
+                    CloudContinuousListening.setEnabled(context, enabled)
+                    if (enabled) CloudContinuousListening.startFromVisibleApp(context)
+                })
+            }
+            Text(if (running) "خدمة الخلفية تعمل الآن" else if (continuous) "خدمة الخلفية لم تبدأ بعد" else "التشغيل المستمر متوقف",
+                style = MaterialTheme.typography.bodySmall)
+            Text("يبقى التطبيق فعالًا بعد الخروج منه، مع إشعار تشغيل دائم. بعد إطفاء الهاتف افتح التطبيق ليبدأ مجددًا. قد يزيد استهلاك البطارية.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("إذن الإشعارات: " + if (health.notificationsAllowed) "مفعّل" else "يحتاج السماح",
                 style = MaterialTheme.typography.bodyMedium)
             Text("تشغيل الخلفية: " + if (health.backgroundRestricted) "مقيّد من الهاتف" else "مسموح",

@@ -32,6 +32,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.withStarted
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -46,6 +49,7 @@ import java.util.Locale
 @Composable
 fun CloudAuthGate(content: @Composable () -> Unit) {
     val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val auth = SupabaseProvider.client.auth
     val status by auth.sessionStatus.collectAsState()
     val prefs = remember {
@@ -67,6 +71,10 @@ fun CloudAuthGate(content: @Composable () -> Unit) {
             is SessionStatus.Authenticated -> {
                 hasOfflineSession = true
                 prefs.edit().putBoolean(KEY_HAS_OFFLINE_SESSION, true).apply()
+                lifecycle.withStarted {
+                    CloudSyncScheduler.enable(context)
+                    CloudContinuousListening.startFromVisibleApp(context)
+                }
 
                 if (
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
