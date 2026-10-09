@@ -57,12 +57,12 @@ class CloudNotificationCenterTest {
     @Test fun privateNotificationRedactsLockScreenAndHideAmountsRedactsFullContent() {
         CloudNotificationCenter.post(context, "دين أحمد", "المبلغ 5000", eventId = "private")
         val notification = manager.activeNotifications.single().notification
-        val privateId = manager.activeNotifications.single().id
+        val privateTag = manager.activeNotifications.single().tag
         assertNotNull(notification.publicVersion)
         assertFalse(notification.publicVersion.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("5000"))
         AppSecurityStore(context).setHideAmounts(true)
         CloudNotificationCenter.post(context, "دين أحمد", "المبلغ 5000", eventId = "hidden")
-        val hidden = manager.activeNotifications.first { it.id != privateId }.notification
+        val hidden = manager.activeNotifications.first { it.tag != privateTag }.notification
         assertEquals("صيدلية رعد", hidden.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertFalse(hidden.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("5000"))
     }

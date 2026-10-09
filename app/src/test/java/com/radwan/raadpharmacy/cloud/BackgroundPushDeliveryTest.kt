@@ -2,8 +2,10 @@ package com.radwan.raadpharmacy.cloud
 
 import android.Manifest
 import android.app.Application
+import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import com.radwan.raadpharmacy.security.AppSecurityStore
 import kotlinx.coroutines.test.runTest
@@ -75,5 +77,39 @@ class BackgroundPushDeliveryTest {
         context.getSharedPreferences("raad_background_work", Context.MODE_PRIVATE).edit().putBoolean("enabled", false).commit()
         assertTrue(inbox.deliverPushImmediately(event.copy(id = "after-logout")))
         assertEquals(0, manager.activeNotifications.size)
+    }
+
+    @Test fun androidDisplayedNotificationIsNotPostedAgainByAppCatchUp() = runTest {
+        CloudNotificationCenter.ensureChannels(context)
+        val native = Notification.Builder(context, CloudNotificationCenter.CHANNEL_ALERT)
+            .setSmallIcon(com.radwan.raadpharmacy.R.drawable.ic_notification)
+            .setContentTitle("Native Android notification").build()
+        manager.notify(CloudNotificationCenter.eventTag(event.id), 0, native)
+        val inbox = CloudNotificationInbox(context)
+        assertTrue(inbox.deliverPushImmediately(event))
+        assertEquals(1, manager.activeNotifications.size)
+        assertEquals("Native Android notification", manager.activeNotifications.single().notification
+            .extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertTrue(inbox.wasDelivered(event.id))
+    }
+
+    @Test fun tappingSystemNotificationPersistsAcknowledgementAfterAndroidRemovesIt() = runTest {
+        val incoming = Intent().putExtra("native_display", "1").putExtra("event_id", event.id)
+            .putExtra("pharmacy_id", "pharmacy").putExtra("event_type", "DEBT_CREATED")
+        assertTrue(CloudNotificationInbox(context).markSystemNotificationOpened(incoming))
+        assertTrue(CloudNotificationInbox(context).wasDelivered(event.id))
+        assertTrue(CloudNotificationInbox(context).deliverPushImmediately(event))
+        assertEquals(0, manager.activeNotifications.size)
+    }
+
+    @Test fun systemNotificationCannotAcknowledgeAnotherPharmacyOrPrivateRecipient() {
+        val inbox = CloudNotificationInbox(context)
+        val incoming = Intent().putExtra("native_display", "1").putExtra("event_id", event.id)
+            .putExtra("pharmacy_id", "other-pharmacy").putExtra("event_type", "DEBT_CREATED")
+        assertFalse(inbox.markSystemNotificationOpened(incoming))
+        incoming.putExtra("pharmacy_id", "pharmacy").putExtra("event_type", "TEAM_MESSAGE")
+            .putExtra("recipient_user_id", "third-user")
+        assertFalse(inbox.markSystemNotificationOpened(incoming))
+        assertFalse(inbox.wasDelivered(event.id))
     }
 }

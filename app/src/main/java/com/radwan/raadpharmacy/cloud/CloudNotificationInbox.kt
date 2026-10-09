@@ -1,6 +1,7 @@
 package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
+import android.content.Intent
 import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -19,7 +20,7 @@ import kotlinx.coroutines.sync.withLock
 class CloudNotificationInbox(context: Context) {
     private val appContext = context.applicationContext
     private val client by lazy { SupabaseProvider.client }
-    private val dao = PharmacyLedgerDatabase.get(appContext).dao()
+    private val dao by lazy { PharmacyLedgerDatabase.get(appContext).dao() }
     private val deviceStore = CloudDeviceStore(appContext)
     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).also { store ->
         if (!store.contains(KEY_FEATURE_START_AT)) {
@@ -86,6 +87,19 @@ class CloudNotificationInbox(context: Context) {
     }
 
     internal fun wasDelivered(id: String): Boolean = isSeen(id)
+
+    /** FCM delivers data extras on the launcher Intent when Android displayed the notification. */
+    fun markSystemNotificationOpened(intent: Intent): Boolean {
+        if (intent.getStringExtra("native_display") != "1" || !CloudSyncScheduler.isEnabled(appContext)) return false
+        val userId = deviceStore.pushUserId() ?: return false
+        val pharmacyId = deviceStore.pushPharmacyId() ?: return false
+        if (intent.getStringExtra("pharmacy_id") != pharmacyId) return false
+        val type = intent.getStringExtra("event_type")
+        if (type in setOf("TEAM_ALERT", "TEAM_MESSAGE") && intent.getStringExtra("recipient_user_id") != userId) return false
+        val eventId = intent.getStringExtra("event_id")?.takeIf(String::isNotBlank) ?: return false
+        rememberSeen(listOf(eventId))
+        return true
+    }
 
     suspend fun deliverPush(row: CloudNotificationEventRow) {
         deliver(listOf(row))

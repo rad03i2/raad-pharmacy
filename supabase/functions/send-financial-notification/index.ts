@@ -1,6 +1,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { buildFcmMessage } from "./payload.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -167,22 +168,6 @@ Deno.serve(async (req: Request) => {
   let sent = 0;
   const failures: string[] = [];
 
-    const data: Record<string, string> = {
-      event_id: String(event.id),
-      pharmacy_id: String(event.pharmacy_id),
-      actor_user_id: event.actor_user_id ? String(event.actor_user_id) : "",
-      actor_display_name: event.actor_display_name ? String(event.actor_display_name) : "",
-      actor_device_id: event.actor_device_id ? String(event.actor_device_id) : "",
-      event_type: String(event.event_type),
-      recipient_user_id: event.recipient_user_id ? String(event.recipient_user_id) : "",
-      customer_id: event.customer_id ? String(event.customer_id) : "",
-      transaction_id: event.transaction_id ? String(event.transaction_id) : "",
-      amount: String(event.amount ?? 0),
-      transaction_type: event.transaction_type ? String(event.transaction_type) : "",
-      created_at: String(event.created_at),
-      message_body: event.message_body ? String(event.message_body) : "",
-      message_read_at: event.message_read_at ? String(event.message_read_at) : "",
-    };
   const pendingTokens = tokens.filter((token) => !deliveredIds.has(String(token.id)));
   for (let offset = 0; offset < pendingTokens.length; offset += 8) {
     await Promise.all(pendingTokens.slice(offset, offset + 8).map(async (token) => {
@@ -191,13 +176,7 @@ Deno.serve(async (req: Request) => {
       signal: AbortSignal.timeout(8_000),
       method: "POST",
       headers: { authorization: "Bearer " + oauth, "content-type": "application/json" },
-      body: JSON.stringify({
-        message: {
-          token: token.token,
-          data,
-          android: { priority: "HIGH", ttl: "2419200s", restricted_package_name: "com.radwan.raadpharmacy" },
-        },
-      }),
+      body: JSON.stringify({ message: buildFcmMessage(event, token.token) }),
     });
     if (response.ok) {
       sent++;

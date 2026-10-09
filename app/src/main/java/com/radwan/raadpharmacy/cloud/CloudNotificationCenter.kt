@@ -35,6 +35,7 @@ object CloudNotificationCenter {
         val app = context.applicationContext
         if (!canPost(app)) return false
         ensureChannels(app)
+        if (eventId != null && hasActiveEvent(app, eventId)) return true
         val id = stableId(eventId ?: java.util.UUID.randomUUID().toString())
         val intent = Intent(app, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -67,7 +68,7 @@ object CloudNotificationCenter {
             .setSound(soundResourceUri(app, R.raw.pixabay_notification_037))
             .setSilent(!audible)
             .build()
-        return notifySafely(app, id, notification)
+        return notifySafely(app, id, notification, eventId)
     }
 
     suspend fun postBatch(context: Context, events: List<CloudExternalNotification>) {
@@ -101,11 +102,19 @@ object CloudNotificationCenter {
             (context.getSystemService(NotificationManager::class.java)
                 .getNotificationChannel(CHANNEL_ALERT)?.importance != NotificationManager.IMPORTANCE_NONE)
 
+    internal fun eventTag(eventId: String): String = "raad-event-$eventId"
+
+    internal fun hasActiveEvent(context: Context, eventId: String): Boolean =
+        context.getSystemService(NotificationManager::class.java).activeNotifications.any {
+            it.tag == eventTag(eventId)
+        }
+
     @SuppressLint("MissingPermission")
-    private fun notifySafely(context: Context, id: Int, notification: android.app.Notification): Boolean {
+    private fun notifySafely(context: Context, id: Int, notification: android.app.Notification, eventId: String?): Boolean {
         if (!canPost(context)) return false
         return try {
-            NotificationManagerCompat.from(context).notify(id, notification)
+            if (eventId == null) NotificationManagerCompat.from(context).notify(id, notification)
+            else NotificationManagerCompat.from(context).notify(eventTag(eventId), 0, notification)
             true
         } catch (_: SecurityException) { false }
     }
