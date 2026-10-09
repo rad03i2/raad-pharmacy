@@ -137,9 +137,23 @@ class SafetyTests(unittest.TestCase):
             def locked(self): yield
             def known(self,_): return {'state':'VERIFIED','files':[{'id':'id','sha256':'sha','bytes':7}]}
             def complete_request(self,_): pass
+            def state(self,*args,**kwargs): pass
         class D:
             def verify(self,*args): self.called=True
         d=D();self.assertEqual(BackupJob(DB(),d,'unused').run('run',service_key='dummy'),'ALREADY_VERIFIED');self.assertTrue(d.called)
+    def test_completed_retry_corruption_records_failure_without_creating_or_deleting_files(self):
+        class DB:
+            @contextmanager
+            def locked(self): yield
+            def known(self,_): return {'state':'VERIFIED','files':[{'id':'id','sha256':'sha','bytes':7}]}
+            def state(self,phase,**kwargs): self.phase=phase;self.error=kwargs.get('error')
+            def complete_request(self,*args): pass
+        class D:
+            def verify(self,*args): raise BackupError('GOOGLE_FILE_CHECKSUM_MISMATCH')
+        db=DB()
+        with self.assertRaisesRegex(BackupError,'GOOGLE_FILE_CHECKSUM_MISMATCH'):
+            BackupJob(db,D(),'unused').run('run',service_key='dummy')
+        self.assertEqual(db.phase,'FAILED');self.assertEqual(db.error,'GOOGLE_FILE_CHECKSUM_MISMATCH')
     def test_failed_dump_cleans_plaintext_and_does_not_delete_last_good(self):
         class DB:
             pharmacy='p'

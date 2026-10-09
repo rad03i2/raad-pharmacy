@@ -86,10 +86,20 @@ class BackupJob:
             # Re-running a completed GitHub run/request revalidates it; no duplicate backup.
             previous = self.db.known(run_id)
             if previous and previous["state"] == "VERIFIED":
-                for file in previous["files"]:
-                    self.drive.verify(file["id"], file["sha256"], file["bytes"])
-                self.db.complete_request(request_id)
-                return "ALREADY_VERIFIED"
+                self.db.state('RUNNING',run_id=run_id)
+                try:
+                    for file in previous["files"]:
+                        self.drive.verify(file["id"], file["sha256"], file["bytes"])
+                    # Reverification does not move the original snapshot time
+                    # forward or disguise a stale point as a fresh backup.
+                    self.db.state('VERIFIED',run_id=run_id)
+                    self.db.complete_request(request_id)
+                    return "ALREADY_VERIFIED"
+                except Exception as error:
+                    code=error.code if isinstance(error,BackupError) else 'BACKUP_REVERIFY_FAILED'
+                    self.db.state('FAILED',run_id=run_id,error=code)
+                    self.db.complete_request(request_id,code)
+                    raise BackupError(code) from None
             self.db.state("RUNNING", run_id=run_id)
             try:
                 about = self.drive.about()
