@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -45,6 +46,8 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @Composable
@@ -59,6 +62,7 @@ fun CloudAuthGate(content: @Composable () -> Unit) {
             Context.MODE_PRIVATE
         )
     }
+    var readyForLiveLedger by remember { mutableStateOf(false) }
     var hasOfflineSession by remember {
         mutableStateOf(prefs.getBoolean(KEY_HAS_OFFLINE_SESSION, false))
     }
@@ -70,27 +74,46 @@ fun CloudAuthGate(content: @Composable () -> Unit) {
     LaunchedEffect(status) {
         when (val current = status) {
             is SessionStatus.Authenticated -> {
-                hasOfflineSession = true
-                prefs.edit().putBoolean(KEY_HAS_OFFLINE_SESSION, true).apply()
-                lifecycle.withStarted {
-                    CloudSyncScheduler.enable(context)
-                    CloudContinuousListening.startFromVisibleApp(context)
-                    FollowupNotificationScheduler.ensure(context)
-                }
+                val email = auth.currentSessionOrNull()?.user?.email
+                if (!CloudHandover.isLiveAccount(email)) {
+                    // Old demonstration accounts cannot open the real pharmacy ledger.
+                    readyForLiveLedger = false
+                    hasOfflineSession = false
+                    prefs.edit().remove(KEY_HAS_OFFLINE_SESSION).commit()
+                    CloudContinuousListening.stop(context)
+                    CloudSyncScheduler.disable(context)
+                    runCatching { auth.signOut() }
+                } else {
+                    try {
+                        withContext(Dispatchers.IO) { CloudHandoverLocalReset.prepare(context) }
+                        readyForLiveLedger = true
+                        hasOfflineSession = true
+                        prefs.edit().putBoolean(KEY_HAS_OFFLINE_SESSION, true).apply()
+                        lifecycle.withStarted {
+                            CloudSyncScheduler.enable(context)
+                            CloudContinuousListening.startFromVisibleApp(context)
+                            FollowupNotificationScheduler.ensure(context)
+                        }
 
-                if (
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.POST_NOTIFICATIONS
-                    ) != PackageManager.PERMISSION_GRANTED &&
-                    !prefs.getBoolean(KEY_NOTIFICATION_PERMISSION_PROMPTED, false)
-                ) {
-                    prefs.edit().putBoolean(KEY_NOTIFICATION_PERMISSION_PROMPTED, true).apply()
-                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        if (
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(
+                                context, Manifest.permission.POST_NOTIFICATIONS
+                            ) != PackageManager.PERMISSION_GRANTED &&
+                            !prefs.getBoolean(KEY_NOTIFICATION_PERMISSION_PROMPTED, false)
+                        ) {
+                            prefs.edit().putBoolean(KEY_NOTIFICATION_PERMISSION_PROMPTED, true).apply()
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    } catch (_: Exception) {
+                        // Never allow CloudSyncEngine.bootstrap to import old trial data.
+                        readyForLiveLedger = false
+                        CloudSyncScheduler.disable(context)
+                    }
                 }
             }
             is SessionStatus.NotAuthenticated -> {
+                readyForLiveLedger = false
                 if (current.isSignOut) {
                     hasOfflineSession = false
                     prefs.edit().remove(KEY_HAS_OFFLINE_SESSION).apply()
@@ -103,10 +126,11 @@ fun CloudAuthGate(content: @Composable () -> Unit) {
 
     PharmacyLedgerTheme {
         when (status) {
-            is SessionStatus.Authenticated -> content()
+            is SessionStatus.Authenticated -> if (readyForLiveLedger) content() else LoadingCloudSession()
             SessionStatus.Initializing -> LoadingCloudSession()
             is SessionStatus.RefreshFailure -> {
-                if (hasOfflineSession) {
+                if (hasOfflineSession && readyForLiveLedger &&
+                    CloudHandover.isLiveAccount(auth.currentSessionOrNull()?.user?.email)) {
                     content()
                 } else {
                     CloudLoginScreen()
@@ -136,6 +160,9 @@ private fun LoadingCloudSession() {
 private fun CloudLoginScreen() {
     val scope = rememberCoroutineScope()
     var username by remember { mutableStateOf("") }
+    var registration by remember { mutableStateOf(false) }
+    var displayName by remember { mutableStateOf("") }
+    var setupCode by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -153,7 +180,8 @@ private fun CloudLoginScreen() {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "سجّل الدخول باسم المستخدم وكلمة المرور للوصول إلى الدفتر المشترك.",
+                text = if (registration) "التسجيل الأول للتشغيل الحقيقي — بدون بيانات التجارب السابقة." else
+                    "سجّل الدخول إلى دفتر الصيدلية الحقيقي.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -167,6 +195,20 @@ private fun CloudLoginScreen() {
                 label = { Text("اسم المستخدم") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
+            if (registration) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = displayName, onValueChange = { displayName = it; error = null },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("الاسم الحقيقي للمستخدم") }
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = setupCode, onValueChange = { setupCode = it.trim(); error = null },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("رمز تهيئة الصيدلية (مرة واحدة)") }
+                )
+            }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = password,
@@ -192,7 +234,8 @@ private fun CloudLoginScreen() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                enabled = !working && username.isNotBlank() && password.isNotBlank(),
+                enabled = !working && username.isNotBlank() && password.isNotBlank() &&
+                    (!registration || (displayName.isNotBlank() && setupCode.isNotBlank())),
                 onClick = {
                     val canonical = canonicalUsername(username)
                     if (canonical == null) {
@@ -203,15 +246,23 @@ private fun CloudLoginScreen() {
                     working = true
                     error = null
                     scope.launch {
-                        runCatching {
+                        try {
+                            if (registration) {
+                                val created = CloudHandoverRegistration.register(
+                                    canonical, displayName.trim(), password, setupCode.lowercase()
+                                )
+                                check(created) { "REGISTRATION_FAILED" }
+                            }
                             SupabaseProvider.client.auth.signInWith(Email) {
-                                email = "$canonical@raad-pharmacy.local"
+                                email = "$canonical" + CloudHandover.REAL_EMAIL_DOMAIN
                                 this.password = password
                             }
-                        }.onFailure {
-                            error = "تعذر تسجيل الدخول. تحقق من اسم المستخدم وكلمة المرور والإنترنت."
-                        }
-                        working = false
+                            setupCode = ""
+                        } catch (_: Exception) {
+                            error = if (registration)
+                                "تعذر التسجيل. تحقق من رمز التهيئة والبيانات واتصال الإنترنت."
+                            else "تعذر تسجيل الدخول. تحقق من الحساب الحقيقي وكلمة المرور."
+                        } finally { working = false }
                     }
                 }
             ) {
@@ -221,8 +272,15 @@ private fun CloudLoginScreen() {
                         strokeWidth = 2.dp
                     )
                 } else {
-                    Text("دخول")
+                    Text(if (registration) "إنشاء الحساب الأول" else "دخول")
                 }
+            }
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = {
+                registration = !registration
+                error = null
+            }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (registration) "العودة إلى تسجيل الدخول" else "إنشاء الحساب الأول للتسليم")
             }
         }
     }

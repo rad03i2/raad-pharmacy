@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -72,6 +73,7 @@ internal fun CloudAccountPanelV330() {
     val updates = remember(store) { store.snapshots() }
     val snapshot by updates.collectAsStateWithLifecycle(initialValue = store.cachedSnapshot())
     var loading by remember { mutableStateOf(true) }
+    var createLiveUser by remember { mutableStateOf(false) }
     var uploading by remember { mutableStateOf(false) }
     var sendingTo by remember { mutableStateOf(emptySet<String>()) }
     var alertMessage by remember { mutableStateOf<String?>(null) }
@@ -129,6 +131,16 @@ internal fun CloudAccountPanelV330() {
                 delay(10_000L)
             }
         }
+    }
+    if (createLiveUser) {
+        CloudHandoverAddUserDialog(
+            onClose = { createLiveUser = false },
+            onCreated = {
+                createLiveUser = false
+                alertMessage = "تم إنشاء المستخدم الجديد."
+                scope.launch { refresh(force = true) }
+            }
+        )
     }
     composeTo?.let { recipient ->
         ComposeTeamMessageDialog(recipient.displayName, messageText, messageSending, messageError,
@@ -244,6 +256,11 @@ internal fun CloudAccountPanelV330() {
                 }
             }
 
+            if (snapshot.current != null) {
+                OutlinedButton(onClick = { createLiveUser = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("إضافة مستخدم حقيقي")
+                }
+            }
             if (loading && snapshot.current == null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
