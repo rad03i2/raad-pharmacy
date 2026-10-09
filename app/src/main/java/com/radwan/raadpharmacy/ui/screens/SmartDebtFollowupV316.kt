@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Send
@@ -115,6 +116,7 @@ fun SmartDebtFollowupV316(
     var refreshTick by remember { mutableIntStateOf(0) }
     var filter by remember { mutableStateOf(FollowupFilter.DAYS_30) }
     var sort by remember { mutableStateOf<FollowupSort?>(null) }
+    var showSort by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
@@ -216,7 +218,19 @@ fun SmartDebtFollowupV316(
                 StatementShare.shareImageToWhatsappContact(
                     context = context,
                     file = file,
-                    message = StatementDocumentRenderer.message(snapshot),
+                    message = buildString {
+                        appendLine("السلام عليكم")
+                        appendLine("كشف حساب الدين")
+                        appendLine("الزبون: " + snapshot.customer.name)
+                        val days = record.ageDays
+                        if (days != null && days >= 30L) {
+                            appendLine("نود تذكيركم بأنه مرّ $days يومًا على أقدم دين لم يُسدد بالكامل.")
+                        } else {
+                            appendLine("نود تذكيركم بوجود رصيد مستحق في حسابكم.")
+                        }
+                        appendLine("الدين الحالي: " + formatMoney(snapshot.currentBalance))
+                        append("شكرًا لحسن تعاملكم 🌹")
+                    },
                     phone = digits
                 )
             }
@@ -332,40 +346,51 @@ fun SmartDebtFollowupV316(
                 }
             }
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp)
-                ) {
-                    FollowupFilter.entries.filter { it != FollowupFilter.REVIEW || reviews.isNotEmpty() }
-                        .forEach { option ->
-                            val count = when (option) {
-                                FollowupFilter.ALL -> overdue.size + reviews.size
-                                FollowupFilter.DAYS_30 -> overdue30
-                                FollowupFilter.DAY_60 -> overdue60
-                                FollowupFilter.OLD -> overdueOld
-                                FollowupFilter.REVIEW -> reviews.size
+                Row(modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    OutlinedButton(onClick = { showSort = !showSort }) {
+                        Icon(Icons.Rounded.Tune, contentDescription = "خيارات الفرز",
+                            modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(5.dp))
+                        Text("فلترة")
+                    }
+                    Row(modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        // RTL: put ALL last, so it appears at the far left.
+                        listOf(FollowupFilter.DAYS_30, FollowupFilter.DAY_60,
+                            FollowupFilter.OLD, FollowupFilter.REVIEW, FollowupFilter.ALL)
+                            .filter { it != FollowupFilter.REVIEW || reviews.isNotEmpty() }
+                            .forEach { option ->
+                                val count = when (option) {
+                                    FollowupFilter.ALL -> overdue.size + reviews.size
+                                    FollowupFilter.DAYS_30 -> overdue30
+                                    FollowupFilter.DAY_60 -> overdue60
+                                    FollowupFilter.OLD -> overdueOld
+                                    FollowupFilter.REVIEW -> reviews.size
+                                }
+                                FilterChip(selected = filter == option,
+                                    onClick = { filter = option },
+                                    label = { Text("${option.title} ($count)") })
                             }
-                            FilterChip(
-                                selected = filter == option,
-                                onClick = { filter = option },
-                                label = { Text("${option.title} ($count)") }
-                            )
-                        }
+                    }
                 }
             }
-            item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                ) {
-                    Text("فرز:", style = MaterialTheme.typography.labelMedium)
-                    FollowupSort.entries.forEach { option ->
-                        FilterChip(
-                            selected = sort == option,
-                            onClick = { sort = option },
-                            label = { Text(option.title) }
-                        )
+            if (showSort) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("ترتيب النتائج (اختياري)", style = MaterialTheme.typography.labelMedium)
+                        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            FollowupSort.entries.forEach { option ->
+                                FilterChip(selected = sort == option,
+                                    onClick = { sort = if (sort == option) null else option },
+                                    label = { Text(option.title) })
+                            }
+                        }
+                        if (sort != null) {
+                            TextButton(onClick = { sort = null }) { Text("إلغاء الفرز") }
+                        }
                     }
                 }
             }
