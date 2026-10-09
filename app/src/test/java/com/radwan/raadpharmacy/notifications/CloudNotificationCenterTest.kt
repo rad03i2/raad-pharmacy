@@ -38,7 +38,7 @@ class CloudNotificationCenterTest {
         CloudNotificationCenter.postBatch(context, rows)
         val channel = manager.getNotificationChannel(CloudNotificationCenter.CHANNEL_ALERT)
         assertNotNull(channel.sound)
-        assertTrue(channel.sound.toString().contains("pixabay_notification_037"))
+        assertTrue(channel.sound.toString().contains("iphone_notification_myinstants"))
         assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
         assertEquals(3, manager.activeNotifications.size)
         manager.activeNotifications.forEach {

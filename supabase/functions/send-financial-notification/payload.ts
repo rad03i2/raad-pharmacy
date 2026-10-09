@@ -25,8 +25,8 @@ export function buildFcmMessage(event: Record<string, unknown>, token: string) {
       ttl: "2419200s",
       restricted_package_name: "com.radwan.raadpharmacy",
       notification: {
-        channel_id: "raad_cloud_alerts_v6_audible",
-        sound: "pixabay_notification_037",
+        channel_id: "raad_cloud_alerts_v7_iphone",
+        sound: "iphone_notification_myinstants",
         icon: "ic_notification",
         tag: "raad-event-" + text("id"),
         notification_priority: "PRIORITY_MAX",

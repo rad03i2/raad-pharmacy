@@ -47,13 +47,13 @@ class CloudListeningServiceTest {
         val notification = shadowOf(service).lastForegroundNotification
         assertNotNull(notification)
         assertTrue(notification.flags and Notification.FLAG_ONGOING_EVENT != 0)
-        assertEquals("صيدلية رعد تعمل في الخلفية", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertEquals("دفتر صيدلية رعد", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertEquals(CloudListeningService.NOTIFICATION_ID, shadowOf(service).lastForegroundNotificationId)
         val channel = context.getSystemService(NotificationManager::class.java)
             .getNotificationChannel(CloudListeningService.CHANNEL)
         assertEquals(NotificationManager.IMPORTANCE_LOW, channel.importance)
         assertNull(channel.sound)
-        assertEquals(1, notification.actions.size)
+        assertTrue(notification.actions == null || notification.actions.isEmpty())
         controller.destroy()
         assertFalse(CloudContinuousListening.running.value)
     }

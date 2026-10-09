@@ -42,7 +42,7 @@ class LedgerNotificationChannelsTest {
             val id = LedgerNotificationChannels.ensure(context, type)
             val channel = manager.getNotificationChannel(id)
             assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
-            assertTrue(channel.sound.toString().contains("pixabay_notification_037"))
+            assertTrue(channel.sound.toString().contains("iphone_notification_myinstants"))
         }
     }
 
