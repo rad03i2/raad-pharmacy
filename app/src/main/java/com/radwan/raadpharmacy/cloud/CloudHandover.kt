@@ -73,13 +73,24 @@ internal object CloudHandoverLocalReset {
             "raad_cloud_notification_inbox_v1",
             "raad_team_cache",
             "raad_team_message_cache",
-            "raad_entry_actors",
-            "raad_cloud_auth"
+            "raad_entry_actor_attribution_v1",
+            "raad_cloud_auth",
+            "raad_pharmacy_data",
+            "gas_ledger_security",
+            "customer_photo_store_v1"
         )) {
             check(app.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().commit()) {
                 "Unable to clear old local state: $name"
             }
         }
+        // Mark Room as initialized: do not resurrect an old legacy JSON ledger.
+        check(app.getSharedPreferences("raad_pharmacy_data", Context.MODE_PRIVATE)
+            .edit().putBoolean("room_initialized", true).commit())
+        for (dir in listOf("customer_photos", "auto_backups", "restore_recovery")) {
+            java.io.File(app.filesDir, dir).deleteRecursively()
+        }
+        CloudTeamCache.get(app).clear()
+        CloudTeamMessageCache.get(app).clear()
         check(prefs.edit().putBoolean("done", true).commit())
     }
 }
