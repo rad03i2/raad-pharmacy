@@ -107,6 +107,7 @@ fun PharmacyLedgerApp(
     vm: PharmacyLedgerViewModel = viewModel(),
     notificationCustomerId: String? = null,
     notificationOpenSettings: Boolean = false,
+    notificationOpenFollowup: Boolean = false,
     onNotificationHandled: () -> Unit = {}
 ) {
     val navController = rememberNavController()
@@ -118,7 +119,12 @@ fun PharmacyLedgerApp(
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
 
-    LaunchedEffect(notificationCustomerId, notificationOpenSettings, unlocked) {
+    LaunchedEffect(notificationCustomerId, notificationOpenSettings, notificationOpenFollowup, unlocked) {
+        if (unlocked && notificationOpenFollowup) {
+            navController.navigate("${Routes.FOLLOWUP}?showAll=true") { launchSingleTop = true }
+            onNotificationHandled()
+            return@LaunchedEffect
+        }
         if (unlocked && notificationOpenSettings) {
             navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
             onNotificationHandled()
@@ -434,8 +440,19 @@ fun PharmacyLedgerApp(
                     composable(Routes.REPORTS) {
                         ReportsScreenV11(vm, onCustomer = { navController.navigate(Routes.customer(it)) })
                     }
-                    composable(Routes.FOLLOWUP) {
-                        SmartDebtFollowupV316(vm, navController::popBackStack, onCustomer = { navController.navigate(Routes.customer(it)) })
+                    composable(
+                        "${Routes.FOLLOWUP}?showAll={showAll}",
+                        arguments = listOf(navArgument("showAll") {
+                            type = NavType.BoolType
+                            defaultValue = false
+                        })
+                    ) { destination ->
+                        SmartDebtFollowupV316(
+                            vm,
+                            navController::popBackStack,
+                            onCustomer = { navController.navigate(Routes.customer(it)) },
+                            initialShowAll = destination.arguments?.getBoolean("showAll") == true
+                        )
                     }
                     composable(Routes.SETTINGS) {
                         SettingsScreenV10(vm)
