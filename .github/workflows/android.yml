@@ -54,6 +54,14 @@ jobs:
             exit 1
           fi
 
+      - name: Set up Deno for FCM payload tests
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Verify privacy and Android FCM compatibility
+        run: deno test supabase/functions/send-financial-notification/payload_test.ts
+
       - name: Run unit, Room and Compose tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
