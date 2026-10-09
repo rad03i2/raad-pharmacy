@@ -119,8 +119,8 @@ fun SmartDebtFollowupV316(
     var refreshTick by remember { mutableIntStateOf(0) }
     var previewSamples by remember { mutableStateOf(false) }
     var hasNetwork by remember { mutableStateOf(false) }
-    var filter by remember { mutableStateOf(FollowupFilter.ALL) }
-    var sort by remember { mutableStateOf(FollowupSort.OLDEST) }
+    var filter by remember { mutableStateOf(FollowupFilter.DAYS_30) }
+    var sort by remember { mutableStateOf<FollowupSort?>(null) }
     var query by remember { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
@@ -206,6 +206,7 @@ fun SmartDebtFollowupV316(
                 it.customer.phone.orEmpty().contains(normalizedQuery)
         }
         when (sort) {
+            null -> filtered
             FollowupSort.OLDEST -> filtered.sortedWith(compareByDescending<DebtFollowupEngine.Account> {
                 it.ageDays ?: -1L
             }.thenByDescending { it.overdueAmount }.thenBy { it.customer.name })
