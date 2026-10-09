@@ -73,7 +73,7 @@ import com.radwan.raadpharmacy.util.StatementDocumentRenderer
 import com.radwan.raadpharmacy.util.StatementShare
 import com.radwan.raadpharmacy.util.StatementSnapshot
 import com.radwan.raadpharmacy.util.formatMoney
-import com.radwan.raadpharmacy.util.normalizeIraqPhone
+import com.radwan.raadpharmacy.util.validatedIraqiWhatsappPhone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -212,8 +212,8 @@ fun SmartDebtFollowupV316(
         if (sharing != null) return
         val record = records.firstOrNull { it.customer.id == id } ?: return
         val customer = record.customer
-        val digits = normalizeIraqPhone(customer.phone.orEmpty()).filter(Char::isDigit)
-        if (!Regex("^9647[0-9]{9}$").matches(digits)) {
+        val digits = validatedIraqiWhatsappPhone(customer.phone.orEmpty())
+        if (digits == null) {
             missingPhoneFor = id
             return
         }
