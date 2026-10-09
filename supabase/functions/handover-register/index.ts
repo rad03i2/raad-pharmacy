@@ -70,7 +70,10 @@ Deno.serve(async req => {
     return respond({ ok: true, username }, 201);
   } catch {
     // Never leave an account with no pharmacy membership after a failed registration.
-    if (createdId) await admin.auth.admin.deleteUser(createdId);
+    if (createdId) {
+      await admin.from("profiles").delete().eq("id", createdId).eq("pharmacy_id", PHARMACY);
+      await admin.auth.admin.deleteUser(createdId);
+    }
     return respond({ error: "registration_failed" }, 503);
   } finally {
     if (claim) await admin.from("handover_bootstrap").update({
