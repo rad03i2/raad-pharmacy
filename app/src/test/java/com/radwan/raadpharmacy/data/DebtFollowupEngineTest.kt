@@ -28,13 +28,13 @@ class DebtFollowupEngineTest {
     @Test fun boundary29IsNotOverdue() {
         val result = calculate(moves = *arrayOf(debt("a", 50_000, 29)))
         assertEquals(DebtFollowupEngine.Bucket.NOT_OVERDUE, result.bucket)
-        assertEquals(0, result.overdueAmount)
+        assertEquals(0L, result.overdueAmount)
     }
 
     @Test fun boundary30IsLate() {
         val result = calculate(moves = *arrayOf(debt("a", 50_000, 30)))
         assertEquals(DebtFollowupEngine.Bucket.DAYS_30_TO_59, result.bucket)
-        assertEquals(30, result.ageDays)
+        assertEquals(30L, result.ageDays)
         assertEquals(50_000L, result.overdueAmount)
     }
 
@@ -48,14 +48,14 @@ class DebtFollowupEngineTest {
     @Test fun boundary61And150RemainOldDebt() {
         assertEquals(DebtFollowupEngine.Bucket.OVER_60,
             calculate(moves = *arrayOf(debt("a", 100, 61))).bucket)
-        assertEquals(150, calculate(moves = *arrayOf(debt("a", 100, 150))).ageDays)
+        assertEquals(150L, calculate(moves = *arrayOf(debt("a", 100, 150))).ageDays)
     }
 
     @Test fun partialPaymentNeverResetsAge() {
         val result = calculate(moves = *arrayOf(debt("a", 50_000, 30), payment("p", 10_000, 10)))
         assertEquals(40_000L, result.balance)
         assertEquals(40_000L, result.overdueAmount)
-        assertEquals(30, result.ageDays)
+        assertEquals(30L, result.ageDays)
     }
 
     @Test fun fullyPaidCustomerDisappearsFromAgeing() {
@@ -70,7 +70,7 @@ class DebtFollowupEngineTest {
             debt("old", 20_000, 80), debt("new", 40_000, 5), payment("p", 20_000, 1)))
         assertEquals(40_000L, result.balance)
         assertEquals(0L, result.overdueAmount)
-        assertEquals(5, result.ageDays)
+        assertEquals(5L, result.ageDays)
         assertEquals(DebtFollowupEngine.Bucket.NOT_OVERDUE, result.bucket)
     }
 
@@ -79,7 +79,7 @@ class DebtFollowupEngineTest {
             debt("old", 50_000, 80), debt("new", 40_000, 5), payment("p", 20_000, 1)))
         assertEquals(70_000L, result.balance)
         assertEquals(30_000L, result.overdueAmount)
-        assertEquals(80, result.ageDays)
+        assertEquals(80L, result.ageDays)
     }
 
     @Test fun customerAgeIsNotUsedWhenThereIsNoOpeningDebt() {
@@ -117,7 +117,7 @@ class DebtFollowupEngineTest {
             payment("p", 9_000, 2), debt("recent", 10_000, 5), debt("old", 8_000, 50)))
         assertEquals(9_000L, result.balance)
         assertEquals(0L, result.overdueAmount)
-        assertEquals(5, result.ageDays)
+        assertEquals(5L, result.ageDays)
     }
 
     @Test fun allCustomersAreUniqueAndUnknownNotInOverdueStats() {
