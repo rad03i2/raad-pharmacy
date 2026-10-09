@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -45,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -86,6 +88,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
     var showSignOutConfirm by remember { mutableStateOf(false) }
     var signOutAnswer by remember { mutableStateOf("") }
     var showTypography by remember { mutableStateOf(false) }
+    var showAppUpdater by rememberSaveable { mutableStateOf(false) }
 
     val createBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -286,6 +289,11 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
         )
     }
 
+    if (showAppUpdater) {
+        AppUpdateScreenV314(onBack = { showAppUpdater = false })
+        return
+    }
+
     Scaffold(topBar = { ScreenTopBar("الضبط") }) { padding ->
         LazyColumn(
             flingBehavior = rememberLedgerFlingBehavior(),
@@ -442,6 +450,14 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
                 ) {
                     showAbout = true
                 }
+            }
+
+            item {
+                V8SettingsRow(
+                    Icons.Rounded.SystemUpdate,
+                    "تحديث التطبيق",
+                    "معلومات النسخة، البحث عن تحديثات جديدة، التنزيل والتثبيت الآمن"
+                ) { showAppUpdater = true }
             }
 
             item { Spacer(Modifier.height(6.dp)) }
