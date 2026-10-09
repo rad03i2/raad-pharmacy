@@ -1,6 +1,7 @@
 package com.radwan.raadpharmacy.cloud
 
 import android.Manifest
+import com.radwan.raadpharmacy.notifications.FollowupNotificationScheduler
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -74,6 +75,7 @@ fun CloudAuthGate(content: @Composable () -> Unit) {
                 lifecycle.withStarted {
                     CloudSyncScheduler.enable(context)
                     CloudContinuousListening.startFromVisibleApp(context)
+                    FollowupNotificationScheduler.ensure(context)
                 }
 
                 if (
@@ -92,6 +94,7 @@ fun CloudAuthGate(content: @Composable () -> Unit) {
                 if (current.isSignOut) {
                     hasOfflineSession = false
                     prefs.edit().remove(KEY_HAS_OFFLINE_SESSION).apply()
+                    FollowupNotificationScheduler.cancel(context)
                 }
             }
             else -> Unit
