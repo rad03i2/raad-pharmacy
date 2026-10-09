@@ -58,28 +58,33 @@ internal fun TeamMessageActions(name: String, sendingAlert: Boolean, hasUnread: 
 }
 
 @Composable
+internal fun TeamMessageInput(text: String, sending: Boolean, error: String?, onText: (String) -> Unit) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { withFrameNanos { }; focus.requestFocus() }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(value = text, onValueChange = onText, enabled = !sending,
+            modifier = Modifier.fillMaxWidth().height(144.dp).focusRequester(focus), maxLines = 5,
+            placeholder = { Text("اكتب رسالتك") }, supportingText = { Text("${text.length}/500") },
+            isError = text.length > 500)
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable
+internal fun TeamMessageSendButton(text: String, sending: Boolean, onSend: () -> Unit) {
+    TextButton(onClick = onSend, enabled = !sending && text.trim().isNotEmpty() && text.length <= 500) {
+        if (sending) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("إرسال")
+    }
+}
+
+@Composable
 internal fun ComposeTeamMessageDialog(name: String, text: String, sending: Boolean, error: String?,
     onText: (String) -> Unit, onDismiss: () -> Unit, onSend: () -> Unit) {
-    val focus = remember { FocusRequester() }
     AlertDialog(
         onDismissRequest = { if (!sending) onDismiss() },
         title = { Text("رسالة إلى $name") },
-        text = {
-            LaunchedEffect(Unit) { withFrameNanos { }; focus.requestFocus() }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = text, onValueChange = onText, enabled = !sending,
-                    modifier = Modifier.fillMaxWidth().height(144.dp).focusRequester(focus), maxLines = 5,
-                    placeholder = { Text("اكتب رسالتك") }, supportingText = { Text("${text.length}/500") },
-                    isError = text.length > 500)
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onSend, enabled = !sending && text.trim().isNotEmpty() && text.length <= 500) {
-                if (sending) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Text("إرسال")
-            }
-        },
+        text = { TeamMessageInput(text, sending, error, onText) },
+        confirmButton = { TeamMessageSendButton(text, sending, onSend) },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !sending) { Text("إلغاء") } }
     )
 }

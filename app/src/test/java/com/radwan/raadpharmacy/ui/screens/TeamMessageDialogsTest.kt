@@ -1,5 +1,6 @@
 package com.radwan.raadpharmacy.ui.screens
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
@@ -57,7 +58,10 @@ class TeamMessageDialogsTest {
         var text by mutableStateOf("")
         var sent=0
         compose.setContent { PharmacyLedgerTheme {
-            ComposeTeamMessageDialog("رعد",text,false,"تحقق من الإنترنت",{text=it},{},{sent++})
+            Column(Modifier.width(300.dp)) {
+                TeamMessageInput(text,false,"تحقق من الإنترنت",{text=it})
+                TeamMessageSendButton(text,false,{sent++})
+            }
         } }
         compose.mainClock.advanceTimeBy(250)
         compose.onNodeWithText("إرسال").assertIsNotEnabled()
