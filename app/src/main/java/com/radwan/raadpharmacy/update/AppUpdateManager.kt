@@ -26,7 +26,7 @@ object AppUpdateManager {
     private const val MIME = "application/vnd.android.package-archive"
     private const val PREFS = "raad_app_update_v1"
     private const val MAX_APK = 150L * 1024L * 1024L
-    private val VERSION = Regex("^v[0-9]+\\.[0-9]+\\.[0-9]+$")
+    private val VERSION = Regex("^v[0-9]+\\.[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$")
     private val SHA = Regex("(?i)^[a-f0-9]{64}$")
     private val CODE_FIELD = Regex("(?m)^VersionCode: ([0-9]+)\\s*$")
     private val CERT_FIELD = Regex("(?m)^SigningCertificateSHA256: ([a-fA-F0-9]{64})\\s*$")

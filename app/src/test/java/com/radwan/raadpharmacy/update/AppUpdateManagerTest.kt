@@ -42,6 +42,13 @@ class AppUpdateManagerTest {
         assertNull(AppUpdateManager.pending(app))
     }
 
+    @Test fun recognizesFourComponentUpdateTags() {
+        val preferences = app.getSharedPreferences("raad_app_update_v1", Context.MODE_PRIVATE)
+        preferences.edit().putLong("id", 202L).putString("tag", "v3.3.14.1")
+            .putLong("code", BuildConfig.VERSION_CODE.toLong() + 1).putString("sha", hash).commit()
+        assertEquals("v3.3.14.1", AppUpdateManager.pending(app)?.tag)
+    }
+
     @Test fun refusesTamperedChecksumBeforeAnyInstallation() {
         val preferences = app.getSharedPreferences("raad_app_update_v1", Context.MODE_PRIVATE)
         preferences.edit().putLong("id", 201L).putString("tag", "v3.3.15")

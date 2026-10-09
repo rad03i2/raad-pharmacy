@@ -65,7 +65,7 @@ jobs:
           fi
           version=$(sed -n 's/^ *versionName = "\([^"]*\)"/\1/p' app/build.gradle.kts | head -n 1)
           code=$(sed -n 's/^ *versionCode = \([0-9]*\)/\1/p' app/build.gradle.kts | head -n 1)
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$code" =~ ^[0-9]+$ ]]; then
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ && "$code" =~ ^[0-9]+$ ]]; then
             echo "::error::Version metadata invalid."
             exit 1
           fi
