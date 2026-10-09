@@ -16,7 +16,7 @@ Deno.serve(async(req:Request)=>{
   // getUser validates the JWT with Auth; never authorize from client JSON/user_metadata.
   const identity=await user.auth.getUser();
   if (identity.error || !identity.data.user) return json({error:'not_authenticated'},401);
-  const profile=await admin.from('profiles').select('id,pharmacy_id').eq('id',identity.data.user.id).maybeSingle();
+  const profile=await admin.from('profiles').select('id,pharmacy_id').eq('id',identity.data.user.id).is('deleted_at',null).maybeSingle();
   if (profile.error || !profile.data) return json({error:'pharmacy_membership_required'},403);
   const pharmacy=profile.data.pharmacy_id;
   const membership=await admin.from('cloud_backup_admins').select('user_id').eq('pharmacy_id',pharmacy).eq('user_id',identity.data.user.id).maybeSingle();

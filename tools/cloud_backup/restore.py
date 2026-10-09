@@ -95,8 +95,21 @@ def restore_database(directory: Path, manifest: dict, dsn: str):
             where schemaname in ('public','auth','storage','raad_private')""").fetchone()['n']
         if present:
             raise BackupError('RESTORE_DATABASE_MUST_BE_EMPTY')
+        existing = {row['nspname'] for row in connection.execute('select nspname from pg_namespace').fetchall()}
+        toc = command(['pg_restore','--list',str(directory/'database.dump')],env,'DATABASE_ARCHIVE_INVALID').decode()
+        # A new database already has public. Keep all ACL/comment/data entries,
+        # omit ONLY CREATE SCHEMA entries for schemas that already exist. No
+        # DROP/CASCADE, --clean, ignored SQL errors, or source owner changes.
+        lines = []
+        for line in toc.splitlines():
+            match = re.match(r'^\d+; \d+ \d+ SCHEMA - ([a-z_]+) ',line)
+            if match and match[1] in existing:
+                continue
+            lines.append(line)
+        listing = directory/'restore-toc.list'
+        listing.write_text('\n'.join(lines)+'\n');listing.chmod(0o600)
         command(['pg_restore','--exit-on-error','--single-transaction','--no-owner',
-                 '--dbname='+env['PGDATABASE'],str(directory/'database.dump')], env, 'ISOLATED_RESTORE_FAILED')
+                 '--use-list='+str(listing),'--dbname='+env['PGDATABASE'],str(directory/'database.dump')], env, 'ISOLATED_RESTORE_FAILED')
         actual = metrics(connection)
         if actual != manifest['metrics']:
             raise BackupError('RESTORE_FINANCIAL_METRICS_MISMATCH')

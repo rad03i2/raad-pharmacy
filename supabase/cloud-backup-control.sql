@@ -54,15 +54,23 @@ create or replace function raad_private.can_manage_cloud_backup(target uuid)
 returns boolean language sql stable security definer set search_path='' as $$
   select auth.uid() is not null and exists (
     select 1 from public.cloud_backup_admins a join public.profiles p on p.id=a.user_id
-    where a.pharmacy_id=target and p.pharmacy_id=target and a.user_id=auth.uid())
+    where a.pharmacy_id=target and p.pharmacy_id=target and p.deleted_at is null and a.user_id=auth.uid())
 $$;
 revoke all on function raad_private.can_manage_cloud_backup(uuid) from public,anon;
 grant usage on schema raad_private to authenticated;
 grant execute on function raad_private.can_manage_cloud_backup(uuid) to authenticated;
 
+create or replace function raad_private.can_read_cloud_backup(target uuid)
+returns boolean language sql stable security definer set search_path='' as $$
+  select auth.uid() is not null and exists (
+    select 1 from public.profiles where id=auth.uid() and pharmacy_id=target and deleted_at is null)
+$$;
+revoke all on function raad_private.can_read_cloud_backup(uuid) from public,anon;
+grant execute on function raad_private.can_read_cloud_backup(uuid) to authenticated;
+
 drop policy if exists cloud_backup_status_read on public.cloud_backup_status;
 create policy cloud_backup_status_read on public.cloud_backup_status for select to authenticated
-  using(pharmacy_id=(select raad_private.current_pharmacy()));
+  using(raad_private.can_read_cloud_backup(pharmacy_id));
 drop policy if exists cloud_backup_admin_read_self on public.cloud_backup_admins;
 create policy cloud_backup_admin_read_self on public.cloud_backup_admins for select to authenticated
   using(user_id=(select auth.uid()) and pharmacy_id=(select raad_private.current_pharmacy()));

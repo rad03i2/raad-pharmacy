@@ -62,14 +62,9 @@ object CentralBackupClient {
                 connection.outputStream.use { it.write("{}".toByteArray()) }
             }
             val code = connection.responseCode
-            if (code == 404 || code == 503 && method == "GET") return@withContext JSONObject()
-            check(code in 200..299) { when (code) {
-                401 -> "انتهت جلسة الدخول. أعد تسجيل الدخول ثم حاول مجددًا."
-                403 -> "ليست لديك صلاحية تنفيذ هذا الإجراء."
-                409 -> "يوجد طلب حديث أو نسخة قيد التشغيل. حاول لاحقًا."
-                else -> "تعذر الاتصال بخدمة النسخ المركزي. آخر نسخة سليمة تبقى محفوظة."
-            } }
-            val data = connection.inputStream.use { input ->
+            if (code == 404 && method == "GET") return@withContext JSONObject()
+            val stream = if (code >= 400) connection.errorStream else connection.inputStream
+            val data = stream?.use { input ->
                 val output = java.io.ByteArrayOutputStream()
                 val chunk = ByteArray(4096)
                 while (true) {
@@ -79,8 +74,15 @@ object CentralBackupClient {
                     output.write(chunk,0,count)
                 }
                 output.toByteArray()
-            }
+            } ?: ByteArray(0)
             check(auth.currentSessionOrNull()?.user?.id == owner) { "تغير حساب الدخول. أعد تحميل الحالة." }
+            if (code == 503 && method == "GET" && runCatching { JSONObject(data.toString(Charsets.UTF_8)).optString("error") }.getOrNull() == "service_not_configured") return@withContext JSONObject()
+            check(code in 200..299) { when (code) {
+                401 -> "انتهت جلسة الدخول. أعد تسجيل الدخول ثم حاول مجددًا."
+                403 -> "ليست لديك صلاحية تنفيذ هذا الإجراء."
+                409 -> "يوجد طلب حديث أو نسخة قيد التشغيل. حاول لاحقًا."
+                else -> "تعذر الاتصال بخدمة النسخ المركزي. آخر نسخة سليمة تبقى محفوظة."
+            } }
             JSONObject(data.toString(Charsets.UTF_8))
         } finally { connection.disconnect() }
     }
