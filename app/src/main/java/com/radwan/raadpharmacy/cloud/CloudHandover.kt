@@ -85,7 +85,7 @@ internal object CloudHandoverLocalReset {
         }
         // Mark Room as initialized: do not resurrect an old legacy JSON ledger.
         check(app.getSharedPreferences("raad_pharmacy_data", Context.MODE_PRIVATE)
-            .edit().putBoolean("room_initialized", true).commit())
+            .edit().putBoolean("room_initialized_v1", true).commit())
         for (dir in listOf("customer_photos", "auto_backups", "restore_recovery")) {
             java.io.File(app.filesDir, dir).deleteRecursively()
         }
