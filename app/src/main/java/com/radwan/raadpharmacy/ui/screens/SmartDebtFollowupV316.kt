@@ -103,7 +103,8 @@ private val clockFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.US)
 fun SmartDebtFollowupV316(
     vm: PharmacyLedgerViewModel,
     onBack: () -> Unit,
-    onCustomer: (String) -> Unit
+    onCustomer: (String) -> Unit,
+    initialShowAll: Boolean = false
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -114,7 +115,7 @@ fun SmartDebtFollowupV316(
 
     var today by remember { mutableStateOf(LocalDate.now(DebtFollowupEngine.IRAQ_ZONE)) }
     var refreshTick by remember { mutableIntStateOf(0) }
-    var filter by remember { mutableStateOf(FollowupFilter.DAYS_30) }
+    var filter by remember { mutableStateOf(if (initialShowAll) FollowupFilter.ALL else FollowupFilter.DAYS_30) }
     var sort by remember { mutableStateOf<FollowupSort?>(null) }
     var showSort by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
