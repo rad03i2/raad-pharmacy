@@ -7,12 +7,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import com.radwan.raadpharmacy.cloud.EntryActorStore
 
 /** Small, passive author label below the amount. Never substitutes the editor for the creator. */
 @Composable
-fun EntryActorCaption(entryId: String) {
+fun EntryActorCaption(entryId: String, color: Color? = null) {
     val context = LocalContext.current
     val store = remember(context) { EntryActorStore.get(context) }
     val authorIds by store.authorIds.collectAsState()
@@ -22,7 +23,7 @@ fun EntryActorCaption(entryId: String) {
         Text(
             text = authorName,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = color ?: MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

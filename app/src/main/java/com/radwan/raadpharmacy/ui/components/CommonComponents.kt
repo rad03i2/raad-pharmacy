@@ -311,6 +311,40 @@ fun CustomerCard(
     }
 }
 
+
+/** The author is directly below the amount INSIDE the same colored pill. */
+@Composable
+fun MovementAmountBadge(
+    entry: LedgerEntry,
+    hideAmounts: Boolean = false,
+    showSign: Boolean = true,
+    prominent: Boolean = false
+) {
+    val isDebt = entry.type == EntryType.DEBT
+    val tint = if (isDebt) DebtRed else PaidGreen
+    Surface(
+        shape = CircleShape,
+        color = if (isDebt) MaterialTheme.colorScheme.errorContainer
+        else MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = if (hideAmounts) "•••• د.ع" else
+                    (if (showSign) (if (isDebt) "+" else "-") else "") + formatMoney(entry.amount),
+                style = if (prominent) MaterialTheme.typography.titleMedium
+                else MaterialTheme.typography.labelLarge,
+                color = tint,
+                maxLines = 1
+            )
+            EntryActorCaption(entry.id, color = tint)
+        }
+    }
+}
+
 @Composable
 fun TransactionRow(
     entry: LedgerEntry,
@@ -360,20 +394,7 @@ fun TransactionRow(
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Surface(
-                shape = CircleShape,
-                color = if (isDebt) MaterialTheme.colorScheme.errorContainer
-                else MaterialTheme.colorScheme.primaryContainer
-            ) {
-                Text(
-                    if (hideAmounts) "•••• د.ع"
-                    else (if (isDebt) "+" else "-") + formatMoney(entry.amount),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (isDebt) DebtRed else PaidGreen,
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
-                )
-            }
-            EntryActorCaption(entry.id)
+            MovementAmountBadge(entry = entry, hideAmounts = hideAmounts)
             if (showBalance != null) {
                 Text(
                     "الرصيد " + if (hideAmounts) "•••• د.ع" else formatMoney(showBalance),

@@ -50,7 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.data.Customer
 import com.radwan.raadpharmacy.data.EntryType
-import com.radwan.raadpharmacy.ui.components.EntryActorCaption
+import com.radwan.raadpharmacy.ui.components.MovementAmountBadge
 import com.radwan.raadpharmacy.data.LedgerEntry
 import com.radwan.raadpharmacy.ui.components.CustomerCard
 import com.radwan.raadpharmacy.ui.components.EmptyState
@@ -506,11 +506,7 @@ private fun OperationCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(formatMoney(entry.amount), color = if (positive) PaidGreen else DebtRed,
-                    style = MaterialTheme.typography.titleMedium)
-                EntryActorCaption(entry.id)
-            }
+            MovementAmountBadge(entry = entry, showSign = false, prominent = true)
         }
     }
 }
