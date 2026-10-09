@@ -78,7 +78,9 @@ object FollowupNotificationScheduler {
         manager.enqueueUniquePeriodicWork(
             PERIODIC,
             ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<FollowupIntelligenceWorker>(24, TimeUnit.HOURS).build()
+            PeriodicWorkRequestBuilder<FollowupIntelligenceWorker>(24, TimeUnit.HOURS)
+                .setInitialDelay(24, TimeUnit.HOURS)
+                .build()
         )
         runNow(context)
     }
