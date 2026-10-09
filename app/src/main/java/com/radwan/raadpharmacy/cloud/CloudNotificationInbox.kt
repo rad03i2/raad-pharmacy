@@ -49,7 +49,7 @@ class CloudNotificationInbox(context: Context) {
             }.decodeList<CloudNotificationEventRow>()
             if (rows.isEmpty()) break
             deliver(rows, paceBacklog = true, forceRecovery = forceRecovery)
-            // Native-managed events belong to FCM. Advancing the recovery cursor is
+            // Server-managed events belong to FCM. Advancing the recovery cursor is
             // routing, not evidence that Android displayed them; never mark them seen here.
             allDelivered = allDelivered && rows.all { isSeen(it.id) || (!forceRecovery && usesManagedPush(it)) }
             latestAt = maxOf(latestAt, rows.maxOf { parseIso(it.createdAt) })
@@ -143,13 +143,14 @@ class CloudNotificationInbox(context: Context) {
     private suspend fun deliver(rows: List<CloudNotificationEventRow>, paceBacklog: Boolean = false,
         forceRecovery: Boolean = false) {
         for ((index, row) in rows.withIndex()) {
+            var postedLocally = false
             // Auth refresh and message reads may use the network. Keep them outside
             // the display lock so a live FCM callback cannot wait behind catch-up I/O.
             if (!CloudSyncScheduler.isEnabled(appContext)) return
             client.auth.awaitInitialization()
             val userId = client.auth.currentSessionOrNull()?.user?.id ?: return
             val addressed = row.isAddressedTo(userId)
-            val unread = !addressed || row.eventType != "TEAM_MESSAGE" || CloudTeamMessageStore(appContext).receive(row)
+            val unread = !addressed || isSeen(row.id) || row.eventType != "TEAM_MESSAGE" || CloudTeamMessageStore(appContext).receive(row)
             deliveryMutex.withLock {
                 if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
                 if (!addressed) {
@@ -171,13 +172,13 @@ class CloudNotificationInbox(context: Context) {
                 // FCM owns direct external display for server-managed v52+ events.
                 // Realtime emits the internal banner. Explicit queue-loss recovery
                 // can render durable events that FCM reported discarded.
-                val native = !forceRecovery && usesManagedPush(row)
-                val posted = if (native) CloudNotificationCenter.hasActiveEvent(appContext, row.id)
+                val managed = !forceRecovery && usesManagedPush(row)
+                val posted = if (managed) CloudNotificationCenter.hasActiveEvent(appContext, row.id)
                     else CloudNotificationCenter.post(
                     appContext, item.title, item.body, item.customerId, true, item.id,
                     openSettings = row.eventType in setOf("TEAM_ALERT", "TEAM_MESSAGE"), isMessage = row.eventType == "TEAM_MESSAGE",
                     forceHidden = row.privacyRedacted
-                )
+                ).also { postedLocally = it }
                 if (posted) {
                     lastAlertAt = android.os.SystemClock.elapsedRealtime()
                     rememberSeen(listOf(row.id))
@@ -193,7 +194,7 @@ class CloudNotificationInbox(context: Context) {
             }
             // Avoid artificial latency for single live Realtime/FCM events.
             // Only space out bulk alerts accumulated while offline.
-            if (paceBacklog && (forceRecovery || !usesManagedPush(row)) && index < rows.lastIndex) delay(3_000L)
+            if (paceBacklog && postedLocally && index < rows.lastIndex) delay(3_000L)
         }
     }
 
