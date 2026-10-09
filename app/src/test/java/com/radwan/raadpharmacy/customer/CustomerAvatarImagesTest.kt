@@ -33,4 +33,21 @@ class CustomerAvatarImagesTest {
         assertNotSame(first,next)
         assertTrue(android.graphics.Color.blue(next.getPixel(0,0)) > android.graphics.Color.red(next.getPixel(0,0)))
     }
+    @Test fun largeCameraImageIsProtectedBeforeBeingMirroredAndFitsRoomRows() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val id = UUID.randomUUID().toString()
+        val dao = com.radwan.raadpharmacy.data.PharmacyLedgerDatabase.get(context).dao()
+        kotlinx.coroutines.runBlocking { dao.insertCustomer(com.radwan.raadpharmacy.data.CustomerEntity(id, "صورة كبيرة", null, "", "", 0, "", 1000)) }
+        val random = java.util.Random(7)
+        val bitmap = Bitmap.createBitmap(1600, 1200, Bitmap.Config.ARGB_8888)
+        bitmap.setPixels(IntArray(1600 * 1200) { random.nextInt() or 0xff000000.toInt() }, 0, 1600, 0, 0, 1600, 1200)
+        val bytes = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 99, it) }.toByteArray()
+        assertTrue(bytes.size > CustomerPhotoStore.MAX_BACKUP_PHOTO_BYTES)
+        val file = CustomerPhotoStore(context).saveRemote(id, "large-photo", bytes)
+        val protected = kotlinx.coroutines.runBlocking { dao.backupPhoto(id)!! }
+        assertTrue(protected.bytes.size <= CustomerPhotoStore.MAX_BACKUP_PHOTO_BYTES)
+        assertArrayEquals(protected.bytes, file.readBytes())
+        bitmap.recycle()
+    }
+
 }

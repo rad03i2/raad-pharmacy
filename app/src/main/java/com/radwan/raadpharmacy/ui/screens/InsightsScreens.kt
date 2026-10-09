@@ -539,13 +539,12 @@ fun SettingsScreen(vm: PharmacyLedgerViewModel) {
         )
     }
 
-    fun exportBackup() {
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/json"
-            putExtra(Intent.EXTRA_TEXT, vm.exportJson())
-        }
-        context.startActivity(Intent.createChooser(intent, "تصدير نسخة بيانات دفتر صيدلية رعد"))
+    var showBackups by remember { mutableStateOf(false) }
+    if (showBackups) {
+        StorageBackupScreen(onBack = { showBackups = false })
+        return
     }
+    fun exportBackup() { showBackups = true }
 
     Scaffold(topBar = { ScreenTopBar("المزيد") }) { padding ->
         LazyColumn(
@@ -555,7 +554,7 @@ fun SettingsScreen(vm: PharmacyLedgerViewModel) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item { SettingsSectionTitle("البيانات") }
-            item { SettingsRow(Icons.Rounded.Backup, "نسخة احتياطية", "مشاركة نسخة JSON من البيانات", ::exportBackup) }
+            item { SettingsRow(Icons.Rounded.Backup, "نسخة احتياطية", "التصدير المشفر والاستعادة", ::exportBackup) }
             item {
                 SettingsRow(Icons.Rounded.Restore, "استعادة نسخة", "سيتم تفعيل اختيار ملف النسخة في مرحلة لاحقة") {
                     infoMessage = "الاستعادة من ملف لم تُفعّل بعد، حتى لا نظهر ميزة غير مكتملة على أنها جاهزة."

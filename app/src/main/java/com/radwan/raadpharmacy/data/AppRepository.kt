@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.util.UUID
 
 class AppRepository(context: Context) {
@@ -28,8 +27,11 @@ class AppRepository(context: Context) {
 
     suspend fun initialize() {
         loadRoomOrMigrateLegacy()
-        normalizeLegacyIdsForCloud()
-        maybeCreateAutomaticBackup()
+        if (dao.restoreHold() != "1") normalizeLegacyIdsForCloud()
+        withContext(Dispatchers.IO) {
+            com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).importExistingToBackup()
+        }
+        com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).start()
         CloudSyncRuntime.start(appContext)
     }
 
@@ -315,55 +317,18 @@ class AppRepository(context: Context) {
         BackupValidator.preview(raw)
 
     suspend fun restoreBackup(raw: String): BackupRestoreResult {
-        return runCatching {
-            val payload = BackupValidator.parseValid(raw)
-            val previousCustomerIds = dao.getCustomers().mapTo(hashSetOf()) { it.id }
-            val previousEntryIds = dao.getEntries().mapTo(hashSetOf()) { it.id }
-
-            writeRecoveryBackup(createBackupJson())
-
-            dao.replaceAll(
-                customers = payload.customers.map(Customer::toEntity),
-                entries = payload.entries.map(LedgerEntry::toEntity)
-            )
-
-            customersCache = payload.customers
-            entriesCache = payload.entries
-            normalizeLegacyIdsForCloud()
-
-            val restoredCustomers = dao.getCustomers()
-            val restoredEntries = dao.getEntries()
-            val restoredCustomerIds = restoredCustomers.mapTo(hashSetOf()) { it.id }
-            val restoredEntryIds = restoredEntries.mapTo(hashSetOf()) { it.id }
-
-            previousEntryIds
-                .filter { it !in restoredEntryIds && it.isCloudUuid() }
-                .forEach(cloudJournal::markTransactionDelete)
-            previousCustomerIds
-                .filter { it !in restoredCustomerIds && it.isCloudUuid() }
-                .forEach(cloudJournal::markCustomerDelete)
-            restoredCustomers.forEach { cloudJournal.markCustomerUpsert(it.id) }
-            restoredEntries.forEach { cloudJournal.markTransactionUpsert(it.id) }
-            CloudSyncRuntime.requestSync(appContext)
-
-            val now = System.currentTimeMillis()
-            prefs.edit()
-                .putLong(LAST_RESTORE_AT_KEY, now)
-                .putBoolean(ROOM_INITIALIZED_KEY, true)
-                .apply()
-
-            BackupRestoreResult(
-                success = true,
-                message = "تمت الاستعادة بنجاح، وتم حفظ نسخة أمان من البيانات السابقة وستتم مزامنتها سحابيًا.",
-                customerCount = restoredCustomers.size,
-                entryCount = restoredEntries.size
-            )
-        }.getOrElse {
-            BackupRestoreResult(
-                success = false,
-                message = it.message ?: "تعذر استعادة النسخة الاحتياطية."
-            )
+        val archive = runCatching { com.radwan.raadpharmacy.backup.RestoredArchive(
+            BackupValidator.parseValid(raw), emptyList(), JSONObject(), 0) }.getOrElse {
+            return BackupRestoreResult(false, it.message ?: "ملف النسخة غير صالح.")
         }
+        val result = com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).restore(archive)
+        if (result.success) {
+            customersCache = archive.ledger.customers
+            entriesCache = archive.ledger.entries
+            prefs.edit().putLong(LAST_RESTORE_AT_KEY, System.currentTimeMillis())
+                .putBoolean(ROOM_INITIALIZED_KEY, true).apply()
+        }
+        return result
     }
 
     fun markManualBackupCreated(timestamp: Long = System.currentTimeMillis()) {
@@ -389,45 +354,8 @@ class AppRepository(context: Context) {
     }
 
     private suspend fun maybeCreateAutomaticBackup(force: Boolean = false) {
-        val interval = autoBackupInterval()
-        if (interval == AutoBackupInterval.OFF) return
-
-        val now = System.currentTimeMillis()
-        val last = prefs.getLong(LAST_AUTO_BACKUP_AT_KEY, 0L)
-        val dueAfter = when (interval) {
-            AutoBackupInterval.DAILY -> 24L * 60L * 60L * 1000L
-            AutoBackupInterval.WEEKLY -> 7L * 24L * 60L * 60L * 1000L
-            AutoBackupInterval.OFF -> Long.MAX_VALUE
-        }
-
-        if (!force && last > 0L && now - last < dueAfter) return
-
-        runCatching {
-            withContext(Dispatchers.IO) {
-                val dir = File(appContext.filesDir, "auto_backups").apply { mkdirs() }
-                val file = File(dir, "auto-backup-" + now + ".json")
-                file.writeText(createBackupJson())
-                trimBackupDirectory(dir, keep = 7)
-                prefs.edit().putLong(LAST_AUTO_BACKUP_AT_KEY, now).apply()
-            }
-        }
-    }
-
-    private suspend fun writeRecoveryBackup(raw: String) {
-        val now = System.currentTimeMillis()
-        withContext(Dispatchers.IO) {
-            val dir = File(appContext.filesDir, "restore_recovery").apply { mkdirs() }
-            File(dir, "before-restore-" + now + ".json").writeText(raw)
-            trimBackupDirectory(dir, keep = 5)
-        }
-    }
-
-    private fun trimBackupDirectory(dir: File, keep: Int) {
-        dir.listFiles()
-            ?.filter { it.isFile && it.extension == "json" }
-            ?.sortedByDescending { it.lastModified() }
-            ?.drop(keep)
-            ?.forEach { runCatching { it.delete() } }
+        // The persistent Room journal protects the write immediately; file IO runs separately.
+        com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).wake()
     }
 
     private suspend fun loadRoomOrMigrateLegacy() {

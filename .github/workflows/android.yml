@@ -47,8 +47,8 @@ jobs:
       - name: Verify stable version metadata
         shell: bash
         run: |
-          grep -q 'versionName = "3.3.18.3"' app/build.gradle.kts
-          grep -q 'versionCode = 55' app/build.gradle.kts
+          grep -q 'versionName = "3.3.19.1"' app/build.gradle.kts
+          grep -q 'versionCode = 56' app/build.gradle.kts
           if grep -q 'versionName = ".*-rc' app/build.gradle.kts; then
             echo "Release candidate suffix is still present."
             exit 1
@@ -87,20 +87,22 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: raad-pharmacy-v3.3.18.3-qa-reports
+          name: raad-pharmacy-v3.3.19.1-qa-reports
           path: |
             app/build/reports/navigation-preview/
+            app/build/reports/backup-preview/
             app/build/reports/tests/testDebugUnitTest/
             app/build/test-results/testDebugUnitTest/
             app/build/reports/lint-results-release.html
             app/build/reports/lint-results-release.xml
+            app/schemas/com.radwan.raadpharmacy.data.PharmacyLedgerDatabase/2.json
           if-no-files-found: ignore
 
       # CI artifacts are not official releases and may be debug-signed; never update phones using these.
       - name: Upload QA-only APK
         uses: actions/upload-artifact@v4
         with:
-          name: raad-pharmacy-v3.3.18.3-qa-only-not-for-update
+          name: raad-pharmacy-v3.3.19.1-qa-only-not-for-update
           path: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/app-release.apk.sha256

@@ -16,6 +16,7 @@ import androidx.room3.RoomDatabase
 import androidx.room3.Transaction
 import androidx.room3.Update
 import androidx.sqlite.driver.AndroidSQLiteDriver
+import com.radwan.raadpharmacy.backup.*
 import kotlinx.coroutines.flow.Flow
 
 @Entity(
@@ -269,58 +270,172 @@ interface PharmacyLedgerDao {
         return null
     }
 
+    // Only these transactional entrypoints are used by ledger, sync and restore.
+    // Failure to persist the change journal rolls back the financial write as well.
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertCustomerRow(customer: CustomerEntity)
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertCustomer(customer: CustomerEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertEntry(entry: LedgerEntryEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertCustomers(customers: List<CustomerEntity>)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertEntries(entries: List<LedgerEntryEntity>)
-
+    suspend fun insertEntryRow(entry: LedgerEntryEntity)
     @Update
-    suspend fun updateCustomer(customer: CustomerEntity)
+    suspend fun updateCustomerRow(customer: CustomerEntity)
+    @Update
+    suspend fun updateEntryRow(entry: LedgerEntryEntity)
+    @Query("DELETE FROM ledger_entries WHERE id = :id")
+    suspend fun deleteEntryRow(id: String)
+    @Query("DELETE FROM customers WHERE id = :id")
+    suspend fun deleteCustomerRow(id: String)
+
+    @Insert
+    suspend fun appendBackupChangeRow(change: BackupChangeEntity): Long
+    @Transaction
+    suspend fun appendBackupChange(change: BackupChangeEntity): Long {
+        val seq = appendBackupChangeRow(change)
+        saveBackupControl(BackupControlEntity("watermark", seq.toString()))
+        return seq
+    }
+    @Query("SELECT * FROM backup_changes WHERE sequence > :after ORDER BY sequence LIMIT :limit")
+    suspend fun backupChanges(after: Long, limit: Int = 100): List<BackupChangeEntity>
+    @Query("SELECT COALESCE(CAST((SELECT value FROM backup_control WHERE id = 'watermark') AS INTEGER), 0)")
+    suspend fun latestBackupSequence(): Long
+    @Query("SELECT COALESCE(CAST((SELECT value FROM backup_control WHERE id = 'watermark') AS INTEGER), 0)")
+    fun observeBackupSequence(): Flow<Long>
+    @Query("DELETE FROM backup_changes WHERE sequence <= :through")
+    suspend fun pruneBackupChanges(through: Long)
+    @Query("SELECT COUNT(*) FROM backup_changes WHERE sequence > :after")
+    suspend fun pendingBackupCount(after: Long): Int
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveBackupDestination(destination: BackupDestinationEntity)
+    @Query("SELECT * FROM backup_destinations")
+    suspend fun backupDestinations(): List<BackupDestinationEntity>
+    @Query("SELECT * FROM backup_destinations")
+    fun observeBackupDestinations(): Flow<List<BackupDestinationEntity>>
+    @Query("SELECT * FROM backup_photos")
+    suspend fun backupPhotos(): List<BackupPhotoEntity>
+    @Query("SELECT * FROM backup_photos WHERE customerId = :id")
+    suspend fun backupPhoto(id: String): BackupPhotoEntity?
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveBackupPhotoRow(photo: BackupPhotoEntity)
+    @Query("DELETE FROM backup_photos WHERE customerId = :id")
+    suspend fun deleteBackupPhotoRow(id: String)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveBackupControl(control: BackupControlEntity)
+    @Query("SELECT value FROM backup_control WHERE id = 'restore_hold'")
+    suspend fun restoreHold(): String?
 
     @Transaction
-    suspend fun upsertCustomerPreservingEntries(customer: CustomerEntity) {
-        val existing = getCustomerById(customer.id)
-        if (existing == null) insertCustomer(customer)
-        else if (existing != customer) updateCustomer(customer)
+    suspend fun insertCustomer(customer: CustomerEntity, origin: String = "LOCAL") {
+        check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
+        val old = getCustomerById(customer.id)
+        if (old == customer) return
+        if (old == null) insertCustomerRow(customer) else updateCustomerRow(customer)
+        appendBackupChange(BackupChangeEntity.customer(customer, origin))
     }
-
-    @Update
-    suspend fun updateEntry(entry: LedgerEntryEntity)
-
-    @Query("DELETE FROM ledger_entries WHERE id = :entryId")
-    suspend fun deleteEntryById(entryId: String)
-
-    @Query("DELETE FROM customers WHERE id = :customerId")
-    suspend fun deleteCustomerById(customerId: String)
-
-    @Query("DELETE FROM ledger_entries")
-    suspend fun clearEntries()
-
-    @Query("DELETE FROM customers")
-    suspend fun clearCustomers()
+    @Transaction
+    suspend fun updateCustomer(customer: CustomerEntity, origin: String = "LOCAL") {
+        if (getCustomerById(customer.id) != null) insertCustomer(customer, origin)
+    }
+    @Transaction
+    suspend fun upsertCustomerPreservingEntries(customer: CustomerEntity, origin: String = "LOCAL") {
+        insertCustomer(customer, origin)
+    }
+    @Transaction
+    suspend fun insertEntry(entry: LedgerEntryEntity, origin: String = "LOCAL") {
+        check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
+        if (getEntryById(entry.id) == entry) return
+        insertEntryRow(entry)
+        appendBackupChange(BackupChangeEntity.entry(entry, origin))
+    }
+    @Transaction
+    suspend fun updateEntry(entry: LedgerEntryEntity, origin: String = "LOCAL") {
+        if (getEntryById(entry.id) != null) insertEntry(entry, origin)
+    }
+    @Transaction
+    suspend fun insertCustomers(customers: List<CustomerEntity>, origin: String = "LOCAL") {
+        customers.forEach { insertCustomer(it, origin) }
+    }
+    @Transaction
+    suspend fun insertEntries(entries: List<LedgerEntryEntity>, origin: String = "LOCAL") {
+        entries.forEach { insertEntry(it, origin) }
+    }
+    @Transaction
+    suspend fun deleteEntryById(entryId: String, origin: String = "LOCAL") {
+        check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
+        if (getEntryById(entryId) == null) return
+        deleteEntryRow(entryId)
+        appendBackupChange(BackupChangeEntity.deleted("ENTRY", entryId, origin))
+    }
+    @Transaction
+    suspend fun deleteCustomerById(customerId: String, origin: String = "LOCAL") {
+        check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
+        if (getCustomerById(customerId) == null) return
+        getEntriesForCustomer(customerId).forEach { deleteEntryById(it.id, origin) }
+        setBackupPhoto(customerId, null, origin)
+        deleteCustomerRow(customerId)
+        appendBackupChange(BackupChangeEntity.deleted("CUSTOMER", customerId, origin))
+    }
+    @Transaction
+    suspend fun setBackupPhoto(id: String, bytes: ByteArray?, origin: String = "LOCAL") {
+        check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
+        if (bytes != null) {
+            require(bytes.size <= com.radwan.raadpharmacy.customer.CustomerPhotoStore.MAX_BACKUP_PHOTO_BYTES) { "الصورة أكبر من الحجم الآمن للنسخ." }
+            if (getCustomerById(id) == null) return
+        }
+        val old = backupPhoto(id)
+        if (bytes == null) {
+            if (old == null) return
+            deleteBackupPhotoRow(id)
+        } else {
+            if (old != null && old.bytes.contentEquals(bytes)) return
+            saveBackupPhotoRow(BackupPhotoEntity(id, bytes))
+        }
+        appendBackupChange(BackupChangeEntity.photo(id, bytes, origin))
+    }
+    @Transaction
+    suspend fun clearEntries() { getEntries().forEach { deleteEntryById(it.id) } }
+    @Transaction
+    suspend fun clearCustomers() { getCustomers().forEach { deleteCustomerById(it.id) } }
 
     @Transaction
-    suspend fun replaceAll(
-        customers: List<CustomerEntity>,
-        entries: List<LedgerEntryEntity>
-    ) {
-        clearEntries()
-        clearCustomers()
-        if (customers.isNotEmpty()) insertCustomers(customers)
-        if (entries.isNotEmpty()) insertEntries(entries)
+    suspend fun replaceAll(customers: List<CustomerEntity>, entries: List<LedgerEntryEntity>, origin: String = "LOCAL") {
+        val ids = customers.mapTo(hashSetOf()) { it.id }
+        val entryIds = entries.mapTo(hashSetOf()) { it.id }
+        getEntries().filter { it.id !in entryIds }.forEach { deleteEntryById(it.id, origin) }
+        getCustomers().filter { it.id !in ids }.forEach { deleteCustomerById(it.id, origin) }
+        insertCustomers(customers, origin)
+        insertEntries(entries, origin)
     }
+
+    @Transaction
+    suspend fun captureBackup(): BackupCapture = BackupCapture(
+        getCustomers(), getEntries(), backupPhotos(), latestBackupSequence(), restoreHold() == "1"
+    )
+
+    @Transaction
+    suspend fun completeReconciliation(customers: List<CustomerEntity>, entries: List<LedgerEntryEntity>) {
+        replaceAll(customers, entries, "REMOTE")
+        backupPhotos().forEach { setBackupPhoto(it.customerId, null, "REMOTE") }
+        saveBackupControl(BackupControlEntity("restore_hold", "0"))
+    }
+
+    @Transaction
+    suspend fun restoreLocal(customers: List<CustomerEntity>, entries: List<LedgerEntryEntity>, photos: List<BackupPhotoEntity>) {
+        saveBackupControl(BackupControlEntity("restore_hold", "1"))
+        replaceAll(customers, entries, "RESTORE")
+        backupPhotos().forEach { setBackupPhoto(it.customerId, null, "RESTORE") }
+        photos.forEach { setBackupPhoto(it.customerId, it.bytes, "RESTORE") }
+        // New lineage prevents future files being applied to pre-restore snapshots.
+        backupDestinations().forEach {
+            saveBackupDestination(it.copy(chainId = java.util.UUID.randomUUID().toString(), cursor = 0,
+                snapshotSequence = 0, lastFullAt = 0, lastChangeAt = 0))
+        }
+    }
+
 }
 
 @Database(
-    entities = [CustomerEntity::class, LedgerEntryEntity::class],
-    version = 1,
+    entities = [CustomerEntity::class, LedgerEntryEntity::class, BackupChangeEntity::class,
+        BackupDestinationEntity::class, BackupPhotoEntity::class, BackupControlEntity::class],
+    version = 2,
     exportSchema = true
 )
 abstract class PharmacyLedgerDatabase : RoomDatabase() {
@@ -337,6 +452,7 @@ abstract class PharmacyLedgerDatabase : RoomDatabase() {
                     "raad_pharmacy_ledger.db"
                 )
                     .setDriver(AndroidSQLiteDriver())
+                    .addMigrations(BackupMigration.MIGRATION_1_2)
                     .build()
                     .also { instance = it }
             }
