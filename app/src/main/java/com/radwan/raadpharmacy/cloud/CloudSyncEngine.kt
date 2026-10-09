@@ -55,7 +55,6 @@ class CloudSyncEngine(context: Context) {
         client.auth.awaitInitialization()
         val userId = checkNotNull(client.auth.currentSessionOrNull()?.user?.id) { "Push registration session is not ready" }
         val profile = client.from("profiles").select { filter { eq("id", userId) } }.decodeSingle<CloudProfileRow>()
-        if (profile.pharmacyId != CloudHandover.LIVE_PHARMACY_ID) return@withLock
         registerDevice(profile, userId)
         registerPushToken(profile, userId)
     }
@@ -68,7 +67,6 @@ class CloudSyncEngine(context: Context) {
             .select { filter { eq("id", userId) } }
             .decodeSingle<CloudProfileRow>()
 
-        if (profile.pharmacyId != CloudHandover.LIVE_PHARMACY_ID) return@withLock
         registerDevice(profile, userId)
         registerPushToken(profile, userId)
 
@@ -89,7 +87,6 @@ class CloudSyncEngine(context: Context) {
             .select { filter { eq("id", userId) } }
             .decodeSingle<CloudProfileRow>()
 
-        if (profile.pharmacyId != CloudHandover.LIVE_PHARMACY_ID) return@withLock
         registerDevice(profile, userId)
         registerPushToken(profile, userId)
         pushPending(profile)
