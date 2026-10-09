@@ -37,3 +37,13 @@ fun normalizeIraqPhone(phone: String): String {
         else -> "+964$digits"
     }
 }
+
+/**
+ * Strict Iraqi mobile number for direct WhatsApp contact shares.
+ * International form has 964 followed by 7 and nine more ASCII digits.
+ * A malformed or missing number must never open an arbitrary contact.
+ */
+fun validatedIraqiWhatsappPhone(raw: String): String? {
+    val normalized = normalizeIraqPhone(raw).filter { it in '0'..'9' }
+    return normalized.takeIf { Regex("^9647[0-9]{9}$").matches(it) }
+}
