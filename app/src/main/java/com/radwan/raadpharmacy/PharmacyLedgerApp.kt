@@ -62,7 +62,7 @@ import com.radwan.raadpharmacy.ui.screens.CustomerTransactionsScreenV6
 import com.radwan.raadpharmacy.ui.screens.CustomersScreenV3
 import com.radwan.raadpharmacy.ui.screens.DailyCollectionsScreenV4
 import com.radwan.raadpharmacy.ui.screens.DailyDebtsScreenV4
-import com.radwan.raadpharmacy.ui.screens.FollowUpScreenV4
+import com.radwan.raadpharmacy.ui.screens.SmartDebtFollowupV316
 import com.radwan.raadpharmacy.ui.screens.HomeScreenV3
 import com.radwan.raadpharmacy.ui.screens.ReportsScreenV11
 import com.radwan.raadpharmacy.ui.screens.SettingsScreenV10
@@ -435,7 +435,7 @@ fun PharmacyLedgerApp(
                         ReportsScreenV11(vm, onCustomer = { navController.navigate(Routes.customer(it)) })
                     }
                     composable(Routes.FOLLOWUP) {
-                        FollowUpScreenV4(vm, navController::popBackStack, onCustomer = { navController.navigate(Routes.customer(it)) })
+                        SmartDebtFollowupV316(vm, navController::popBackStack, onCustomer = { navController.navigate(Routes.customer(it)) })
                     }
                     composable(Routes.SETTINGS) {
                         SettingsScreenV10(vm)
