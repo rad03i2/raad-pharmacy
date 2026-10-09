@@ -70,8 +70,9 @@ class TeamMessageDialogsTest {
         compose.onNodeWithText("إرسال").assertIsEnabled().performClick()
         assertEquals(1,sent)
         compose.onNode(hasSetTextAction()).assertTextContains("صباح الخير")
-        compose.runOnIdle { text="س".repeat(501) }
+        compose.onNode(hasSetTextAction()).performTextReplacement("س".repeat(501))
         compose.mainClock.advanceTimeBy(250)
+        compose.onNode(hasSetTextAction()).assertTextContains("س".repeat(501))
         compose.onNodeWithText("إرسال").assertIsNotEnabled()
     }
 }
