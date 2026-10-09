@@ -7,6 +7,17 @@ import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import com.radwan.raadpharmacy.data.LedgerReleaseCleanup
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.radwan.raadpharmacy.cloud.CloudAuthGate
 import com.radwan.raadpharmacy.cloud.CloudNotificationInbox
@@ -37,13 +48,30 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         readNotificationIntent(intent)
         setContent {
-            CloudAuthGate {
+            val resetFinished = remember { mutableStateOf(false) }
+            val resetError = remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                try {
+                    withContext(Dispatchers.IO) { LedgerReleaseCleanup.clearOnce(applicationContext) }
+                    resetFinished.value = true
+                } catch (_: Exception) {
+                    resetError.value = true
+                }
+            }
+            if (resetFinished.value) {
+                CloudAuthGate {
                 PharmacyLedgerApp(
                     notificationCustomerId = notificationCustomerId.value,
                     notificationOpenSettings = notificationOpenSettings.value,
                     notificationOpenFollowup = notificationOpenFollowup.value,
                     onNotificationHandled = { notificationCustomerId.value = null; notificationOpenSettings.value = false; notificationOpenFollowup.value = false }
                 )
+                }
+            } else {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (resetError.value) Text("تعذر تهيئة دفتر الزبائن. أعد فتح التطبيق.")
+                    else CircularProgressIndicator()
+                }
             }
         }
     }
