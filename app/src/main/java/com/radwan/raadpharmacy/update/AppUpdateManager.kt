@@ -149,7 +149,7 @@ object AppUpdateManager {
         val signers = if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners
                       else info.signatures
         check(signers?.size == 1) { "لا يمكن التحقق من شهادة التوقيع." }
-        return signers[0].toByteArray()
+        return requireNotNull(signers).single().toByteArray()
     }
 
     private fun bytesHex(bytes: ByteArray) =
@@ -187,7 +187,12 @@ object AppUpdateManager {
     fun begin(context: Context, release: Release): Session {
         check(release.versionCode > BuildConfig.VERSION_CODE)
         check(release.signer == installedSigner(context)) { "الشهادة غير متطابقة." }
-        pending(context)?.let { return it }
+        pending(context)?.let { previous ->
+            if (previous.tag == release.tag && previous.code == release.versionCode &&
+                previous.sha256 == release.sha256) return previous
+            (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).remove(previous.id)
+            reset(context)
+        }
         val file = targetFile(context, release.tag)
         if (file.exists()) check(file.delete()) { "تعذر حذف تنزيل تالف سابق." }
         val request = DownloadManager.Request(Uri.parse(release.apkUrl))
