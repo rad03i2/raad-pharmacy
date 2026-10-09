@@ -88,15 +88,37 @@ jobs:
           set -euo pipefail
           apk="app/build/outputs/apk/release/app-release.apk"
           build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
-          signer=$("$build_tools/apksigner" verify --print-certs "$apk" |
-            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)
-          pinned=$(tr -d '\r\n' < docs/production-signing-certificate.sha256)
-          if ! [[ "$pinned" =~ ^[a-f0-9]{64}$ ]] || [ "$signer" != "$pinned" ]; then
-            echo '::error::APK signing cert differs from pinned production key. Refusing publication.'
+          # Verify the APK cryptographically before reading its public signer fingerprint.
+          cert_report=$("$build_tools/apksigner" verify --verbose --print-certs "$apk")
+          signer=$(printf '%s\n' "$cert_report" |
+            sed -nE 's/^[[:space:]]*Signer #1 certificate SHA-256 digest:[[:space:]]*([[:xdigit:]]{64}).*$/\1/p' |
+            head -n 1 | tr '[:upper:]' '[:lower:]')
+          pinned=$(tr -d '\r\n[:space:]' < docs/production-signing-certificate.sha256 | tr '[:upper:]' '[:lower:]')
+          # Cross-check the keystore itself, so extraction failures cannot be
+          # mistaken for a wrong private key. SHA-256 certificate hashes are public.
+          key_signer=$(keytool -exportcert -rfc \
+            -keystore "$RAAD_KEYSTORE_PATH" -alias "$RAAD_KEY_ALIAS" \
+            -storepass:env RAAD_KEYSTORE_PASSWORD |
+            openssl x509 -noout -fingerprint -sha256 |
+            cut -d= -f2 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          if ! [[ "$signer" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::Could not parse the APK signing certificate from apksigner output."
+            printf '%s\n' "$cert_report" | grep -E 'certificate SHA-256 digest:' || true
             exit 1
           fi
-          if ! [[ "$signer" =~ ^[a-f0-9]{64}$ ]]; then
-            echo "::error::APK signature check failed."
+          if ! [[ "$pinned" =~ ^[a-f0-9]{64}$ ]] || ! [[ "$key_signer" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::Could not read pinned/keystore certificate SHA-256."
+            exit 1
+          fi
+          echo "APK certificate SHA-256: $signer"
+          echo "Keystore certificate SHA-256: $key_signer"
+          echo "Pinned certificate SHA-256: $pinned"
+          if [ "$key_signer" != "$pinned" ]; then
+            echo "::error::Private signing keystore does not match pinned certificate. Refusing publication."
+            exit 1
+          fi
+          if [ "$signer" != "$key_signer" ]; then
+            echo "::error::Built APK was signed with an unexpected key. Refusing publication."
             exit 1
           fi
           version=$(sed -n 's/^ *versionName = "\([^"]*\)"/\1/p' app/build.gradle.kts | head -n 1)
