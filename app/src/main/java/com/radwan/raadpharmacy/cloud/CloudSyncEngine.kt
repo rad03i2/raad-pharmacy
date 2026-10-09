@@ -8,6 +8,7 @@ import android.util.Log
 import com.radwan.raadpharmacy.data.CustomerEntity
 import com.radwan.raadpharmacy.data.LedgerEntryEntity
 import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
+import com.radwan.raadpharmacy.data.LedgerReleaseCleanup
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.postgrest.from
@@ -35,6 +36,7 @@ class CloudSyncEngine(context: Context) {
     private val syncPrefs = appContext.getSharedPreferences("raad_cloud_sync_state_v2", Context.MODE_PRIVATE)
 
     suspend fun unregisterPushToken() = globalSyncMutex.withLock {
+        LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         val session = client.auth.currentSessionOrNull() ?: return@withLock
         val userId = session.user?.id ?: return@withLock
@@ -60,6 +62,7 @@ class CloudSyncEngine(context: Context) {
     }
 
     suspend fun syncOnce() = globalSyncMutex.withLock {
+        LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         val session = client.auth.currentSessionOrNull() ?: return@withLock
         val userId = session.user?.id ?: return@withLock
@@ -80,6 +83,7 @@ class CloudSyncEngine(context: Context) {
     }
 
     suspend fun flushPendingOnly() = globalSyncMutex.withLock {
+        LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         val session = client.auth.currentSessionOrNull() ?: return@withLock
         val userId = session.user?.id ?: return@withLock
@@ -93,6 +97,7 @@ class CloudSyncEngine(context: Context) {
     }
 
     suspend fun pullRemoteNow() = globalSyncMutex.withLock {
+        LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         if (client.auth.currentSessionOrNull() == null) return@withLock
         pullRemoteDelta()
