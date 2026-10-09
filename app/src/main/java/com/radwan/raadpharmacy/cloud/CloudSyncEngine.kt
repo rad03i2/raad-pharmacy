@@ -29,6 +29,7 @@ class CloudSyncEngine(context: Context) {
     private val journal = CloudSyncJournal(appContext)
     private val deviceStore = CloudDeviceStore(appContext)
     private val mediaStore = CloudMediaStore(appContext)
+    private val actors = EntryActorStore.get(appContext)
     private val syncPrefs = appContext.getSharedPreferences("raad_cloud_sync_state_v2", Context.MODE_PRIVATE)
 
     suspend fun unregisterPushToken() = globalSyncMutex.withLock {
@@ -278,6 +279,7 @@ class CloudSyncEngine(context: Context) {
         val pullStartedAt = System.currentTimeMillis()
         val remoteCustomers = fetchCustomers()
         val remoteTransactions = fetchTransactions()
+        actors.rememberActors(remoteTransactions)
         applyRemoteSnapshot(remoteCustomers, remoteTransactions)
         mediaStore.reconcileCustomerPhotos(remoteCustomers)
         syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, pullStartedAt).apply()
@@ -297,6 +299,15 @@ class CloudSyncEngine(context: Context) {
 
         val changedCustomers = fetchCustomers(since)
         val changedTransactions = fetchTransactions(since)
+        actors.rememberActors(changedTransactions)
+        // Once per installation, populate creators of existing historical entries.
+        // A failure never blocks normal financial reconciliation and can retry later.
+        if (!syncPrefs.getBoolean("transaction_authors_backfilled_v1", false)) {
+            runCatching {
+                actors.rememberActors(fetchTransactions())
+                syncPrefs.edit().putBoolean("transaction_authors_backfilled_v1", true).apply()
+            }.onFailure { Log.w(TAG, "Author metadata backfill deferred", it) }
+        }
 
         changedCustomers.forEach { applyCustomerRealtime(it) }
         changedTransactions.forEach { applyTransactionRealtime(it) }
@@ -322,6 +333,7 @@ class CloudSyncEngine(context: Context) {
         }
 
     private suspend fun applyTransactionRealtime(row: CloudTransactionRow) {
+        actors.rememberActors(listOf(row))
         val pending = journal.snapshot()
         if (
             row.id in pending.transactionUpserts ||

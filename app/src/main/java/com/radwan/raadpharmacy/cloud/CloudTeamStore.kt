@@ -78,6 +78,7 @@ class CloudTeamStore(context: Context) {
                 }
                 val profiles = profilesRequest.await()
                 val pharmacyId = profiles.firstOrNull { it.id == userId }?.pharmacyId
+                EntryActorStore.get(appContext).rememberProfiles(profiles.filter { it.pharmacyId == pharmacyId })
                 val visible = profiles.filter {
                     it.pharmacyId == pharmacyId &&
                         (it.id == userId || (it.role == "MANAGER" && !it.isHidden))

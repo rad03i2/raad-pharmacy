@@ -4,6 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.radwan.raadpharmacy.customer.CustomerPhotoStore
+import com.radwan.raadpharmacy.cloud.EntryActorStore
+import com.radwan.raadpharmacy.cloud.SupabaseProvider
+import io.github.jan.supabase.auth.auth
 import com.radwan.raadpharmacy.data.AppRepository
 import com.radwan.raadpharmacy.data.AutoBackupInterval
 import com.radwan.raadpharmacy.data.BackupPreview
@@ -221,6 +224,7 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
 
         if (result is DebtCreateResult.Created) {
             val entry = result.entry
+            EntryActorStore.get(app).rememberActor(entry.id, SupabaseProvider.client.auth.currentSessionOrNull()?.user?.id)
             _entries.value = listOf(entry) + _entries.value.filterNot { it.id == entry.id }
             rebuildIndexes()
             loadAdvancedReport(_advancedReport.value.period)
@@ -233,6 +237,7 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         val customer = customer(customerId) ?: return@withLock false
         if (amount <= 0 || amount > balance(customer)) return@withLock false
         val entry = repository.addPayment(customerId, amount)
+        EntryActorStore.get(app).rememberActor(entry.id, SupabaseProvider.client.auth.currentSessionOrNull()?.user?.id)
         _entries.value = listOf(entry) + _entries.value.filterNot { it.id == entry.id }
         rebuildIndexes()
         loadAdvancedReport(_advancedReport.value.period)
