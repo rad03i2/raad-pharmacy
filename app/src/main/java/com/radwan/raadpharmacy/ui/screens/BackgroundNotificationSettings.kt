@@ -11,6 +11,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -23,6 +28,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -47,6 +53,7 @@ internal fun BackgroundNotificationSettings() {
     val owner = LocalLifecycleOwner.current
     var health by remember { mutableStateOf(notificationHealth(context)) }
     var continuous by remember { mutableStateOf(CloudContinuousListening.isEnabled(context)) }
+    var showDetails by rememberSaveable { mutableStateOf(false) }
     val running by CloudContinuousListening.running.collectAsState()
     DisposableEffect(owner, context) {
         val observer = LifecycleEventObserver { _, event ->
@@ -64,9 +71,23 @@ internal fun BackgroundNotificationSettings() {
                 Uri.parse("package:${context.packageName}"))) }
         }
     }
-    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("الإشعارات والعمل في الخلفية", style = MaterialTheme.typography.titleMedium)
+    OutlinedButton(
+        onClick = { showDetails = true },
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Text("الإشعارات والعمل في الخلفية", style = MaterialTheme.typography.titleMedium)
+    }
+    if (showDetails) {
+        AlertDialog(
+            onDismissRequest = { showDetails = false },
+            title = { Text("الإشعارات والعمل في الخلفية") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("التشغيل المستمر في الخلفية", style = MaterialTheme.typography.bodyMedium)
                 Switch(checked = continuous, onCheckedChange = { enabled ->
@@ -77,7 +98,7 @@ internal fun BackgroundNotificationSettings() {
             }
             Text(if (running) "خدمة الخلفية تعمل الآن" else if (continuous) "خدمة الخلفية لم تبدأ بعد" else "التشغيل المستمر متوقف",
                 style = MaterialTheme.typography.bodySmall)
-            Text("يبقى التطبيق فعالًا بعد الخروج منه، مع إشعار تشغيل دائم. بعد إطفاء الهاتف افتح التطبيق ليبدأ مجددًا. قد يزيد استهلاك البطارية.",
+            Text("تستمر متابعة التنبيهات في الخلفية مع إشعار نظام صامت ومختصر. بعد إعادة تشغيل الهاتف افتح التطبيق ليبدأ مجددًا. قد يزيد استهلاك البطارية.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("إذن الإشعارات: " + if (health.notificationsAllowed) "مفعّل" else "يحتاج السماح",
                 style = MaterialTheme.typography.bodyMedium)
@@ -95,6 +116,11 @@ internal fun BackgroundNotificationSettings() {
             }
             Text("في إعدادات الهاتف اختر البطارية: غير مقيّد، وفعّل التشغيل التلقائي إذا توفر.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDetails = false }) { Text("إغلاق") }
+            }
+        )
     }
 }
