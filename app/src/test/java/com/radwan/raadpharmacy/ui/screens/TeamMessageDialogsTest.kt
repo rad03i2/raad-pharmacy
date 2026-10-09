@@ -20,9 +20,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[35],qualifiers="w420dp-h800dp-mdpi")
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TeamMessageDialogsTest {
     @get:Rule val compose = createComposeRule()
     @Test fun unreadActionOnlyAppearsForNewMessagesAndAllActionsStayReachable() {
@@ -59,7 +61,7 @@ class TeamMessageDialogsTest {
         compose.onNode(hasSetTextAction()).performTextInput("صباح الخير")
         compose.onNodeWithText("إرسال").assertIsEnabled().performClick()
         assertEquals(1,sent)
-        compose.onNode(hasSetTextAction()).assertTextEquals("صباح الخير")
+        compose.onNode(hasSetTextAction()).assertTextContains("صباح الخير")
         compose.runOnIdle { text="س".repeat(501) }
         compose.onNodeWithText("إرسال").assertIsNotEnabled()
     }

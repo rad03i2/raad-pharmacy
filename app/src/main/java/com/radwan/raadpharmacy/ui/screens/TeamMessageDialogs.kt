@@ -3,6 +3,7 @@ package com.radwan.raadpharmacy.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,14 +40,14 @@ import com.radwan.raadpharmacy.util.formatTime
 internal fun TeamMessageActions(name: String, sendingAlert: Boolean, hasUnread: Boolean,
     onAlert: () -> Unit, onCompose: () -> Unit, onRead: () -> Unit) {
     Row {
-        IconButton(onClick = onAlert, enabled = !sendingAlert) {
+        IconButton(onClick = onAlert, enabled = !sendingAlert, modifier = Modifier.size(48.dp)) {
             if (sendingAlert) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             else Icon(Icons.Rounded.Vibration, "تنبيه $name", tint = MaterialTheme.colorScheme.primary)
         }
-        IconButton(onClick = onCompose) {
+        IconButton(onClick = onCompose, modifier = Modifier.size(48.dp)) {
             Icon(Icons.AutoMirrored.Rounded.Send, "إرسال رسالة إلى $name", tint = MaterialTheme.colorScheme.primary)
         }
-        if (hasUnread) IconButton(onClick = onRead) {
+        if (hasUnread) IconButton(onClick = onRead, modifier = Modifier.size(48.dp)) {
             BadgedBox(badge = { Badge(Modifier.size(7.dp), containerColor = Color(0xFFE23C48)) }) {
                 Icon(Icons.Rounded.MarkEmailUnread, "رسائل جديدة من $name", tint = MaterialTheme.colorScheme.primary)
             }
@@ -65,7 +66,7 @@ internal fun ComposeTeamMessageDialog(name: String, text: String, sending: Boole
             LaunchedEffect(Unit) { focus.requestFocus() }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = text, onValueChange = onText, enabled = !sending,
-                    modifier = Modifier.focusRequester(focus), minLines = 3, maxLines = 5,
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus), minLines = 3, maxLines = 5,
                     placeholder = { Text("اكتب رسالتك") }, supportingText = { Text("${text.length}/500") },
                     isError = text.length > 500)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
