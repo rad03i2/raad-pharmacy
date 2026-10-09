@@ -54,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.data.Customer
 import com.radwan.raadpharmacy.data.EntryType
+import com.radwan.raadpharmacy.ui.components.EntryActorCaption
 import com.radwan.raadpharmacy.data.LedgerEntry
 import com.radwan.raadpharmacy.ui.components.CustomerAvatar
 import com.radwan.raadpharmacy.ui.components.CustomerCard
@@ -486,7 +487,11 @@ private fun V4OperationRow(entry: LedgerEntry, customer: Customer?, positive: Bo
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Text(formatMoney(entry.amount), color = if (positive) PaidGreen else DebtRed, style = MaterialTheme.typography.titleMedium)
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(formatMoney(entry.amount), color = if (positive) PaidGreen else DebtRed,
+                    style = MaterialTheme.typography.titleMedium)
+                EntryActorCaption(entry.id)
+            }
         }
     }
 }

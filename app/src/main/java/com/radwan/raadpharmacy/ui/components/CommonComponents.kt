@@ -373,6 +373,7 @@ fun TransactionRow(
                     modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                 )
             }
+            EntryActorCaption(entry.id)
             if (showBalance != null) {
                 Text(
                     "الرصيد " + if (hideAmounts) "•••• د.ع" else formatMoney(showBalance),
