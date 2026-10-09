@@ -29,6 +29,11 @@ object BackupArchive {
             put("occurredAt", r.occurredAt); put("payload", JSONObject(r.payload))
         }) } })
     }
+    private fun checkedPhoto(id: String, encoded: String): BackupPhotoEntity {
+        val bytes = Base64.getDecoder().decode(encoded)
+        require(bytes.size <= com.radwan.raadpharmacy.customer.CustomerPhotoStore.MAX_BACKUP_PHOTO_BYTES) { "صورة النسخة أكبر من الحجم الآمن." }
+        return BackupPhotoEntity(id, bytes)
+    }
     fun validateHeader(root: JSONObject) {
         require(root.getString("format") == FORMAT) { "صيغة النسخة غير متوافقة." }
         require(root.getString("chain").isNotBlank() && root.getLong("sequence") >= 0)
@@ -46,7 +51,7 @@ object BackupArchive {
             val p = array.getJSONObject(i)
             val id = p.getString("id")
             require(id.matches(Regex("[a-zA-Z0-9_-]+")) && id in customers && id !in photos)
-            photos[id] = BackupPhotoEntity(id, Base64.getDecoder().decode(p.getString("bytes")))
+            photos[id] = checkedPhoto(id, p.getString("bytes"))
         }
         val chain = snapshot.getString("chain")
         var cursor = snapshot.getLong("sequence")
@@ -90,7 +95,7 @@ object BackupArchive {
                 }
                 "PHOTO" -> if (action == "DELETE") photos.remove(id) else {
                     require(id.matches(Regex("[a-zA-Z0-9_-]+")) && id in customers)
-                    photos[id] = BackupPhotoEntity(id, Base64.getDecoder().decode(row.getJSONObject("payload").getString("bytes")))
+                    photos[id] = checkedPhoto(id, row.getJSONObject("payload").getString("bytes"))
                 }
                 else -> error("نوع تغيير غير معروف.")
             }

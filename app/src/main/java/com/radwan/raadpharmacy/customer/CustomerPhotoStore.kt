@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import com.radwan.raadpharmacy.backup.readBackupBytes
 import com.radwan.raadpharmacy.backup.BackupPhotoEntity
 import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
 import kotlinx.coroutines.runBlocking
@@ -39,30 +42,22 @@ class CustomerPhotoStore(context: Context) {
     }
 
     fun save(customerId: String, source: Uri): File {
+        val bytes = appContext.contentResolver.openInputStream(source)?.use { portablePhoto(it.readBackupBytes()) }
+            ?: error("تعذر فتح الصورة.")
+        journalPhoto(customerId, bytes, "LOCAL")
         val destination = destination(customerId)
-        appContext.contentResolver.openInputStream(source).use { input ->
-            requireNotNull(input) { "تعذر فتح الصورة." }
-            FileOutputStream(destination, false).use { output ->
-                input.copyTo(output)
-            }
-        }
-        prefs.edit()
-            .putString(customerId, destination.absolutePath)
-            .remove(remotePathKey(customerId))
-            .apply()
-        journalPhoto(customerId, destination.readBytes(), "LOCAL")
+        destination.writeBytes(bytes)
+        prefs.edit().putString(customerId, destination.absolutePath).remove(remotePathKey(customerId)).apply()
         CustomerPhotoUpdates.bump(customerId)
         return destination
     }
 
     fun saveRemote(customerId: String, remotePath: String, bytes: ByteArray): File {
+        val protected = portablePhoto(bytes)
+        journalPhoto(customerId, protected, "REMOTE")
         val destination = destination(customerId)
-        destination.writeBytes(bytes)
-        prefs.edit()
-            .putString(customerId, destination.absolutePath)
-            .putString(remotePathKey(customerId), remotePath)
-            .apply()
-        journalPhoto(customerId, bytes, "REMOTE")
+        destination.writeBytes(protected)
+        prefs.edit().putString(customerId, destination.absolutePath).putString(remotePathKey(customerId), remotePath).apply()
         CustomerPhotoUpdates.bump(customerId)
         return destination
     }
@@ -94,12 +89,17 @@ class CustomerPhotoStore(context: Context) {
 
     suspend fun importExistingToBackup() {
         val dao = PharmacyLedgerDatabase.get(appContext).dao()
-        for (customer in if (dao.restoreHold() == "1") emptyList() else dao.getCustomers()) {
+        if (dao.restoreHold() == "1") {
+            rebuildFromBackup(dao.backupPhotos())
+            return
+        }
+        if (prefs.getBoolean("backup_photos_imported_v2", false)) return
+        for (customer in dao.getCustomers()) {
             if (dao.backupPhoto(customer.id) == null) file(customer.id)?.let {
-                dao.setBackupPhoto(customer.id, it.readBytes(), "LOCAL")
+                dao.setBackupPhoto(customer.id, portablePhoto(it.readBytes()), "LOCAL")
             }
         }
-        rebuildFromBackup(dao.backupPhotos(), clearRemote = dao.restoreHold() == "1")
+        check(prefs.edit().putBoolean("backup_photos_imported_v2", true).commit())
     }
 
     fun rebuildFromBackup(photos: List<BackupPhotoEntity>, clearRemote: Boolean = true) {
@@ -117,6 +117,31 @@ class CustomerPhotoStore(context: Context) {
         check(editor.commit())
     }
 
+    private fun portablePhoto(bytes: ByteArray): ByteArray {
+        if (bytes.size <= MAX_BACKUP_PHOTO_BYTES) return bytes
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "ملف الصورة غير صالح." }
+        var sample = 1
+        while (bounds.outWidth / sample > 1280 || bounds.outHeight / sample > 1280) sample *= 2
+        var bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: error("تعذر تجهيز الصورة للنسخ.")
+        try {
+            var quality = 88
+            while (true) {
+                val out = java.io.ByteArrayOutputStream()
+                check(bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out))
+                if (out.size() <= MAX_BACKUP_PHOTO_BYTES) return out.toByteArray()
+                if (quality > 58) quality -= 15 else {
+                    val smaller = Bitmap.createScaledBitmap(bitmap, (bitmap.width / 2).coerceAtLeast(1), (bitmap.height / 2).coerceAtLeast(1), true)
+                    if (smaller !== bitmap) bitmap.recycle()
+                    bitmap = smaller
+                    quality = 88
+                }
+            }
+        } finally { bitmap.recycle() }
+    }
+
     private fun destination(customerId: String): File {
         val dir = File(appContext.filesDir, "customer_photos").apply { mkdirs() }
         return File(dir, customerId + ".jpg")
@@ -125,6 +150,7 @@ class CustomerPhotoStore(context: Context) {
     private fun remotePathKey(customerId: String): String = "remote_path_$customerId"
 
     companion object {
+        const val MAX_BACKUP_PHOTO_BYTES = 512 * 1024
         private const val PREFS = "customer_photo_store_v1"
     }
 }
