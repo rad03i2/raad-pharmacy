@@ -18,7 +18,7 @@ import kotlinx.coroutines.sync.withLock
 
 class CloudNotificationInbox(context: Context) {
     private val appContext = context.applicationContext
-    private val client = SupabaseProvider.client
+    private val client by lazy { SupabaseProvider.client }
     private val dao = PharmacyLedgerDatabase.get(appContext).dao()
     private val deviceStore = CloudDeviceStore(appContext)
     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).also { store ->
