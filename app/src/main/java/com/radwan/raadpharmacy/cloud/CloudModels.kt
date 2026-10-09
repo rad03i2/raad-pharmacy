@@ -95,6 +95,8 @@ data class CloudPushTokenWrite(
     @SerialName("device_id") val deviceId: String,
     val token: String,
     val provider: String = "FCM",
+    @SerialName("app_version_code") val appVersionCode: Int = 0,
+    @SerialName("hide_notification_details") val hideNotificationDetails: Boolean = true,
     @SerialName("deleted_at") val deletedAt: String? = null
 )
 
