@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +26,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -63,10 +65,10 @@ internal fun ComposeTeamMessageDialog(name: String, text: String, sending: Boole
         onDismissRequest = { if (!sending) onDismiss() },
         title = { Text("رسالة إلى $name") },
         text = {
-            LaunchedEffect(Unit) { focus.requestFocus() }
+            LaunchedEffect(Unit) { withFrameNanos { }; focus.requestFocus() }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = text, onValueChange = onText, enabled = !sending,
-                    modifier = Modifier.fillMaxWidth().focusRequester(focus), minLines = 3, maxLines = 5,
+                    modifier = Modifier.fillMaxWidth().height(144.dp).focusRequester(focus), maxLines = 5,
                     placeholder = { Text("اكتب رسالتك") }, supportingText = { Text("${text.length}/500") },
                     isError = text.length > 500)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
