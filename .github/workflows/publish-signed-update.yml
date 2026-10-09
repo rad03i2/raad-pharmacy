@@ -1,6 +1,8 @@
 name: Publish signed Android update
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,7 +21,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Check whether publishing is needed
+        id: gate
+        env:
+          SIGNING_B64: ${{ secrets.RAAD_SIGNING_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^ *versionName = "\([^"]*\)"/\1/p' app/build.gradle.kts | head -n 1)
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo '::error::Invalid version number'; exit 1
+          fi
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo 'Official release already exists: skipping.'
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          elif [ -z "$SIGNING_B64" ] || [ -z "$RAAD_KEYSTORE_PASSWORD" ] ||
+               [ -z "$RAAD_KEY_ALIAS" ] || [ -z "$RAAD_KEY_PASSWORD" ]; then
+            if [ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]; then
+              echo '::error::Signing secrets are missing. Set them before publication.'; exit 1
+            fi
+            echo 'No production secrets yet; skipping publication without failing CI.'
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Require stable private signing key (never publish debug-signed APKs)
+        if: steps.gate.outputs.publish == 'true'
         env:
           KEYSTORE_BASE64: ${{ secrets.RAAD_SIGNING_KEYSTORE_BASE64 }}
         shell: bash
@@ -36,22 +63,26 @@ jobs:
           echo "RAAD_KEYSTORE_PATH=$RUNNER_TEMP/raad-release.jks" >> "$GITHUB_ENV"
 
       - name: Set up JDK 17
+        if: steps.gate.outputs.publish == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle
+        if: steps.gate.outputs.publish == 'true'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
 
       - name: Test, lint and build production-signed APK
+        if: steps.gate.outputs.publish == 'true'
         run: |
           set -euo pipefail
           gradle :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
 
       - name: Verify signature, previous signer and monotonically increasing version
+        if: steps.gate.outputs.publish == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -59,6 +90,11 @@ jobs:
           build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
           signer=$("$build_tools/apksigner" verify --print-certs "$apk" |
             sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)
+          pinned=$(tr -d '\r\n' < docs/production-signing-certificate.sha256)
+          if ! [[ "$pinned" =~ ^[a-f0-9]{64}$ ]] || [ "$signer" != "$pinned" ]; then
+            echo '::error::APK signing cert differs from pinned production key. Refusing publication.'
+            exit 1
+          fi
           if ! [[ "$signer" =~ ^[a-f0-9]{64}$ ]]; then
             echo "::error::APK signature check failed."
             exit 1
@@ -109,6 +145,7 @@ jobs:
           echo "RAAD_RELEASE_NOTES=$RUNNER_TEMP/release-notes.txt" >> "$GITHUB_ENV"
 
       - name: Publish immutable GitHub Release
+        if: steps.gate.outputs.publish == 'true'
         shell: bash
         run: |
           set -euo pipefail
