@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  stable-release:
+  qa-verification:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -47,8 +47,8 @@ jobs:
       - name: Verify stable version metadata
         shell: bash
         run: |
-          grep -q 'versionName = "3.3.14.1"' app/build.gradle.kts
-          grep -q 'versionCode = 46' app/build.gradle.kts
+          grep -q 'versionName = "3.3.15"' app/build.gradle.kts
+          grep -q 'versionCode = 47' app/build.gradle.kts
           if grep -q 'versionName = ".*-rc' app/build.gradle.kts; then
             echo "Release candidate suffix is still present."
             exit 1
@@ -60,7 +60,7 @@ jobs:
       - name: Run release lint
         run: gradle :app:lintRelease --stacktrace
 
-      - name: Build optimized stable APK
+      - name: Build optimized QA APK
         run: gradle :app:assembleRelease --stacktrace
 
       - name: Verify APK signature
@@ -76,7 +76,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: raad-pharmacy-v3.3.14.1-qa-reports
+          name: raad-pharmacy-v3.3.15-qa-reports
           path: |
             app/build/reports/navigation-preview/
             app/build/reports/tests/testDebugUnitTest/
@@ -85,10 +85,11 @@ jobs:
             app/build/reports/lint-results-release.xml
           if-no-files-found: ignore
 
-      - name: Upload stable APK
+      # CI artifacts are not official releases and may be debug-signed; never update phones using these.
+      - name: Upload QA-only APK
         uses: actions/upload-artifact@v4
         with:
-          name: raad-pharmacy-v3.3.14.1-stable-apk
+          name: raad-pharmacy-v3.3.15-qa-only-not-for-update
           path: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/app-release.apk.sha256
