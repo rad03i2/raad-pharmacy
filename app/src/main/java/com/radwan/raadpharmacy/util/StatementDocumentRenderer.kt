@@ -43,7 +43,6 @@ object StatementDocumentRenderer {
     private val greenDark = Color.rgb(30, 58, 138)
     private val greenSoft = Color.rgb(230, 247, 248)
     private val gold = Color.rgb(14, 165, 168)
-    private val goldSoft = Color.rgb(221, 247, 247)
     private val red = Color.rgb(220, 38, 38)
     private val redSoft = Color.rgb(254, 226, 226)
     private val ink = Color.rgb(15, 23, 42)
@@ -354,30 +353,7 @@ object StatementDocumentRenderer {
             alignment = Layout.Alignment.ALIGN_CENTER
         )
 
-        val summaryTop = 998
-        val gap = 24
-        val cardWidth = (WIDTH - 140 - gap) / 2
-
-        painter.summaryCard(
-            x = 70 + cardWidth + gap,
-            y = summaryTop,
-            width = cardWidth,
-            label = "إجمالي الديون",
-            value = formatMoney(snapshot.totalDebts),
-            background = goldSoft,
-            foreground = red
-        )
-        painter.summaryCard(
-            x = 70,
-            y = summaryTop,
-            width = cardWidth,
-            label = "إجمالي المدفوع",
-            value = formatMoney(snapshot.totalPaid),
-            background = greenSoft,
-            foreground = green
-        )
-
-        var y = 1180
+        var y = 998
         painter.text(
             value = if (snapshot.currentBalance > 0L) {
                 "الحركات التي تكوّن الرصيد الحالي"
@@ -525,50 +501,6 @@ object StatementDocumentRenderer {
             canvas.translate(x.toFloat(), y.toFloat())
             layout.draw(canvas)
             canvas.restore()
-        }
-
-        fun summaryCard(
-            x: Int,
-            y: Int,
-            width: Int,
-            label: String,
-            value: String,
-            background: Int,
-            foreground: Int
-        ) {
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = background
-                style = Paint.Style.FILL
-            }
-            canvas.drawRoundRect(
-                x.toFloat(),
-                y.toFloat(),
-                (x + width).toFloat(),
-                (y + 142).toFloat(),
-                32f,
-                32f,
-                paint
-            )
-            text(
-                value = label,
-                x = x + 22,
-                y = y + 22,
-                width = width - 44,
-                size = 25f,
-                color = muted,
-                isBold = true,
-                alignment = Layout.Alignment.ALIGN_CENTER
-            )
-            text(
-                value = value,
-                x = x + 22,
-                y = y + 69,
-                width = width - 44,
-                size = 34f,
-                color = foreground,
-                isBold = true,
-                alignment = Layout.Alignment.ALIGN_CENTER
-            )
         }
 
         fun movement(

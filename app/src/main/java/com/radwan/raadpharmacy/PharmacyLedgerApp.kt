@@ -55,6 +55,7 @@ import com.radwan.raadpharmacy.ui.screens.AddCustomerScreenV12
 import com.radwan.raadpharmacy.ui.screens.AppLockScreenV9
 import com.radwan.raadpharmacy.ui.screens.AddDebtScreenV12
 import com.radwan.raadpharmacy.ui.screens.AddPaymentScreenV12
+import com.radwan.raadpharmacy.ui.screens.AreaCustomersScreenV4
 import com.radwan.raadpharmacy.ui.screens.AreasScreenV4
 import com.radwan.raadpharmacy.ui.screens.CustomerProfileScreenV6
 import com.radwan.raadpharmacy.ui.screens.CustomerTransactionsScreenV6
@@ -86,11 +87,13 @@ object Routes {
     const val DAILY_DEBTS = "daily_debts"
     const val TOP_DEBTORS = "top_debtors"
     const val AREAS = "areas"
+    const val AREA_CUSTOMERS = "area_customers/{areaName}"
     const val SEARCH = "search?intent={intent}"
     const val REPORTS = "reports"
     const val FOLLOWUP = "followup"
     const val SETTINGS = "settings"
 
+    fun areaCustomers(name: String) = "area_customers/${android.net.Uri.encode(name)}"
     fun customer(id: String) = "customer/$id"
     fun addDebt(id: String) = "add_debt/$id"
     fun addPayment(id: String) = "add_payment/$id"
@@ -385,7 +388,15 @@ fun PharmacyLedgerApp(
                         TopDebtorsScreenV4(vm, navController::popBackStack, onCustomer = { navController.navigate(Routes.customer(it)) })
                     }
                     composable(Routes.AREAS) {
-                        AreasScreenV4(vm, navController::popBackStack, onCustomer = { navController.navigate(Routes.customer(it)) })
+                        AreasScreenV4(vm, navController::popBackStack, onArea = { navController.navigate(Routes.areaCustomers(it)) })
+                    }
+                    composable(
+                        Routes.AREA_CUSTOMERS,
+                        arguments = listOf(navArgument("areaName") { type = NavType.StringType })
+                    ) {
+                        val name = it.arguments?.getString("areaName").orEmpty()
+                        AreaCustomersScreenV4(vm, name, navController::popBackStack,
+                            onCustomer = { id -> navController.navigate(Routes.customer(id)) })
                     }
                     composable(
                         Routes.SEARCH,

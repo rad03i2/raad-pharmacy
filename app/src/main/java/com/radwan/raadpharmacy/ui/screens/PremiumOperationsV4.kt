@@ -45,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -286,13 +287,12 @@ fun TopDebtorsScreenV4(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustom
 }
 
 @Composable
-fun AreasScreenV4(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustomer: (String) -> Unit) {
+fun AreasScreenV4(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onArea: (String) -> Unit) {
     val customers by vm.customers.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
-    var expanded by remember { mutableStateOf<String?>(null) }
-    var query by remember { mutableStateOf("") }
-    var sort by remember { mutableStateOf(AreaSort.DEBT) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(AreaSort.DEBT) }
     val today = LocalDate.now()
     val groups by androidx.compose.runtime.produceState(emptyList<AreaOverview>(), customers, entries, today) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
@@ -343,7 +343,7 @@ fun AreasScreenV4(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustomer: (
             }
             visible.forEach { area ->
                 item(key = "area-" + area.name) {
-                    Surface(onClick = { expanded = if (expanded == area.name) null else area.name },
+                    Surface(onClick = { onArea(area.name) },
                         modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large,
                         color = MaterialTheme.colorScheme.surface,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
@@ -362,16 +362,71 @@ fun AreasScreenV4(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustomer: (
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("تحصيل اليوم " + if (security.hideAmounts) "•••• د.ع" else formatMoney(area.collectedToday),
                                     style = MaterialTheme.typography.labelMedium, color = PaidGreen)
-                                Text(if (expanded == area.name) "إخفاء الزبائن" else "عرض الزبائن",
+                                Text("عرض الزبائن",
                                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
                 }
-                if (expanded == area.name) items(area.customers, key = { "area-customer-" + it.id }) { customer ->
-                    CustomerCard(customer, area.balances[customer.id] ?: 0L, { onCustomer(customer.id) },
-                        hideBalance = security.hideAmounts)
+            }
+        }
+    }
+}
+
+@Composable
+fun AreaCustomersScreenV4(
+    vm: PharmacyLedgerViewModel,
+    areaName: String,
+    onBack: () -> Unit,
+    onCustomer: (String) -> Unit
+) {
+    val customers by vm.customers.collectAsStateWithLifecycle()
+    val entries by vm.entries.collectAsStateWithLifecycle()
+    val security by vm.securityState.collectAsStateWithLifecycle()
+    var query by rememberSaveable(areaName) { mutableStateOf("") }
+    val today = LocalDate.now()
+    val area by androidx.compose.runtime.produceState<AreaOverview?>(null, areaName, customers, entries, today) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            buildAreaOverview(customers, entries, today).firstOrNull { it.name == areaName }
+        }
+    }
+    val members = remember(area, query) {
+        val search = query.trim()
+        area?.customers.orEmpty().filter {
+            search.isEmpty() || it.name.contains(search, ignoreCase = true) || it.phone.orEmpty().contains(search)
+        }
+    }
+    Scaffold(topBar = { ScreenTopBar(areaName, onBack) }) { padding ->
+        LazyColumn(
+            flingBehavior = rememberLedgerFlingBehavior(),
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${area?.customers?.size ?: 0} زبون • ${area?.openAccounts ?: 0} حساب مفتوح",
+                            style = MaterialTheme.typography.titleMedium)
+                        Text("الديون الحالية: " + if (security.hideAmounts) "•••• د.ع" else formatMoney(area?.debt ?: 0L),
+                            style = MaterialTheme.typography.titleMedium, color = DebtRed)
+                        Text("تحصيل اليوم: " + if (security.hideAmounts) "•••• د.ع" else formatMoney(area?.collectedToday ?: 0L),
+                            style = MaterialTheme.typography.bodyMedium, color = PaidGreen)
+                    }
                 }
+            }
+            item {
+                OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
+                    placeholder = { Text("ابحث بالاسم أو رقم الهاتف") }, modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = MaterialTheme.shapes.large)
+            }
+            if (members.isEmpty()) item {
+                Text(if (query.isBlank()) "لا يوجد زبائن في هذه المنطقة." else "لا يوجد زبائن مطابقون للبحث.",
+                    modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            items(members, key = { it.id }) { customer ->
+                CustomerCard(customer, area?.balances?.get(customer.id) ?: 0L, { onCustomer(customer.id) },
+                    hideBalance = security.hideAmounts)
             }
         }
     }
