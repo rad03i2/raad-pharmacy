@@ -52,17 +52,22 @@ class TeamMessageDialogsTest {
         assertEquals(1,sends); assertEquals(1,alerts)
     }
     @Test fun composingRejectsBlankAndOversizeMessagesAndKeepsTextWhenSendingFails() {
+        // A focused text cursor keeps animating; drive frames explicitly instead of waiting for it to stop.
+        compose.mainClock.autoAdvance = false
         var text by mutableStateOf("")
         var sent=0
         compose.setContent { PharmacyLedgerTheme {
             ComposeTeamMessageDialog("رعد",text,false,"تحقق من الإنترنت",{text=it},{},{sent++})
         } }
+        compose.mainClock.advanceTimeBy(250)
         compose.onNodeWithText("إرسال").assertIsNotEnabled()
         compose.onNode(hasSetTextAction()).performTextInput("صباح الخير")
+        compose.mainClock.advanceTimeBy(250)
         compose.onNodeWithText("إرسال").assertIsEnabled().performClick()
         assertEquals(1,sent)
         compose.onNode(hasSetTextAction()).assertTextContains("صباح الخير")
         compose.runOnIdle { text="س".repeat(501) }
+        compose.mainClock.advanceTimeBy(250)
         compose.onNodeWithText("إرسال").assertIsNotEnabled()
     }
 }
