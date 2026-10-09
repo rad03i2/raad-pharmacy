@@ -15,12 +15,10 @@ import java.io.File
 
 object PixabaySoundAssets {
     const val NOTIFICATION_SOURCE_PAGE =
-        "https://pixabay.com/sound-effects/technology-new-notification-037-485898/"
+        "https://www.myinstants.com/en/instant/iphone-notification-71441/"
     const val OPERATION_SOURCE_PAGE =
         "https://pixabay.com/sound-effects/som-matricula-464025/"
 
-    private const val NOTIFICATION_DOWNLOAD_URL =
-        "https://cdn.pixabay.com/download/audio/2026/02/16/audio_4582f50ef3.mp3?filename=universfield-new-notification-037-485898.mp3"
     private const val OPERATION_DOWNLOAD_URL =
         "https://cdn.pixabay.com/download/audio/2026/01/10/audio_fefb11cbc5.mp3?filename=u_oepgi4ep3v-som_matricula-464025.mp3"
 
@@ -35,9 +33,6 @@ object PixabaySoundAssets {
 
     suspend fun ensureCached(context: Context) = mutex.withLock {
         val dir = soundDir(context)
-        if (!notificationFile(context).isFile) {
-            download(NOTIFICATION_DOWNLOAD_URL, notificationFile(context))
-        }
         if (!operationFile(context).isFile) {
             download(OPERATION_DOWNLOAD_URL, operationFile(context))
         }
@@ -47,7 +42,7 @@ object PixabaySoundAssets {
     fun playNotification(context: Context, silent: Boolean = false) {
         if (silent) return
         val app = context.applicationContext
-        FeedbackSoundPlayer.play(app, com.radwan.raadpharmacy.R.raw.pixabay_notification_037, notification = true)
+        FeedbackSoundPlayer.play(app, com.radwan.raadpharmacy.R.raw.iphone_notification_myinstants, notification = true)
     }
 
     fun playOperation(context: Context) {
@@ -66,12 +61,6 @@ object PixabaySoundAssets {
             }
         }
     }
-
-    fun isNotificationReady(context: Context): Boolean =
-        notificationFile(context.applicationContext).isFile
-
-    fun notificationFile(context: Context): File =
-        File(soundDir(context), "pixabay_notification_037.mp3")
 
     fun operationFile(context: Context): File =
         File(soundDir(context), "pixabay_operation_som_matricula.mp3")

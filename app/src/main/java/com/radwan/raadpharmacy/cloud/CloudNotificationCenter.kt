@@ -21,7 +21,7 @@ import kotlinx.coroutines.delay
 
 // Versioned because Android does not let an app add sound to an existing silent channel.
 object CloudNotificationCenter {
-    internal const val CHANNEL_ALERT = "raad_cloud_alerts_v6_audible"
+    internal const val CHANNEL_ALERT = "raad_cloud_alerts_v7_iphone"
     fun post(
         context: Context,
         title: String,
@@ -65,7 +65,7 @@ object CloudNotificationCenter {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setSound(soundResourceUri(app, R.raw.pixabay_notification_037))
+            .setSound(soundResourceUri(app, R.raw.iphone_notification_myinstants))
             .setSilent(!audible)
             .build()
         return notifySafely(app, id, notification, eventId)
@@ -84,10 +84,18 @@ object CloudNotificationCenter {
         val attributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_NOTIFICATION)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+        val previous = manager.getNotificationChannel("raad_cloud_alerts_v6_audible")
+        val importance = when {
+            previous?.importance == NotificationManager.IMPORTANCE_NONE -> NotificationManager.IMPORTANCE_NONE
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && previous != null &&
+                previous.hasUserSetImportance() &&
+                previous.importance < NotificationManager.IMPORTANCE_HIGH -> previous.importance
+            else -> NotificationManager.IMPORTANCE_HIGH
+        }
         manager.createNotificationChannel(NotificationChannel(CHANNEL_ALERT,
-            "عمليات الأجهزة الأخرى", NotificationManager.IMPORTANCE_HIGH).apply {
+            "عمليات الأجهزة الأخرى", importance).apply {
             description = "صوت مستقل لكل عملية، داخل التطبيق وخارجه وبعد عودة الإنترنت"
-            setSound(soundResourceUri(context, R.raw.pixabay_notification_037), attributes)
+            setSound(soundResourceUri(context, R.raw.iphone_notification_myinstants), attributes)
             enableVibration(true)
             vibrationPattern = longArrayOf(0L, 90L, 55L, 90L)
             setShowBadge(true)

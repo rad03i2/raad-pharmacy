@@ -80,20 +80,18 @@ open class CloudListeningService : Service() {
         )
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val stop = PendingIntent.getService(this, 1,
-            Intent(this, CloudListeningService::class.java).setAction(ACTION_STOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("صيدلية رعد تعمل في الخلفية")
-            .setContentText("متابعة التنبيهات مستمرة. قد يزيد استهلاك البطارية.")
+            .setContentTitle("دفتر صيدلية رعد")
+            .setContentText("متابعة التنبيهات مفعّلة")
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .addAction(0, "إيقاف التشغيل المستمر", stop)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .build()
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification,
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)

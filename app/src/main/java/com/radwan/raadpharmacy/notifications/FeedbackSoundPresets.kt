@@ -29,10 +29,10 @@ enum class NotificationSoundPreset(
     val resourceId: Int
 ) {
     PIXABAY_NOTIFICATION(
-        "pixabay_notification_037",
-        "صوت التنبيه السحابي",
-        "New Notification 037 من Pixabay — للتنبيه الداخلي والخارجي.",
-        R.raw.cash_ping
+        "iphone_notification_myinstants",
+        "صوت إشعار الآيفون",
+        "صوت الإشعارات الخارجية محفوظ داخل التطبيق دون الاعتماد على الإنترنت.",
+        R.raw.iphone_notification_myinstants
     );
 
     companion object {

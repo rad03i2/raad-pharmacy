@@ -20,7 +20,7 @@ object LedgerNotificationChannels {
     private const val GROUP_ID = "ledger_alerts"
 
     fun channelId(type: LedgerNotificationType, preset: NotificationSoundPreset): String =
-        "ledger_${type.prefix}_heads_up_v5_audible"
+        "ledger_${type.prefix}_heads_up_v6_iphone"
 
     fun ensure(
         context: Context,
@@ -31,7 +31,8 @@ object LedgerNotificationChannels {
         val manager = context.getSystemService(NotificationManager::class.java)
         // Existing user settings belong to the user, including muted or disabled channels.
         if (manager.getNotificationChannel(id) != null) return id
-        val previous = manager.getNotificationChannel(type.legacyId)
+        val previous = manager.getNotificationChannel("ledger_${type.prefix}_heads_up_v5_audible")
+            ?: manager.getNotificationChannel(type.legacyId)
         val importance = when {
             previous?.importance == NotificationManager.IMPORTANCE_NONE -> NotificationManager.IMPORTANCE_NONE
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && previous != null &&
@@ -42,7 +43,7 @@ object LedgerNotificationChannels {
         manager.createNotificationChannel(NotificationChannel(id, type.title, importance).apply {
             group = GROUP_ID
             description = "إشعار خارجي بصوت التطبيق حتى عند عدم الاتصال بالإنترنت."
-            setSound(soundResourceUri(context, R.raw.pixabay_notification_037),
+            setSound(soundResourceUri(context, R.raw.iphone_notification_myinstants),
                 AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
             enableVibration(true)
