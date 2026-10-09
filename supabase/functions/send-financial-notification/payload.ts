@@ -37,8 +37,8 @@ export function buildFcmMessage(event: Record<string, unknown>, token: string,
     if (event.balance_after != null) data.balance_after = text('balance_after');
   }
   data.privacy_redacted = hidden ? '1' : '0';
-  // v50-51 keep native display. v52 preserves independent queued data events,
-  // with a bounded server-scheduled native fallback if no display receipt arrives.
+  // v50+ uses a native alert in background and local callback while in foreground.
+  // Data-only FCM can be delayed on aggressive Android battery managers.
   const reliableV318 = (device.app_version_code ?? 0) >= 52;
   const nativeV317 = (device.app_version_code ?? 0) >= 50 && (!reliableV318 || device.native_fallback === true);
   data.native_display = !modern || nativeV317 ? '1' : '0';
