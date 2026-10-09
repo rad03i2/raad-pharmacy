@@ -90,9 +90,12 @@ jobs:
           build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
           # Verify the APK cryptographically before reading its public signer fingerprint.
           cert_report=$("$build_tools/apksigner" verify --verbose --print-certs "$apk")
+          # Android Build Tools 37 may report "V2 Signer: certificate SHA-256 digest:"
+          # instead of the older "Signer #1 certificate SHA-256 digest:".
+          # Collect ALL APK signer digests: accept exactly one unique certificate.
           signer=$(printf '%s\n' "$cert_report" |
-            sed -nE 's/^[[:space:]]*Signer #1 certificate SHA-256 digest:[[:space:]]*([[:xdigit:]]{64}).*$/\1/p' |
-            head -n 1 | tr '[:upper:]' '[:lower:]')
+            sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*([[:xdigit:]]{64}).*$/\1/p' |
+            tr '[:upper:]' '[:lower:]' | sort -u)
           pinned=$(tr -d '\r\n[:space:]' < docs/production-signing-certificate.sha256 | tr '[:upper:]' '[:lower:]')
           # Cross-check the keystore itself, so extraction failures cannot be
           # mistaken for a wrong private key. SHA-256 certificate hashes are public.
@@ -141,8 +144,14 @@ jobs:
               echo "::error::Previous release APK unavailable; cannot verify signing continuity."
               exit 1
             fi
-            previous_signer=$("$build_tools/apksigner" verify --print-certs "$previous_apk" |
-              sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)
+            previous_report=$("$build_tools/apksigner" verify --verbose --print-certs "$previous_apk")
+            previous_signer=$(printf '%s\n' "$previous_report" |
+              sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*([[:xdigit:]]{64}).*$/\1/p' |
+              tr '[:upper:]' '[:lower:]' | sort -u)
+            if ! [[ "$previous_signer" =~ ^[a-f0-9]{64}$ ]]; then
+              echo "::error::Could not verify a unique signer for previous release APK."
+              exit 1
+            fi
             if [ "$signer" != "$previous_signer" ]; then
               echo "::error::Signing certificate changed! In-place Android updates would fail."
               exit 1
