@@ -39,6 +39,30 @@ class BackgroundPushDeliveryTest {
         AppSecurityStore(context).setHideAmounts(false)
     }
 
+    @Test fun serverCustomerSnapshotAndVerifiedBalanceAppearInFullNotification() = runTest {
+        val rich = event.copy(id = "rich-snapshot-317", customerName = "محمود العواد",
+            amount = 25_000.0, balanceAfter = 75_000.0)
+        assertTrue(CloudNotificationInbox(context).deliverPushImmediately(rich))
+        val text = manager.activeNotifications.single().notification
+            .extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString()
+        assertTrue(text.contains("محمود العواد"))
+        assertTrue(text.contains("25,000"))
+        assertTrue(text.contains("75,000"))
+    }
+
+    @Test fun sensitiveCustomerAndAmountStayHiddenWhenPrivacyEnabled() = runTest {
+        AppSecurityStore(context).setHideAmounts(true)
+        val rich = event.copy(id = "hidden-snapshot-317", customerName = "محمود العواد",
+            amount = 25_000.0, balanceAfter = 75_000.0)
+        assertTrue(CloudNotificationInbox(context).deliverPushImmediately(rich))
+        val text = manager.activeNotifications.single().notification
+            .extras.getCharSequence(Notification.EXTRA_TEXT).toString()
+        assertFalse(text.contains("محمود"))
+        assertFalse(text.contains("25,000"))
+        assertEquals("صيدلية رعد", manager.activeNotifications.single().notification
+            .extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+    }
+
     @Test fun displaysInBackgroundWithoutWaitingForAuthOrNetworkAndPersistsDeduplication() = runTest {
         val inbox = CloudNotificationInbox(context)
         assertTrue(inbox.deliverPushImmediately(event))

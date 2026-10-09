@@ -36,6 +36,8 @@ class PharmacyMessagingService : FirebaseMessagingService() {
                 customerId = data["customer_id"],
                 transactionId = data["transaction_id"],
                 amount = data["amount"]?.toDoubleOrNull() ?: 0.0,
+                customerName = data["customer_name"]?.takeIf(String::isNotBlank),
+                balanceAfter = data["balance_after"]?.toDoubleOrNull(),
                 transactionType = data["transaction_type"],
                 createdAt = data["created_at"] ?: Instant.now().toString()
             )

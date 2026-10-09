@@ -1,6 +1,8 @@
 package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
+import com.radwan.raadpharmacy.BuildConfig
+import com.radwan.raadpharmacy.security.AppSecurityStore
 import android.os.Build
 import android.util.Log
 import com.radwan.raadpharmacy.data.CustomerEntity
@@ -244,7 +246,9 @@ class CloudSyncEngine(context: Context) {
                 pharmacyId = profile.pharmacyId,
                 userId = userId,
                 deviceId = deviceStore.deviceId(),
-                token = token
+                token = token,
+                appVersionCode = BuildConfig.VERSION_CODE,
+                hideNotificationDetails = AppSecurityStore(appContext).state().hideAmounts
             )
         ) { onConflict = "id" }
     }

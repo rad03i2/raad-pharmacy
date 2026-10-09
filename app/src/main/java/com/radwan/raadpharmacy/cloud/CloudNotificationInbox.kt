@@ -178,7 +178,14 @@ class CloudNotificationInbox(context: Context) {
     }
 
     private fun CloudNotificationEventRow.toExternal(customerName: String): CloudExternalNotification {
-        val amountText = amount.toLong().toString() + " د.ع"
+        // Prefer the immutable server snapshot; the customer might not have synchronized yet.
+        val name = this.customerName?.takeIf { it.isNotBlank() } ?: customerName
+        val amountText = java.text.NumberFormat.getNumberInstance(java.util.Locale.US)
+            .format(amount.toLong()) + " د.ع"
+        val balanceText = balanceAfter?.takeIf { it.isFinite() }?.let {
+            "\nالرصيد الحالي: " +
+                java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(it.toLong()) + " د.ع"
+        }.orEmpty()
         val actor = actorDisplayName?.takeIf { it.isNotBlank() } ?: "مستخدم آخر"
         val title: String
         val body: String
@@ -193,33 +200,37 @@ class CloudNotificationInbox(context: Context) {
                 body = actor + " يطلب انتباهك. افتح التطبيق للتواصل."
             }
             "PAYMENT_CREATED" -> {
-                title = "تحصيل جديد • " + actor
-                body = "سجّل " + actor + " تحصيل " + amountText + " لحساب " + customerName
+                if (balanceAfter == 0.0) {
+                    title = "تم تسديد الحساب بالكامل"
+                    body = "سجّل " + actor + " تسديداً كاملاً لحساب " + name +
+                        ".\nالمبلغ المسدد: " + amountText + balanceText
+                } else {
+                    title = "تحصيل جديد — صيدلية رعد"
+                    body = "سجّل " + actor + " تحصيلاً بقيمة " + amountText +
+                        " من حساب " + name + "." + balanceText
+                }
             }
             "DEBT_CREATED" -> {
-                title = "دين جديد • " + actor
-                body = "سجّل " + actor + " دين " + amountText + " على حساب " + customerName
+                title = "دين جديد — صيدلية رعد"
+                body = "سجّل " + actor + " ديناً بقيمة " + amountText +
+                    " على حساب " + name + "." + balanceText
             }
             "TRANSACTION_UPDATED" -> {
-                title = "تعديل حركة • " + actor
-                body = "عدّل " + actor + " حركة بقيمة " + amountText + " في حساب " + customerName
+                title = "تم تعديل حركة مالية"
+                body = "عدّل " + actor + " حركة " + (if (transactionType == "PAYMENT") "تحصيل" else "دين") +
+                    " في حساب " + name + ".\nالمبلغ الجديد: " + amountText + balanceText
             }
             "TRANSACTION_DELETED" -> {
-                title = "حذف حركة • " + actor
-                body = "حذف " + actor + " حركة بقيمة " + amountText + " من حساب " + customerName
+                title = "تم حذف حركة مالية"
+                body = "حذف " + actor + " حركة " + (if (transactionType == "PAYMENT") "تحصيل" else "دين") +
+                    " من حساب " + name + ".\nالقيمة: " + amountText + balanceText
             }
             else -> {
-                title = "تحديث سحابي • " + actor
-                body = "تم تحديث حساب " + customerName
+                title = "تحديث سحابي — " + actor
+                body = "تم تحديث حساب " + name
             }
         }
-
-        return CloudExternalNotification(
-            id = id,
-            title = title,
-            body = body,
-            customerId = customerId
-        )
+        return CloudExternalNotification(id = id, title = title, body = body, customerId = customerId)
     }
 
     private fun CloudNotificationEventRow.uiTitle(): String = when (eventType) {

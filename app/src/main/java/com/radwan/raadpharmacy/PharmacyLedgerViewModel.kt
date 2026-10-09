@@ -390,6 +390,8 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
     fun setHideAmounts(enabled: Boolean) {
         security.setHideAmounts(enabled)
         refreshSecurityState()
+        // Refresh server-side FCM privacy choice for this device whenever it changes.
+        com.radwan.raadpharmacy.cloud.CloudPushRegistrationWorker.enqueue(app)
     }
 
     fun setSecureScreen(enabled: Boolean) {
