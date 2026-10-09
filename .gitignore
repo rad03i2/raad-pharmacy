@@ -8,3 +8,10 @@
 .externalNativeBuild
 .cxx
 app/build/
+*.agekey
+*.dump
+*.dump.age
+*.tar.age
+*oauth-client*.json
+*oauth-credentials*.json
+__pycache__/

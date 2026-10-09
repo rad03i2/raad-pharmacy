@@ -1,0 +1,46 @@
+name: Central encrypted Drive backup
+on:
+  schedule:
+    - cron: '0 0,6,12,18 * * *'
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: 'Optional queued administrator request UUID (never secrets)'
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: raad-central-cloud-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    if: github.ref == 'refs/heads/main' && vars.CLOUD_BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: cloud-backup
+    env:
+      CLOUD_REQUEST_ID: ${{ inputs.request_id }}
+      CLOUD_BACKUP_DB_URL: ${{ secrets.CLOUD_BACKUP_DB_URL }}
+      CLOUD_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.CLOUD_SUPABASE_SERVICE_ROLE_KEY }}
+      CLOUD_GOOGLE_CLIENT_ID: ${{ secrets.CLOUD_GOOGLE_CLIENT_ID }}
+      CLOUD_GOOGLE_CLIENT_SECRET: ${{ secrets.CLOUD_GOOGLE_CLIENT_SECRET }}
+      CLOUD_GOOGLE_REFRESH_TOKEN: ${{ secrets.CLOUD_GOOGLE_REFRESH_TOKEN }}
+      CLOUD_AGE_RECIPIENT: ${{ secrets.CLOUD_AGE_RECIPIENT }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL 17 and Age
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17 age
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+          python -m pip install -r tools/cloud_backup/requirements.txt
+      - name: Backup, encrypt, upload, download-verify and retain
+        run: |
+          umask 077
+          python -m tools.cloud_backup.runner
+      # No artifact uploader: production archives and decrypted data stay private.

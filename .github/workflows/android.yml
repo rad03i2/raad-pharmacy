@@ -47,8 +47,8 @@ jobs:
       - name: Verify stable version metadata
         shell: bash
         run: |
-          grep -q 'versionName = "3.3.19.1"' app/build.gradle.kts
-          grep -q 'versionCode = 56' app/build.gradle.kts
+          grep -q 'versionName = "3.3.19.2"' app/build.gradle.kts
+          grep -q 'versionCode = 57' app/build.gradle.kts
           if grep -q 'versionName = ".*-rc' app/build.gradle.kts; then
             echo "Release candidate suffix is still present."
             exit 1
@@ -64,6 +64,8 @@ jobs:
           deno check supabase/functions/send-financial-notification/index.ts
           deno test supabase/functions/send-financial-notification/*_test.ts
           node --test supabase/tests/closed-app-payload.test.mjs
+          deno check supabase/functions/cloud-backup/index.ts
+          deno test supabase/functions/cloud-backup/*_test.ts
 
       - name: Run unit, Room and Compose tests
         run: gradle :app:testDebugUnitTest --stacktrace
@@ -87,10 +89,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: raad-pharmacy-v3.3.19.1-qa-reports
+          name: raad-pharmacy-v3.3.19.2-qa-reports
           path: |
             app/build/reports/navigation-preview/
             app/build/reports/backup-preview/
+            app/build/reports/cloud-backup-preview/
             app/build/reports/tests/testDebugUnitTest/
             app/build/test-results/testDebugUnitTest/
             app/build/reports/lint-results-release.html
@@ -102,7 +105,7 @@ jobs:
       - name: Upload QA-only APK
         uses: actions/upload-artifact@v4
         with:
-          name: raad-pharmacy-v3.3.19.1-qa-only-not-for-update
+          name: raad-pharmacy-v3.3.19.2-qa-only-not-for-update
           path: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/app-release.apk.sha256

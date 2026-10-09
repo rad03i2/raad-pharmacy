@@ -25,6 +25,8 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun StorageBackupScreen(onBack: () -> Unit) {
+    var showCloud by remember { mutableStateOf(false) }
+    if (showCloud) { CentralCloudBackupScreen { showCloud = false }; return }
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     val engine = remember { LocalBackupEngine.get(context) }
@@ -116,6 +118,10 @@ fun StorageBackupScreen(onBack: () -> Unit) {
         text = { Text(text) }, confirmButton = { TextButton(onClick = { message = null }) { Text("حسنًا") } }) }
     Scaffold(topBar = { ScreenTopBar("التخزين والنسخ الاحتياطي", onBack) }) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).testTag("backup-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            item { BackupCard("النسخ السحابي") {
+                Text("حالة النسخ الاحتياطي المركزي لجميع مستخدمي الصيدلية.")
+                OutlinedButton(onClick = { showCloud = true }) { Text("عرض النسخ الاحتياطي السحابي المركزي") }
+            } }
             item { BackupCard("حماية مستمرة للبيانات") {
                 Text("كل تغيير مالي محفوظ مع سجل حماية دائم. تُرحّل التغييرات في الخلفية، وتُنشأ نسخ كاملة كل 6 ساعات عند وجود تغييرات، مع نسخة يومية مرجعية.")
                 Text("الحماية الخاصة تُحذف عند إزالة التطبيق. النسخ داخل المجلد المشترك وعلى SD تبقى ما دام المستخدم لم يحذفها.", style = MaterialTheme.typography.bodySmall)
