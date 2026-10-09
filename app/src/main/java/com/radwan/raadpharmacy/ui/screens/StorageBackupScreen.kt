@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -48,7 +49,10 @@ fun StorageBackupScreen(onBack: () -> Unit) {
         if (working) return
         scope.launch {
             working = true
-            try { message = withContext(Dispatchers.IO) { block() } }
+            try {
+                val result = withContext(Dispatchers.IO) { block() }
+                message = if (showKey || preview != null) null else result
+            }
             catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (e: Exception) { message = e.message ?: "تعذرت العملية. تحقق من الملف والمفتاح والإذن والمساحة." }
             finally { working = false; held = withContext(Dispatchers.IO) { engine.held() } }
@@ -110,9 +114,8 @@ fun StorageBackupScreen(onBack: () -> Unit) {
         }) { Text("تحميل الحالة المركزية") } }, dismissButton = { TextButton(onClick = { reconcileConfirm = false }) { Text("إلغاء") } })
     message?.let { text -> AlertDialog(onDismissRequest = { message = null }, title = { Text("النسخ الاحتياطي") },
         text = { Text(text) }, confirmButton = { TextButton(onClick = { message = null }) { Text("حسنًا") } }) }
-    Scaffold(topBar = { ScreenTopBar("التخزين والنسخ الاحتياطي") }) { padding ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item { OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("العودة إلى الإعدادات") } }
+    Scaffold(topBar = { ScreenTopBar("التخزين والنسخ الاحتياطي", onBack) }) { padding ->
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).testTag("backup-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item { BackupCard("حماية مستمرة للبيانات") {
                 Text("كل تغيير مالي محفوظ مع سجل حماية دائم. تُرحّل التغييرات في الخلفية، وتُنشأ نسخ كاملة كل 6 ساعات عند وجود تغييرات، مع نسخة يومية مرجعية.")
                 Text("الحماية الخاصة تُحذف عند إزالة التطبيق. النسخ داخل المجلد المشترك وعلى SD تبقى ما دام المستخدم لم يحذفها.", style = MaterialTheme.typography.bodySmall)
@@ -178,7 +181,10 @@ fun StorageBackupScreen(onBack: () -> Unit) {
     Text("آخر نسخة كاملة: ${backupTime(state?.lastFullAt ?: 0)}")
     Text("آخر تغيير منسوخ: ${backupTime(state?.lastChangeAt ?: 0)}")
     Text("التغييرات المعلقة: $pending • حجم النسخ: ${backupSize(state?.bytes ?: 0)}")
-    state?.treeUri?.let { Text("المجلد: Raad Pharmacy Backups ضمن الوجهة المختارة", style = MaterialTheme.typography.bodySmall) }
+    state?.treeUri?.let { uri ->
+        val path = runCatching { android.provider.DocumentsContract.getDocumentId(android.net.Uri.parse(uri)).substringAfter(':') }.getOrDefault("Raad Pharmacy Backups")
+        Text("المجلد: $path", style = MaterialTheme.typography.bodySmall)
+    }
 }
 private fun backupTime(time: Long) = if (time <= 0) "لم تُنشأ بعد" else "${formatDate(time)} • ${formatTime(time)}"
 private fun backupSize(bytes: Long) = java.lang.String.format(java.util.Locale.US, "%.2f MB", bytes / 1048576.0)

@@ -376,6 +376,7 @@ interface PharmacyLedgerDao {
     @Transaction
     suspend fun setBackupPhoto(id: String, bytes: ByteArray?, origin: String = "LOCAL") {
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
+        if (bytes != null && getCustomerById(id) == null) return
         val old = backupPhoto(id)
         if (bytes == null) {
             if (old == null) return

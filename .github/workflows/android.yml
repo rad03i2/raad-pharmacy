@@ -90,10 +90,12 @@ jobs:
           name: raad-pharmacy-v3.3.19.1-qa-reports
           path: |
             app/build/reports/navigation-preview/
+            app/build/reports/backup-preview/
             app/build/reports/tests/testDebugUnitTest/
             app/build/test-results/testDebugUnitTest/
             app/build/reports/lint-results-release.html
             app/build/reports/lint-results-release.xml
+            app/schemas/com.radwan.raadpharmacy.data.PharmacyLedgerDatabase/2.json
           if-no-files-found: ignore
 
       # CI artifacts are not official releases and may be debug-signed; never update phones using these.

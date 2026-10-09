@@ -99,17 +99,18 @@ class CustomerPhotoStore(context: Context) {
                 dao.setBackupPhoto(customer.id, it.readBytes(), "LOCAL")
             }
         }
-        rebuildFromBackup(dao.backupPhotos())
+        rebuildFromBackup(dao.backupPhotos(), clearRemote = dao.restoreHold() == "1")
     }
 
-    fun rebuildFromBackup(photos: List<BackupPhotoEntity>) {
+    fun rebuildFromBackup(photos: List<BackupPhotoEntity>, clearRemote: Boolean = true) {
         val known = photos.mapTo(hashSetOf()) { it.customerId }
         File(appContext.filesDir, "customer_photos").listFiles()?.filter { it.nameWithoutExtension !in known }?.forEach { it.delete() }
-        val editor = prefs.edit().clear()
+        val editor = prefs.edit()
+        if (clearRemote) editor.clear()
         for (photo in photos) {
             require(photo.customerId.matches(Regex("[a-zA-Z0-9_-]+"))) { "معرف صورة غير صالح." }
             val dest = destination(photo.customerId)
-            dest.writeBytes(photo.bytes)
+            if (!dest.exists() || !dest.readBytes().contentEquals(photo.bytes)) dest.writeBytes(photo.bytes)
             editor.putString(photo.customerId, dest.absolutePath)
             CustomerPhotoUpdates.bump(photo.customerId)
         }

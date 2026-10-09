@@ -19,6 +19,9 @@ class CloudMediaStore(context: Context) {
     private val customerPhotos = CustomerPhotoStore(appContext)
 
     suspend fun uploadCustomerPhoto(customerId: String, file: File): String {
+        check(com.radwan.raadpharmacy.data.PharmacyLedgerDatabase.get(appContext).dao().restoreHold() != "1") {
+            "تعديل صور الزبائن معلق حتى اكتمال المصالحة بعد الاستعادة."
+        }
         val profile = currentProfile()
         val path = profile.pharmacyId + "/customers/" + customerId + "/" +
             System.currentTimeMillis() + ".jpg"

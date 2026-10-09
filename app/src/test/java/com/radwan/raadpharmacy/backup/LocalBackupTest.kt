@@ -151,6 +151,47 @@ class LocalBackupTest {
         assertEquals(2, disk.dao().backupChanges(0).size)
         disk.close(); app.deleteDatabase(name)
     }
+    @Test fun versionOneMigrationPreservesExistingCustomersAndFinancialRows() = runTest {
+        val name = "backup-migration-test.db"
+        app.deleteDatabase(name)
+        app.getDatabasePath(name).parentFile!!.mkdirs()
+        val old = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(app.getDatabasePath(name), null)
+        old.execSQL("CREATE TABLE customers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, phone TEXT, area TEXT NOT NULL, address TEXT NOT NULL, opening_debt INTEGER NOT NULL, notes TEXT NOT NULL, created_at INTEGER NOT NULL)")
+        old.execSQL("CREATE TABLE ledger_entries (id TEXT NOT NULL PRIMARY KEY, customer_id TEXT NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, bottles INTEGER, bottle_price INTEGER, details TEXT NOT NULL, created_at INTEGER NOT NULL, FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE)")
+        listOf("name", "area", "created_at").forEach { old.execSQL("CREATE INDEX index_customers_$it ON customers($it)") }
+        listOf("customer_id", "created_at", "type").forEach { old.execSQL("CREATE INDEX index_ledger_entries_$it ON ledger_entries($it)") }
+        old.execSQL("INSERT INTO customers VALUES ('c1', 'أحمد', NULL, '', '', 0, '', 1000)")
+        old.execSQL("INSERT INTO ledger_entries VALUES ('old-debt', 'c1', 'DEBT', 5000, NULL, NULL, '', 2000)")
+        old.version = 1
+        old.close()
+        val migrated = Room.databaseBuilder<PharmacyLedgerDatabase>(app, name).setDriver(AndroidSQLiteDriver())
+            .addMigrations(BackupMigration.MIGRATION_1_2).build()
+        assertEquals(1, migrated.dao().customerCount()); assertEquals(1, migrated.dao().entryCount())
+        migrated.dao().insertEntry(debt("new-after-migration"))
+        assertEquals(1, migrated.dao().backupChanges(0).size)
+        migrated.close(); app.deleteDatabase(name)
+    }
+    @Test fun fullSnapshotDuringConcurrentWritesKeepsEarlierRestoreChainContinuous() = runTest {
+        dao.insertCustomer(customer)
+        val engine = LocalBackupEngine.forTesting(app, dao, key)
+        assertTrue(engine.process())
+        val earlier = engine.history().single()
+        val writer = async(Dispatchers.IO) { repeat(100) { dao.insertEntry(debt("during-$it")) } }
+        engine.process(force = true)
+        writer.await(); assertTrue(engine.process())
+        assertEquals(100, engine.previewHistory(earlier).ledger.entries.size)
+    }
+    @Test fun corruptIncrementalFileIsRejectedBeforeRestore() = runTest {
+        dao.insertCustomer(customer)
+        val engine = LocalBackupEngine.forTesting(app, dao, key)
+        assertTrue(engine.process())
+        val first = engine.history().single()
+        dao.insertEntry(debt("later")); assertTrue(engine.process())
+        val segment = File(app.filesDir, "local_backups_v2/Changes").listFiles()!!.single()
+        val bytes = segment.readBytes(); bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte(); segment.writeBytes(bytes)
+        assertThrows(Exception::class.java) { runBlocking { engine.previewHistory(first) } }
+        assertEquals(1, dao.entryCount()); assertNull(dao.restoreHold())
+    }
     @Test fun retentionKeepsRecentDailyWeeklyWithoutDuplicateFiles() {
         val day = 86400000L
         val rows = (0..60).flatMap { d -> (0..3).map { h -> "${d}_$h" to (1700000000000L - d * day - h * 21600000L) } }

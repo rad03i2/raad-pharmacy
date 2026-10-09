@@ -37,6 +37,16 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
     @Synchronized fun start() {
         if (started) return
         started = true
+        runCatching {
+            val filter = android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_MEDIA_MOUNTED); addAction(Intent.ACTION_MEDIA_UNMOUNTED)
+                addAction(Intent.ACTION_MEDIA_REMOVED); addAction(Intent.ACTION_MEDIA_BAD_REMOVAL)
+                addDataScheme("file")
+            }
+            androidx.core.content.ContextCompat.registerReceiver(app, object : android.content.BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) { wake() }
+            }, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        }
         WorkManager.getInstance(app).enqueueUniquePeriodicWork("raad-local-backup-periodic", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<LocalBackupWorker>(3, TimeUnit.HOURS).build())
         scope.launch { dao.observeBackupSequence().collect { wake() } }
@@ -157,6 +167,17 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
                                 java.time.Instant.ofEpochMilli(state.lastFullAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
                         if (due) {
                             val capture = dao.captureBackup()
+                            // A capture may include writes committed while the first drain was running.
+                            // Export those events too, so retained older snapshots keep a continuous chain.
+                            if (state.lastFullAt > 0) {
+                                while (state.cursor < capture.sequence) {
+                                    val rows = dao.backupChanges(state.cursor, 50).filter { it.sequence <= capture.sequence }
+                                    check(rows.isNotEmpty() && rows.first().sequence == state.cursor + 1)
+                                    val addedChanges = commit(store, BackupArchive.changes(rows, state.chainId, pending()))
+                                    state = state.copy(cursor = rows.last().sequence, lastChangeAt = now, bytes = state.bytes + addedChanges)
+                                    dao.saveBackupDestination(state)
+                                }
+                            }
                             val document = BackupArchive.snapshot(capture, state.chainId, pending(), now)
                             BackupArchive.restore(document) // Validate ledger + photos before announcing success.
                             val added = commit(store, document)
@@ -249,7 +270,7 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
             require(doc.getString("chain") == meta.getString("chain") && doc.getLong("sequence") == meta.getLong("sequence") && doc.getString("type") == meta.getString("type"))
             return doc
         }
-        return BackupArchive.restore(payload(chosen), parts.map { payload(it.second) }, maxOf(sequence, parts.maxOfOrNull { it.second.getLong("sequence") } ?: sequence))
+        return BackupArchive.restore(payload(chosen), parts.map { payload(it.second) }, maxOf(sequence, files.filter { it.second.getString("chain") == chain }.maxOfOrNull { it.second.getLong("sequence") } ?: sequence))
     }
     suspend fun previewHistory(item: BackupHistoryItem): RestoredArchive = withContext(Dispatchers.IO) {
         mutex.withLock { val state = dao.backupDestinations().single { it.id == item.destination }
