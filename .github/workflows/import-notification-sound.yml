@@ -1,0 +1,44 @@
+name: Import local notification sound
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/import-notification-sound.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  import-audio:
+    if: github.repository == 'rad03i2/raad-pharmacy'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: true
+      - name: Download and permanently vendor notification sound
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination="app/src/main/res/raw/iphone_notification_myinstants.mp3"
+          if [ -s "$destination" ]; then
+            echo "The sound is already stored locally in the repository."
+            exit 0
+          fi
+          mkdir -p "$(dirname "$destination")"
+          curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 90 \
+            -H "User-Agent: Mozilla/5.0" \
+            -H "Referer: https://www.myinstants.com/en/instant/iphone-notification-71441/" \
+            "https://www.myinstants.com/media/sounds/notification_o14egLP.mp3" \
+            --output "$destination"
+          test "$(wc -c < "$destination")" -gt 1000
+          file "$destination"
+          file --mime-type "$destination" | grep -E 'audio/|application/octet-stream' || exit 1
+          sha256sum "$destination"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$destination"
+          git commit -m "assets: bundle notification sound for offline playback"
+          git push
