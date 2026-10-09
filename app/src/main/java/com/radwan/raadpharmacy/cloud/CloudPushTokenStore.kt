@@ -10,22 +10,28 @@ class CloudDeviceStore(context: Context) {
         Context.MODE_PRIVATE
     )
 
-    fun deviceId(): String =
+    fun deviceId(): String = synchronized(identityLock) {
         prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
-            prefs.edit().putString("device_id", it).apply()
+            check(prefs.edit().putString("device_id", it).commit())
         }
+    }
 
-    fun pushTokenRowId(): String =
+    fun pushTokenRowId(): String = synchronized(identityLock) {
         prefs.getString("push_token_row_id", null) ?: UUID.randomUUID().toString().also {
-            prefs.edit().putString("push_token_row_id", it).apply()
+            check(prefs.edit().putString("push_token_row_id", it).commit())
         }
+    }
 
     fun savePushIdentity(userId: String, pharmacyId: String) {
-        prefs.edit().putString("push_user_id", userId).putString("push_pharmacy_id", pharmacyId).commit()
+        synchronized(identityLock) {
+            val edit = prefs.edit().putString("push_user_id", userId).putString("push_pharmacy_id", pharmacyId)
+            if (pushUserId() != userId || pushPharmacyId() != pharmacyId) edit.remove("push_registered_version")
+            edit.commit()
+        }
     }
 
     fun clearPushIdentity() {
-        prefs.edit().remove("push_user_id").remove("push_pharmacy_id").commit()
+        prefs.edit().remove("push_user_id").remove("push_pharmacy_id").remove("push_registered_version").commit()
     }
 
     fun pushUserId(): String? = prefs.getString("push_user_id", null)
@@ -34,8 +40,20 @@ class CloudDeviceStore(context: Context) {
     fun fcmToken(): String? = prefs.getString("fcm_token", null)
 
     fun saveFcmToken(token: String) {
-        prefs.edit().putString("fcm_token", token).apply()
+        synchronized(identityLock) {
+            val edit = prefs.edit().putString("fcm_token", token)
+            if (prefs.getString("fcm_token", null) != token) edit.remove("push_registered_version")
+            edit.commit()
+        }
     }
+
+    fun markPushRegistered(token: String, version: Int) = synchronized(identityLock) {
+        if (fcmToken() == token) prefs.edit().putInt("push_registered_version", version).commit()
+    }
+
+    fun usesManagedPush(): Boolean = prefs.getInt("push_registered_version", 0) >= 52
+
+    companion object { private val identityLock = Any() }
 
     fun isBootstrapped(pharmacyId: String): Boolean =
         prefs.getBoolean("bootstrapped_$pharmacyId", false)

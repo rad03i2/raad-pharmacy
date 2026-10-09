@@ -1,4 +1,4 @@
-/** v47 uses a non-collapsible, self-contained data alert. Older APKs retain native display. */
+/** Native Android display for v50+, data callbacks for v47-49; privacy defaults closed. */
 export function notificationText(event: Record<string, unknown>) {
   const actor = String(event.actor_display_name || 'مستخدم آخر');
   const customer = String(event.customer_name || 'الزبون');
@@ -19,7 +19,7 @@ export function notificationText(event: Record<string, unknown>) {
   }
 }
 export function buildFcmMessage(event: Record<string, unknown>, token: string,
-  device: { app_version_code?: number; hide_notification_details?: boolean } = {}) {
+  device: { app_version_code?: number; hide_notification_details?: boolean; native_fallback?: boolean } = {}) {
   const text = (key: string) => event[key] == null ? '' : String(event[key]);
   const modern = (device.app_version_code ?? 0) >= 47;
   const hidden = device.hide_notification_details !== false;
@@ -36,10 +36,11 @@ export function buildFcmMessage(event: Record<string, unknown>, token: string,
     data.amount = text('amount');
     if (event.balance_after != null) data.balance_after = text('balance_after');
   }
-  data.privacy_redacted = modern && hidden ? '1' : '0';
+  data.privacy_redacted = hidden ? '1' : '0';
   // v50+ uses a native alert in background and local callback while in foreground.
   // Data-only FCM can be delayed on aggressive Android battery managers.
-  const nativeV317 = (device.app_version_code ?? 0) >= 50;
+  const reliableV318 = (device.app_version_code ?? 0) >= 52;
+  const nativeV317 = (device.app_version_code ?? 0) >= 50 && (!reliableV318 || device.native_fallback === true);
   data.native_display = !modern || nativeV317 ? '1' : '0';
   const base = {token, data, android: {priority: 'HIGH', ttl:'604800s',
     restricted_package_name:'com.radwan.raadpharmacy'}};
@@ -48,5 +49,9 @@ export function buildFcmMessage(event: Record<string, unknown>, token: string,
   const display = modern && !hidden ? notificationText(event) : generic;
   return {...base, notification:display, android:{...base.android,notification:{
     icon:'ic_notification',tag:'raad-event-'+text('id'),notification_priority:'PRIORITY_MAX',
-    visibility:'PRIVATE',default_vibrate_timings:true}}};
+    visibility:'PRIVATE',default_vibrate_timings:true,
+    // Older APKs use their own manifest default. v52 already provisions this channel.
+    ...((device.app_version_code ?? 0) >= 52 ? {
+      channel_id:'raad_cloud_alerts_v7_iphone',sound:'iphone_notification_myinstants'
+    } : {})}}};
 }

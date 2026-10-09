@@ -28,11 +28,11 @@ class CloudNotificationInbox(context: Context) {
         }
     }
 
-    suspend fun catchUp() = catchUpMutex.withLock {
+    suspend fun catchUp(forceRecovery: Boolean = false) = catchUpMutex.withLock {
         client.auth.awaitInitialization()
-        if (client.auth.currentSessionOrNull() == null) return@withLock
-        val startAt = prefs.getLong(KEY_CURSOR_AT,
-            prefs.getLong(KEY_FEATURE_START_AT, System.currentTimeMillis()))
+        if (client.auth.currentSessionOrNull() == null) return@withLock false
+        val featureStart = prefs.getLong(KEY_FEATURE_START_AT, System.currentTimeMillis())
+        val startAt = if (forceRecovery) featureStart else prefs.getLong(KEY_CURSOR_AT, featureStart)
         val snapshotEnd = java.time.Instant.now().toString()
         var offset = 0L
         var allDelivered = true
@@ -48,12 +48,15 @@ class CloudNotificationInbox(context: Context) {
                 range(offset..(offset + 99L))
             }.decodeList<CloudNotificationEventRow>()
             if (rows.isEmpty()) break
-            deliver(rows, paceBacklog = true)
-            allDelivered = allDelivered && rows.all { isSeen(it.id) }
+            deliver(rows, paceBacklog = true, forceRecovery = forceRecovery)
+            // Native-managed events belong to FCM. Advancing the recovery cursor is
+            // routing, not evidence that Android displayed them; never mark them seen here.
+            allDelivered = allDelivered && rows.all { isSeen(it.id) || (!forceRecovery && usesManagedPush(it)) }
             latestAt = maxOf(latestAt, rows.maxOf { parseIso(it.createdAt) })
             offset += rows.size
         } while (rows.size == 100)
         if (allDelivered) prefs.edit().putLong(KEY_CURSOR_AT, latestAt).apply()
+        allDelivered
     }
 
     /** Display from the FCM callback using only persisted identity and local data. */
@@ -75,13 +78,16 @@ class CloudNotificationInbox(context: Context) {
             cache.merge(userId, listOf(row))
         }
         if (isSeen(row.id)) return@withLock true
-        val name = row.customerId?.let { dao.getCustomerById(it)?.name } ?: "الزبون"
+        val name = row.customerName ?: if (row.privacyRedacted) "الزبون"
+            else row.customerId?.let { dao.getCustomerById(it)?.name } ?: "الزبون"
         val item = row.toExternal(name)
         val posted = CloudNotificationCenter.post(appContext, item.title, item.body, item.customerId, true, item.id,
-            openSettings = row.eventType in setOf("TEAM_ALERT", "TEAM_MESSAGE"), isMessage = row.eventType == "TEAM_MESSAGE")
+            openSettings = row.eventType in setOf("TEAM_ALERT", "TEAM_MESSAGE"), isMessage = row.eventType == "TEAM_MESSAGE",
+            forceHidden = row.privacyRedacted)
         if (posted) {
             lastAlertAt = android.os.SystemClock.elapsedRealtime()
             rememberSeen(listOf(row.id))
+            acknowledgeDisplayed(row.id)
         }
         posted
     }
@@ -98,6 +104,7 @@ class CloudNotificationInbox(context: Context) {
         if (type in setOf("TEAM_ALERT", "TEAM_MESSAGE") && intent.getStringExtra("recipient_user_id") != userId) return false
         val eventId = intent.getStringExtra("event_id")?.takeIf(String::isNotBlank) ?: return false
         rememberSeen(listOf(eventId))
+        acknowledgeDisplayed(eventId)
         return true
     }
 
@@ -133,17 +140,23 @@ class CloudNotificationInbox(context: Context) {
         return true
     }
 
-    private suspend fun deliver(rows: List<CloudNotificationEventRow>, paceBacklog: Boolean = false) {
+    private suspend fun deliver(rows: List<CloudNotificationEventRow>, paceBacklog: Boolean = false,
+        forceRecovery: Boolean = false) {
         for ((index, row) in rows.withIndex()) {
+            // Auth refresh and message reads may use the network. Keep them outside
+            // the display lock so a live FCM callback cannot wait behind catch-up I/O.
+            if (!CloudSyncScheduler.isEnabled(appContext)) return
+            client.auth.awaitInitialization()
+            val userId = client.auth.currentSessionOrNull()?.user?.id ?: return
+            val addressed = row.isAddressedTo(userId)
+            val unread = !addressed || row.eventType != "TEAM_MESSAGE" || CloudTeamMessageStore(appContext).receive(row)
             deliveryMutex.withLock {
                 if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
-                client.auth.awaitInitialization()
-                val userId = client.auth.currentSessionOrNull()?.user?.id ?: return@withLock
-                if (!row.isAddressedTo(userId)) {
+                if (!addressed) {
                     rememberSeen(listOf(row.id))
                     return@withLock
                 }
-                if (row.eventType == "TEAM_MESSAGE" && !CloudTeamMessageStore(appContext).receive(row)) {
+                if (!unread) {
                     rememberSeen(listOf(row.id))
                     return@withLock
                 }
@@ -152,16 +165,23 @@ class CloudNotificationInbox(context: Context) {
                     rememberSeen(listOf(row.id))
                     return@withLock
                 }
-                val name = row.customerId?.let { dao.getCustomerById(it)?.name } ?: "الزبون"
+                val name = row.customerName ?: row.customerId?.let { dao.getCustomerById(it)?.name } ?: "الزبون"
                 val item = row.toExternal(name)
                 if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
-                val posted = CloudNotificationCenter.post(
+                // FCM owns direct external display for server-managed v52+ events.
+                // Realtime emits the internal banner. Explicit queue-loss recovery
+                // can render durable events that FCM reported discarded.
+                val native = !forceRecovery && usesManagedPush(row)
+                val posted = if (native) CloudNotificationCenter.hasActiveEvent(appContext, row.id)
+                    else CloudNotificationCenter.post(
                     appContext, item.title, item.body, item.customerId, true, item.id,
-                    openSettings = row.eventType in setOf("TEAM_ALERT", "TEAM_MESSAGE"), isMessage = row.eventType == "TEAM_MESSAGE"
+                    openSettings = row.eventType in setOf("TEAM_ALERT", "TEAM_MESSAGE"), isMessage = row.eventType == "TEAM_MESSAGE",
+                    forceHidden = row.privacyRedacted
                 )
                 if (posted) {
                     lastAlertAt = android.os.SystemClock.elapsedRealtime()
                     rememberSeen(listOf(row.id))
+                    acknowledgeDisplayed(row.id)
                 }
                 if (CloudUiEvents.isAppForeground()) {
                     CloudUiEvents.emit(CloudUiEvent(
@@ -173,8 +193,17 @@ class CloudNotificationInbox(context: Context) {
             }
             // Avoid artificial latency for single live Realtime/FCM events.
             // Only space out bulk alerts accumulated while offline.
-            if (paceBacklog && index < rows.lastIndex) delay(3_000L)
+            if (paceBacklog && (forceRecovery || !usesManagedPush(row)) && index < rows.lastIndex) delay(3_000L)
         }
+    }
+
+    internal fun usesManagedPush(row: CloudNotificationEventRow): Boolean =
+        row.pushServerManaged && deviceStore.usesManagedPush() &&
+            parseIso(row.createdAt) >= System.currentTimeMillis() - 7 * 86400_000L
+
+    private fun acknowledgeDisplayed(eventId: String) {
+        android.util.Log.i("RaadPush", "event_id=$eventId display_observed_at=${System.currentTimeMillis()}")
+        CloudNotificationReceiptWorker.enqueue(appContext, eventId)
     }
 
     private fun CloudNotificationEventRow.toExternal(customerName: String): CloudExternalNotification {

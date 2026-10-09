@@ -23,7 +23,8 @@ test("visible notification keeps financial values and private messages off the l
     const visible = JSON.stringify(message.notification);
     assert.ok(!visible.includes("5000") && !visible.includes("private message") && !visible.includes("أحمد"));
     assert.equal(message.android.notification.visibility, "PRIVATE");
-    assert.equal(message.data.message_body, "private message");
+    assert.equal(message.data.message_body, undefined);
+    assert.equal(message.data.privacy_redacted, "1");
   }
 });
 

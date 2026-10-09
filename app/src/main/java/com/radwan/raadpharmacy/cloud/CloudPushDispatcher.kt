@@ -61,6 +61,8 @@ object CloudPushDispatcher {
                     filter {
                         eq("actor_user_id", userId)
                         exact("push_dispatched_at", null)
+                        exact("push_suppressed_at", null)
+                        gte("created_at", java.time.Instant.now().minusSeconds(7 * 86400L).toString())
                     }
                     order("created_at", Order.ASCENDING)
                     limit(MAX_RETRY_BATCH.toLong())

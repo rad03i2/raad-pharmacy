@@ -70,11 +70,14 @@ class CloudPushRegistrationWorker(context: Context, parameters: WorkerParameters
     companion object {
         fun enqueue(context: Context) {
             if (!CloudSyncScheduler.isEnabled(context)) return
-            val request = OneTimeWorkRequestBuilder<CloudPushRegistrationWorker>()
+            val builder = OneTimeWorkRequestBuilder<CloudPushRegistrationWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-                .build()
-            WorkManager.getInstance(context).enqueueUniqueWork("raad-cloud-push-registration", ExistingWorkPolicy.KEEP, request)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            // A privacy/token change during a running registration must get a fresh
+            // follow-up write instead of being dropped by KEEP.
+            WorkManager.getInstance(context).enqueueUniqueWork("raad-cloud-push-registration",
+                ExistingWorkPolicy.APPEND_OR_REPLACE, builder.build())
         }
     }
 }

@@ -136,4 +136,51 @@ class BackgroundPushDeliveryTest {
         assertFalse(inbox.markSystemNotificationOpened(incoming))
         assertFalse(inbox.wasDelivered(event.id))
     }
+
+    @Test fun redactedPayloadCannotRevealLocalCustomerOrFabricateAmount() = runTest {
+        assertTrue(CloudNotificationInbox(context).deliverPushImmediately(event.copy(
+            privacyRedacted = true, customerName = "محمود العواد", amount = 25_000.0)))
+        val text = manager.activeNotifications.single().notification.extras
+            .getCharSequence(Notification.EXTRA_BIG_TEXT).toString()
+        assertFalse(text.contains("محمود"))
+        assertFalse(text.contains("25,000"))
+        assertFalse(text.contains("0 د.ع"))
+    }
+
+    @Test fun nativeRoutingStartsOnlyAfterSuccessfulCurrentTokenRegistration() {
+        val store = CloudDeviceStore(context)
+        val row = event.copy(pushServerManaged = true, createdAt = java.time.Instant.now().toString())
+        val inbox = CloudNotificationInbox(context)
+        assertFalse(inbox.usesManagedPush(row))
+        store.saveFcmToken("current-token")
+        store.markPushRegistered("current-token", 52)
+        assertTrue(inbox.usesManagedPush(row))
+        assertFalse(inbox.wasDelivered(row.id))
+        assertFalse(inbox.usesManagedPush(row.copy(pushServerManaged = false)))
+        store.saveFcmToken("rotated-token")
+        assertFalse(inbox.usesManagedPush(row))
+        store.markPushRegistered("current-token", 52)
+        assertFalse(inbox.usesManagedPush(row))
+        store.markPushRegistered("rotated-token", 52)
+        assertTrue(inbox.usesManagedPush(row))
+        store.clearPushIdentity()
+        assertFalse(inbox.usesManagedPush(row))
+    }
+
+    @Test fun multipleOperationsKeepDistinctVisibleNotifications() = runTest {
+        val inbox = CloudNotificationInbox(context)
+        repeat(3) { assertTrue(inbox.deliverPushImmediately(event.copy(id = "offline-$it"))) }
+        assertEquals(3, manager.activeNotifications.size)
+        repeat(3) { assertTrue(inbox.deliverPushImmediately(event.copy(id = "offline-$it"))) }
+        assertEquals(3, manager.activeNotifications.size)
+    }
+
+    @Test fun publicLockScreenVersionOmitsDetailsWhilePrivateNotificationContainsThem() = runTest {
+        assertTrue(CloudNotificationInbox(context).deliverPushImmediately(event.copy(
+            customerName = "محمود العواد", amount = 25_000.0)))
+        val notification = manager.activeNotifications.single().notification
+        assertEquals(Notification.VISIBILITY_PRIVATE, notification.visibility)
+        assertFalse(notification.publicVersion.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("محمود"))
+        assertTrue(notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString().contains("25,000"))
+    }
 }

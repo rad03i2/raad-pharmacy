@@ -1,6 +1,7 @@
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.49.4";
 import { buildFcmMessage } from "./payload.ts";
+import { deliveryAction } from "./delivery-policy.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -101,6 +102,8 @@ Deno.serve(async (req: Request) => {
       (eventId && !uuid.test(eventId)) || (transactionId && !uuid.test(transactionId))))
     return json({error:'invalid_event_identifier'},400);
   let query = userClient.from('notification_events').select('*');
+  // Historical failures are retained for audit, never replayed by old phone callers.
+  if (!server || !payload.validate_only) query = query.is('push_suppressed_at',null);
   if (!server || !payload.validate_only) query = query.is('push_dispatched_at',null);
   if (!server) query = query.eq('actor_user_id',userId);
   if (eventId) query = query.eq('id',eventId);
@@ -155,8 +158,10 @@ async function dispatch(event: Event, admin: SupabaseClient) {
     if (profileError) throw new Error('recipient_membership_lookup_failed');
     const memberIds = (profiles ?? []).map(p=>p.id);
     let tokenQuery = admin.from('push_tokens').select('id,token,device_id,user_id,app_version_code,hide_notification_details')
-      .eq('pharmacy_id',event.pharmacy_id).is('deleted_at',null).neq('device_id',event.actor_device_id ?? '')
+      .eq('pharmacy_id',event.pharmacy_id).is('deleted_at',null)
       .in('user_id',memberIds).order('updated_at',{ascending:false});
+    // An empty string is not a PostgreSQL UUID. Older events can have no actor device.
+    if (event.actor_device_id) tokenQuery = tokenQuery.neq('device_id',event.actor_device_id);
     if (event.event_type === 'TEAM_ALERT' || event.event_type === 'TEAM_MESSAGE') {
       if (!event.recipient_user_id) throw new Error('invalid_alert_recipient');
       if (event.event_type === 'TEAM_MESSAGE' && event.message_read_at) return await finish(true);
@@ -176,15 +181,16 @@ async function dispatch(event: Event, admin: SupabaseClient) {
     for (const token of tokens) {
       const hash = await fingerprint(token.token);
       const receipt = receipts?.find(r=>r.token_id===token.id);
-      if (receipt?.device_displayed_at || (receipt?.fcm_accepted_at && receipt.token_fingerprint===hash) ||
-          (!event.push_server_managed && accepted.has(String(token.id)))) continue;
+      const action = deliveryAction(receipt,hash,token.app_version_code ?? 0);
+      if (action === 'done' || (!event.push_server_managed && accepted.has(String(token.id)))) continue;
+      if (action === 'wait') { failures.push('device_display_pending'); continue; }
       const attempt = Number(receipt?.attempts ?? 0)+1;
       let lastError: string | null = null;
       let acceptedAt: string | null = null;
       try {
         const response = await fetch(fcmUrl,{method:'POST',signal:AbortSignal.timeout(8_000),
           headers:{authorization:'Bearer '+oauth,'content-type':'application/json'},
-          body:JSON.stringify({message:buildFcmMessage(event,token.token,token)})});
+          body:JSON.stringify({message:buildFcmMessage(event,token.token,{...token,native_fallback:action==='native'})})});
         if (response.ok) {sent++;accepted.add(String(token.id));acceptedAt=new Date().toISOString();}
         else {
           const body = await response.json().catch(()=>({}));
@@ -197,7 +203,18 @@ async function dispatch(event: Event, admin: SupabaseClient) {
         }
       } catch {lastError='fcm_transport_failed';}
       const patch: Record<string,unknown> = {event_id:event.id,token_id:token.id,token_fingerprint:hash,attempts:attempt,last_error:lastError};
-      if (acceptedAt) patch.fcm_accepted_at=acceptedAt;
+      if (acceptedAt) {
+        if (action==='data') {
+          patch.fcm_accepted_at=acceptedAt;
+          patch.delivery_mode='data';
+          patch.native_fallback_accepted_at=null;
+          failures.push('device_display_pending');
+        } else {
+          if (receipt?.token_fingerprint===hash && receipt.delivery_mode==='data')
+            patch.native_fallback_accepted_at=acceptedAt;
+          else { patch.fcm_accepted_at=acceptedAt; patch.delivery_mode='native'; }
+        }
+      }
       const {error:saveError} = await admin.from('notification_deliveries').upsert(patch,{onConflict:'event_id,token_id'});
       if (saveError) failures.push('delivery_record_failed');
       if (lastError) failures.push(lastError);
@@ -216,16 +233,24 @@ async function validate(event: Event, admin: SupabaseClient) {
   const account = JSON.parse(Deno.env.get('FIREBASE_SERVICE_ACCOUNT_JSON') || '{}');
   if (account.project_id !== 'raad-pharmacy') throw new Error('invalid_account');
   const oauth = await cachedAccessToken(account);
+  const {data:profiles,error:profileError} = await admin.from('profiles').select('id')
+    .eq('pharmacy_id',event.pharmacy_id).eq('role','MANAGER').eq('is_hidden',false);
+  if (profileError) return {ok:false,error:'recipient_membership_lookup_failed',database_code:profileError.code};
   const {data:tokens,error} = await admin.from('push_tokens').select('token').eq('pharmacy_id',event.pharmacy_id)
-    .is('deleted_at',null).limit(1);
+    .is('deleted_at',null).order('updated_at',{ascending:false}).limit(1);
   if (error || !tokens?.length) throw new Error('validation_device_missing');
   const results = [];
   for (const device of [{app_version_code:0,hide_notification_details:true},
-    {app_version_code:47,hide_notification_details:false},{app_version_code:47,hide_notification_details:true}]) {
+    {app_version_code:47,hide_notification_details:false},{app_version_code:47,hide_notification_details:true},
+    {app_version_code:50,hide_notification_details:false},{app_version_code:52,hide_notification_details:false},
+    {app_version_code:52,hide_notification_details:true},
+    {app_version_code:52,hide_notification_details:false,native_fallback:true},
+    {app_version_code:52,hide_notification_details:true,native_fallback:true}]) {
     const response = await fetch('https://fcm.googleapis.com/v1/projects/raad-pharmacy/messages:send',{
       method:'POST',signal:AbortSignal.timeout(8_000),headers:{authorization:'Bearer '+oauth,'content-type':'application/json'},
       body:JSON.stringify({validate_only:true,message:buildFcmMessage(event,tokens[0].token,device)})});
-    results.push({version_code:device.app_version_code,hidden:device.hide_notification_details,status:response.status});
+    results.push({version_code:device.app_version_code,hidden:device.hide_notification_details,
+      native_fallback:'native_fallback' in device && device.native_fallback===true,status:response.status});
   }
-  return {ok:results.every(r=>r.status===200),validation_only:true,results};
+  return {ok:results.every(r=>r.status===200),validation_only:true,manager_count:profiles?.length ?? 0,results};
 }

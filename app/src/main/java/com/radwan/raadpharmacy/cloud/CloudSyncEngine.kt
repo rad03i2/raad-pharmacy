@@ -51,7 +51,7 @@ class CloudSyncEngine(context: Context) {
         }
     }
 
-    suspend fun refreshPushRegistration() = globalSyncMutex.withLock {
+    suspend fun refreshPushRegistration() = pushRegistrationMutex.withLock {
         client.auth.awaitInitialization()
         val userId = checkNotNull(client.auth.currentSessionOrNull()?.user?.id) { "Push registration session is not ready" }
         val profile = client.from("profiles").select { filter { eq("id", userId) } }.decodeSingle<CloudProfileRow>()
@@ -238,8 +238,8 @@ class CloudSyncEngine(context: Context) {
         client.from("devices").upsert(row) { onConflict = "id" }
     }
 
-    private suspend fun registerPushToken(profile: CloudProfileRow, userId: String) {
-        val token = deviceStore.fcmToken()?.takeIf { it.isNotBlank() } ?: return
+    private suspend fun registerPushToken(profile: CloudProfileRow, userId: String) = tokenRegistrationMutex.withLock {
+        val token = deviceStore.fcmToken()?.takeIf { it.isNotBlank() } ?: return@withLock
         client.from("push_tokens").upsert(
             CloudPushTokenWrite(
                 id = deviceStore.pushTokenRowId(),
@@ -251,6 +251,7 @@ class CloudSyncEngine(context: Context) {
                 hideNotificationDetails = AppSecurityStore(appContext).state().hideAmounts
             )
         ) { onConflict = "id" }
+        deviceStore.markPushRegistered(token, BuildConfig.VERSION_CODE)
     }
 
     private suspend fun fetchCustomers(since: String? = null): List<CloudCustomerRow> {
@@ -489,5 +490,7 @@ class CloudSyncEngine(context: Context) {
         private const val KEY_LAST_REMOTE_PULL_AT = "last_remote_pull_at"
         private const val DELTA_SAFETY_WINDOW_MS = 5_000L
         private val globalSyncMutex = Mutex()
+        private val pushRegistrationMutex = Mutex()
+        private val tokenRegistrationMutex = Mutex()
     }
 }

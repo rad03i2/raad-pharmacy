@@ -81,6 +81,19 @@ jobs:
           set -euo pipefail
           gradle :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
 
+      - name: Set up Deno for dispatcher verification
+        if: steps.gate.outputs.publish == 'true'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Verify dispatcher type safety, privacy and bounded recovery before publication
+        if: steps.gate.outputs.publish == 'true'
+        run: |
+          deno check supabase/functions/send-financial-notification/index.ts
+          deno test supabase/functions/send-financial-notification/*_test.ts
+          node --test supabase/tests/closed-app-payload.test.mjs
+
       - name: Verify signature, previous signer and monotonically increasing version
         if: steps.gate.outputs.publish == 'true'
         shell: bash

@@ -15,7 +15,10 @@ class PharmacyMessagingService : FirebaseMessagingService() {
     }
 
     override fun onDeletedMessages() {
-        if (CloudSyncScheduler.isEnabled(applicationContext)) CloudSyncScheduler.enqueue(applicationContext)
+        if (CloudSyncScheduler.isEnabled(applicationContext)) {
+            CloudSyncScheduler.enqueue(applicationContext)
+            CloudNotificationRecoveryWorker.enqueue(applicationContext)
+        }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
@@ -39,6 +42,7 @@ class PharmacyMessagingService : FirebaseMessagingService() {
                 customerName = data["customer_name"]?.takeIf(String::isNotBlank),
                 balanceAfter = data["balance_after"]?.toDoubleOrNull(),
                 transactionType = data["transaction_type"],
+                privacyRedacted = data["privacy_redacted"] == "1",
                 createdAt = data["created_at"] ?: Instant.now().toString()
             )
 

@@ -20,6 +20,8 @@ data class CloudNotificationEventRow(
     @SerialName("customer_name") val customerName: String? = null,
     @SerialName("balance_after") val balanceAfter: Double? = null,
     @SerialName("transaction_type") val transactionType: String? = null,
+    @SerialName("push_server_managed") val pushServerManaged: Boolean = false,
+    @SerialName("privacy_redacted") val privacyRedacted: Boolean = false,
     @SerialName("created_at") val createdAt: String
 )
 

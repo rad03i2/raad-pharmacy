@@ -30,7 +30,8 @@ object CloudNotificationCenter {
         audible: Boolean = true,
         eventId: String? = null,
         openSettings: Boolean = false,
-        isMessage: Boolean = false
+        isMessage: Boolean = false,
+        forceHidden: Boolean = false
     ): Boolean {
         val app = context.applicationContext
         if (!canPost(app)) return false
@@ -44,7 +45,7 @@ object CloudNotificationCenter {
         }
         val pending = PendingIntent.getActivity(app, id, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val hidden = AppSecurityStore(app).state().hideAmounts
+        val hidden = forceHidden || AppSecurityStore(app).state().hideAmounts
         val displayTitle = if (hidden) "صيدلية رعد" else title
         val privateBody = if (isMessage) "وصلت رسالة جديدة. افتح التطبيق لقراءتها." else "وصل تحديث مالي جديد. افتح التطبيق للاطلاع عليه."
         val displayBody = if (hidden) privateBody else body
