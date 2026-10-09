@@ -19,18 +19,26 @@ class CloudSyncWorker(
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
 
-    override suspend fun doWork(): Result =
-        runCatching {
+    override suspend fun doWork(): Result {
+        if (!CloudSyncScheduler.isEnabled(applicationContext)) return Result.success()
+        var failed = false
+        val operations: List<suspend () -> Unit> = listOf(
+            { CloudSyncEngine(applicationContext).syncOnce() },
+            { CloudPushDispatcher.retryPending(applicationContext) },
+            { CloudNotificationInbox(applicationContext).catchUp() }
+        )
+        for (operation in operations) {
             if (!CloudSyncScheduler.isEnabled(applicationContext)) return Result.success()
-            CloudSyncEngine(applicationContext).syncOnce()
-            CloudPushDispatcher.retryPending(applicationContext)
-            CloudNotificationInbox(applicationContext).catchUp()
-            Result.success()
-        }.getOrElse {
-            if (it is CancellationException) throw it
-            FirebaseCrashlytics.getInstance().recordException(it)
-            Result.retry()
+            try { operation() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                failed = true
+                FirebaseCrashlytics.getInstance().recordException(error)
+            }
         }
+        return if (failed) Result.retry() else Result.success()
+    }
+
 }
 
 object CloudSyncScheduler {
@@ -42,6 +50,7 @@ object CloudSyncScheduler {
         context.applicationContext.getSharedPreferences("raad_background_work", Context.MODE_PRIVATE)
             .edit().putBoolean("enabled", true).apply()
         ensurePeriodic(context)
+        CloudPushRegistrationWorker.enqueue(context)
     }
 
     fun disable(context: Context) {
@@ -52,6 +61,8 @@ object CloudSyncScheduler {
         manager.cancelUniqueWork("raad-cloud-network-catchup")
         manager.cancelUniqueWork("raad-cloud-sync-periodic")
         manager.cancelAllWorkByTag("raad-cloud-notifications")
+        manager.cancelAllWorkByTag("raad-cloud-push-dispatch")
+        manager.cancelUniqueWork("raad-cloud-push-registration")
     }
 
     private val networkConstraint = Constraints.Builder()

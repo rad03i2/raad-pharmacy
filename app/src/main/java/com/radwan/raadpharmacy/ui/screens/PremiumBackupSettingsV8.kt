@@ -294,6 +294,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item { CloudAccountPanelV330() }
+            item { BackgroundNotificationSettings() }
             item { SectionTitle("البيانات والنسخ الاحتياطي") }
 
             item {

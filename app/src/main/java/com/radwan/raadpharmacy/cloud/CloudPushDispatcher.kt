@@ -17,34 +17,21 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 object CloudPushDispatcher {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val http by lazy { HttpClient(CIO) {
         expectSuccess = true
-        install(HttpTimeout) { requestTimeoutMillis = 10_000L; connectTimeoutMillis = 10_000L }
+        install(HttpTimeout) { requestTimeoutMillis = 45_000L; connectTimeoutMillis = 10_000L }
     } }
 
     fun request(context: Context, transactionId: String) {
-        val app = context.applicationContext
-        scope.launch {
-            runCatching { dispatchNow(transactionId) }
-                .onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
-        }
+        CloudPushDispatchWorker.enqueue(context, transactionId = transactionId)
     }
 
     fun requestEvent(context: Context, eventId: String) {
-        scope.launch {
-            try { dispatchNow(null, eventId) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { FirebaseCrashlytics.getInstance().recordException(error) }
-        }
+        CloudPushDispatchWorker.enqueue(context, eventId = eventId)
     }
 
     suspend fun retryPending(context: Context) {
@@ -59,7 +46,6 @@ object CloudPushDispatcher {
                     filter {
                         eq("actor_user_id", userId)
                         exact("push_dispatched_at", null)
-                        lt("push_attempts", MAX_ATTEMPTS)
                     }
                     order("created_at", Order.ASCENDING)
                     limit(MAX_RETRY_BATCH.toLong())
@@ -79,12 +65,12 @@ object CloudPushDispatcher {
         }
     }
 
-    private suspend fun dispatchNow(transactionId: String?, eventId: String? = null) {
+    internal suspend fun dispatchNow(transactionId: String?, eventId: String? = null) {
         val auth = SupabaseProvider.client.auth
         auth.awaitInitialization()
         val token = auth.currentSessionOrNull()?.accessToken ?: return
 
-        http.post(
+        val response = http.post(
             BuildConfig.SUPABASE_URL +
                 "/functions/v1/send-financial-notification"
         ) {
@@ -96,6 +82,8 @@ object CloudPushDispatcher {
                 eventId?.let { put("event_id", it) }
             }.toString())
         }
+        // 207 means some recipients failed; retain durable work for another attempt.
+        check(response.status.value == 200) { "Push dispatch incomplete (${response.status.value})" }
     }
 
     @Serializable
@@ -106,5 +94,4 @@ object CloudPushDispatcher {
     )
 
     private const val MAX_RETRY_BATCH = 20
-    private const val MAX_ATTEMPTS = 10
 }

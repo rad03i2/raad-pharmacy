@@ -20,8 +20,9 @@ class CloudNotificationDeliveryWorker(context: Context, parameters: WorkerParame
         return runCatching {
             if (!CloudSyncScheduler.isEnabled(applicationContext)) return Result.success()
             val row = Json.decodeFromString<CloudNotificationEventRow>(payload)
-            CloudNotificationInbox(applicationContext).deliverPush(row)
-            Result.success()
+            val inbox = CloudNotificationInbox(applicationContext)
+            if (!inbox.deliverPushImmediately(row)) inbox.deliverPush(row)
+            if (inbox.wasDelivered(row.id)) Result.success() else Result.retry()
         }.getOrElse { if (it is CancellationException) throw it else Result.retry() }
     }
 

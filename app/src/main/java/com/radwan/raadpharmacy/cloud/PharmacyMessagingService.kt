@@ -3,12 +3,19 @@ package com.radwan.raadpharmacy.cloud
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import java.time.Instant
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 
 class PharmacyMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         CloudDeviceStore(applicationContext).saveFcmToken(token)
-        CloudSyncRuntime.requestSync(applicationContext)
+        if (CloudSyncScheduler.isEnabled(applicationContext)) CloudPushRegistrationWorker.enqueue(applicationContext)
+    }
+
+    override fun onDeletedMessages() {
+        if (CloudSyncScheduler.isEnabled(applicationContext)) CloudSyncScheduler.enqueue(applicationContext)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
@@ -33,7 +40,12 @@ class PharmacyMessagingService : FirebaseMessagingService() {
                 createdAt = data["created_at"] ?: Instant.now().toString()
             )
 
+            // FCM grants only a short callback lifetime. No auth refresh or server fetch here.
+            runCatching {
+                runBlocking { withTimeout(4_000L) { CloudNotificationInbox(applicationContext).deliverPushImmediately(row) } }
+            }.onFailure { FirebaseCrashlytics.getInstance().recordException(it) }
             CloudNotificationDeliveryWorker.enqueue(applicationContext, row)
+            CloudSyncScheduler.enqueue(applicationContext)
             return
         }
 

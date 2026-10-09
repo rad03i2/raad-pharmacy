@@ -55,6 +55,38 @@ class CloudNotificationInbox(context: Context) {
         if (allDelivered) prefs.edit().putLong(KEY_CURSOR_AT, latestAt).apply()
     }
 
+    /** Display from the FCM callback using only persisted identity and local data. */
+    suspend fun deliverPushImmediately(row: CloudNotificationEventRow): Boolean = deliveryMutex.withLock {
+        if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock true
+        val userId = deviceStore.pushUserId() ?: return@withLock false
+        val pharmacyId = deviceStore.pushPharmacyId() ?: return@withLock false
+        if (row.pharmacyId != pharmacyId || !row.isAddressedTo(userId) || row.actorDeviceId == deviceStore.deviceId()) {
+            rememberSeen(listOf(row.id))
+            return@withLock true
+        }
+        if (row.eventType == "TEAM_MESSAGE") {
+            val cache = CloudTeamMessageCache.get(appContext)
+            cache.restore(userId)
+            if (!row.isUnreadMessageFor(userId) || cache.wasRead(userId, row.id)) {
+                rememberSeen(listOf(row.id))
+                return@withLock true
+            }
+            cache.merge(userId, listOf(row))
+        }
+        if (isSeen(row.id)) return@withLock true
+        val name = row.customerId?.let { dao.getCustomerById(it)?.name } ?: "الزبون"
+        val item = row.toExternal(name)
+        val posted = CloudNotificationCenter.post(appContext, item.title, item.body, item.customerId, true, item.id,
+            openSettings = row.eventType in setOf("TEAM_ALERT", "TEAM_MESSAGE"), isMessage = row.eventType == "TEAM_MESSAGE")
+        if (posted) {
+            lastAlertAt = android.os.SystemClock.elapsedRealtime()
+            rememberSeen(listOf(row.id))
+        }
+        posted
+    }
+
+    internal fun wasDelivered(id: String): Boolean = isSeen(id)
+
     suspend fun deliverPush(row: CloudNotificationEventRow) {
         deliver(listOf(row))
     }
@@ -212,7 +244,7 @@ class CloudNotificationInbox(context: Context) {
             current.add(id)
         }
         val trimmed = current.takeLast(MAX_SEEN).toSet()
-        prefs.edit().putStringSet(KEY_SEEN, trimmed).apply()
+        prefs.edit().putStringSet(KEY_SEEN, trimmed).commit()
     }
 
     companion object {

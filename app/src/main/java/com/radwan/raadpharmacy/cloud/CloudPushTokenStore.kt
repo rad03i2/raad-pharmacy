@@ -20,6 +20,17 @@ class CloudDeviceStore(context: Context) {
             prefs.edit().putString("push_token_row_id", it).apply()
         }
 
+    fun savePushIdentity(userId: String, pharmacyId: String) {
+        prefs.edit().putString("push_user_id", userId).putString("push_pharmacy_id", pharmacyId).commit()
+    }
+
+    fun clearPushIdentity() {
+        prefs.edit().remove("push_user_id").remove("push_pharmacy_id").commit()
+    }
+
+    fun pushUserId(): String? = prefs.getString("push_user_id", null)
+    fun pushPharmacyId(): String? = prefs.getString("push_pharmacy_id", null)
+
     fun fcmToken(): String? = prefs.getString("fcm_token", null)
 
     fun saveFcmToken(token: String) {
@@ -37,8 +48,10 @@ class CloudDeviceStore(context: Context) {
         FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
             if (token.isNotBlank()) {
                 saveFcmToken(token)
-                CloudSyncRuntime.requestSync(context)
+                CloudPushRegistrationWorker.enqueue(context)
             }
+        }.addOnFailureListener {
+            if (CloudSyncScheduler.isEnabled(context)) CloudPushRegistrationWorker.enqueue(context)
         }
     }
 }

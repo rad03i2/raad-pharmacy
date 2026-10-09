@@ -48,6 +48,14 @@ class CloudSyncEngine(context: Context) {
         }
     }
 
+    suspend fun refreshPushRegistration() = globalSyncMutex.withLock {
+        client.auth.awaitInitialization()
+        val userId = client.auth.currentSessionOrNull()?.user?.id ?: return@withLock
+        val profile = client.from("profiles").select { filter { eq("id", userId) } }.decodeSingle<CloudProfileRow>()
+        registerDevice(profile, userId)
+        registerPushToken(profile, userId)
+    }
+
     suspend fun syncOnce() = globalSyncMutex.withLock {
         client.auth.awaitInitialization()
         val session = client.auth.currentSessionOrNull() ?: return@withLock
@@ -213,6 +221,7 @@ class CloudSyncEngine(context: Context) {
     }
 
     private suspend fun registerDevice(profile: CloudProfileRow, userId: String) {
+        deviceStore.savePushIdentity(userId, profile.pharmacyId)
         val row = CloudDeviceWrite(
             id = deviceStore.deviceId(),
             pharmacyId = profile.pharmacyId,

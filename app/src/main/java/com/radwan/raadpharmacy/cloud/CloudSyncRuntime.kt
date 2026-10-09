@@ -136,12 +136,14 @@ object CloudSyncRuntime {
     suspend fun signOut(context: Context) {
         val app = context.applicationContext
         CloudSyncScheduler.disable(app)
+        CloudDeviceStore(app).clearPushIdentity()
         runCatching { CloudTeamStore(app).heartbeat(false) }
         runCatching { CloudSyncEngine(app).unregisterPushToken() }
         resetRealtime()
         SupabaseProvider.client.auth.signOut()
         CloudTeamCache.get(app).clear()
         CloudTeamMessageCache.get(app).clear()
+        CloudDeviceStore(app).clearPushIdentity()
         CloudSyncScheduler.disable(app)
     }
 
@@ -191,6 +193,7 @@ object CloudSyncRuntime {
             object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     scope.launch {
+                        resetRealtime()
                         fullSyncAndCatchUp(context)
                         startRealtimeIfPossible(context)
                     }
