@@ -136,7 +136,7 @@ fun StorageBackupScreen(onBack: () -> Unit) {
             item { BackupCard("بطاقة الذاكرة SD") {
                 val state = destinations.firstOrNull { it.id == LocalBackupEngine.SD }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(if (state?.enabled == true) "النسخ إلى البطاقة مفعل" else "النسخ إلى البطاقة معطل")
+                    Text(if (state?.enabled == true) "النسخ إلى البطاقة مفعل" else "النسخ إلى البطاقة معطل", Modifier.weight(1f))
                     Switch(checked = state?.enabled == true, enabled = !working && confirmed, onCheckedChange = { enable ->
                         if (state == null && enable) { pickingSd = true; folderPicker.launch(null) }
                         else act { engine.setSdEnabled(enable); if (enable) "تم تفعيل النسخ إلى البطاقة." else "تم تعطيل النسخ إلى البطاقة." }

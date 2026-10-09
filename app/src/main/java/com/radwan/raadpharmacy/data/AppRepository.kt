@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.util.UUID
 
 class AppRepository(context: Context) {
@@ -357,23 +356,6 @@ class AppRepository(context: Context) {
     private suspend fun maybeCreateAutomaticBackup(force: Boolean = false) {
         // The persistent Room journal protects the write immediately; file IO runs separately.
         com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).wake()
-    }
-
-    private suspend fun writeRecoveryBackup(raw: String) {
-        val now = System.currentTimeMillis()
-        withContext(Dispatchers.IO) {
-            val dir = File(appContext.filesDir, "restore_recovery").apply { mkdirs() }
-            File(dir, "before-restore-" + now + ".json").writeText(raw)
-            trimBackupDirectory(dir, keep = 5)
-        }
-    }
-
-    private fun trimBackupDirectory(dir: File, keep: Int) {
-        dir.listFiles()
-            ?.filter { it.isFile && it.extension == "json" }
-            ?.sortedByDescending { it.lastModified() }
-            ?.drop(keep)
-            ?.forEach { runCatching { it.delete() } }
     }
 
     private suspend fun loadRoomOrMigrateLegacy() {

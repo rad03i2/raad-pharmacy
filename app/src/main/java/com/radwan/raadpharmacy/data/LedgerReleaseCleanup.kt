@@ -3,13 +3,8 @@ package com.radwan.raadpharmacy.data
 import android.content.Context
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.io.File
 
-/**
- * The only v3.3.18.2 data change: remove local trial customers and ledger movements.
- * Keep login sessions, pharmacy users, permissions, app settings and device tokens.
- * Server-side trial records are tombstoned separately to prevent re-download.
- */
+/** Retires the 3.3.18.2 trial reset without erasing installations that skipped it. */
 object LedgerReleaseCleanup {
     private const val PREF = "raad_release_33182"
     private val mutex = Mutex()

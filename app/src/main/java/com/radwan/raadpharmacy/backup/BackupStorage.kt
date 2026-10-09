@@ -57,18 +57,26 @@ internal class TreeBackupStorage(private val context: Context, private val tree:
                 cursor.getString(1), cursor.getString(2), if (cursor.isNull(3)) 0 else cursor.getLong(3)))
         } } ?: error("المجلد غير متاح أو فُقد إذن الوصول إليه.")
     }
-    private fun area(name: String): Uri = children(root).firstOrNull { it.name == name }?.also {
-        check(it.mime == DocumentsContract.Document.MIME_TYPE_DIR)
-    }?.uri ?: (DocumentsContract.createDocument(resolver, root, DocumentsContract.Document.MIME_TYPE_DIR, name)
-        ?: error("تعذر إنشاء مجلد النسخ."))
-    override fun list(area: String): List<StoredBackupFile> = children(this.area(area))
-        .filter { it.mime != DocumentsContract.Document.MIME_TYPE_DIR }.map { StoredBackupFile(it.name, it.bytes) }
+    private fun area(name: String, create: Boolean = false): Uri? {
+        val existing = children(root).firstOrNull { it.name == name }
+        if (existing != null) {
+            check(existing.mime == DocumentsContract.Document.MIME_TYPE_DIR)
+            return existing.uri
+        }
+        return if (create) DocumentsContract.createDocument(resolver, root, DocumentsContract.Document.MIME_TYPE_DIR, name)
+            ?: error("تعذر إنشاء مجلد النسخ.") else null
+    }
+    override fun list(area: String): List<StoredBackupFile> {
+        val folder = this.area(area) ?: return emptyList()
+        return children(folder).filter { it.mime != DocumentsContract.Document.MIME_TYPE_DIR }.map { StoredBackupFile(it.name, it.bytes) }
+    }
     override fun read(area: String, name: String): ByteArray {
-        val doc = children(this.area(area)).singleOrNull { it.name == name } ?: error("ملف مفقود: $name")
+        val folder = this.area(area) ?: error("مجلد مفقود: $area")
+        val doc = children(folder).singleOrNull { it.name == name } ?: error("ملف مفقود: $name")
         return resolver.openInputStream(doc.uri)?.use { it.readBackupBytes() } ?: error("تعذر قراءة النسخة.")
     }
     override fun write(area: String, name: String, bytes: ByteArray) {
-        val folder = this.area(area)
+        val folder = checkNotNull(this.area(area, create = true))
         check(children(folder).none { it.name == name })
         val uri = DocumentsContract.createDocument(resolver, folder, "application/octet-stream", name)
             ?: error("تعذر إنشاء ملف النسخة. تحقق من مساحة التخزين.")
@@ -77,7 +85,8 @@ internal class TreeBackupStorage(private val context: Context, private val tree:
         check(children(folder).any { it.name == name }) { "مزود الملفات غيّر اسم النسخة." }
     }
     override fun remove(area: String, name: String) {
-        val doc = children(this.area(area)).singleOrNull { it.name == name } ?: return
+        val folder = this.area(area) ?: return
+        val doc = children(folder).singleOrNull { it.name == name } ?: return
         check(DocumentsContract.deleteDocument(resolver, doc.uri))
     }
     companion object {

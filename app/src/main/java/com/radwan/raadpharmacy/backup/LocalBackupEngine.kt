@@ -21,12 +21,14 @@ import java.util.concurrent.TimeUnit
 
 /** Serial IO engine. SQLite is the durable queue; channel only accelerates already committed work. */
 class LocalBackupEngine private constructor(context: Context, daoOverride: PharmacyLedgerDao? = null,
-    private val keyOverride: ByteArray? = null, private val schedule: Boolean = true) {
+    private val keyOverride: ByteArray? = null, private val schedule: Boolean = true,
+    private val storageOverride: ((BackupDestinationEntity) -> BackupStorage)? = null) {
     private val app = context.applicationContext
     private val dao = daoOverride ?: PharmacyLedgerDatabase.get(app).dao()
     private val keys = BackupKeyStore(app)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
+    private val checkedChains = mutableSetOf<String>()
     private val wakes = Channel<Unit>(Channel.CONFLATED)
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
@@ -96,7 +98,7 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
         }
         if (enabled) { process(); wake() }
     }
-    private fun storage(state: BackupDestinationEntity): BackupStorage =
+    private fun storage(state: BackupDestinationEntity): BackupStorage = storageOverride?.invoke(state) ?:
         if (state.id == PRIVATE) PrivateBackupStorage(File(app.filesDir, "local_backups_v2"))
         else {
             val saved = Uri.parse(checkNotNull(state.treeUri))
@@ -145,6 +147,20 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
                         check(read(store, "Recovery", "repository.rpi").getString("marker") == state.markerId) {
                             "هوية مجلد النسخ مختلفة. أعد اختيار الوجهة."
                         }
+                        val checkId = state.id + ":" + state.chainId
+                        if (state.lastFullAt > 0 && checkId !in checkedChains) {
+                            try {
+                                val recovered = loadRepository(store, activeKey(), chainId = state.chainId)
+                                check(recovered.sequence >= state.cursor) { "نهاية سلسلة النسخ مفقودة." }
+                            } catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) {
+                                // Correct marker was verified above: fork an independent full point in
+                                // this SAME repository. Never adopt another card or overwrite old files.
+                                state = state.copy(chainId = UUID.randomUUID().toString(), cursor = 0,
+                                    snapshotSequence = 0, lastFullAt = 0, lastChangeAt = 0)
+                                dao.saveBackupDestination(state)
+                            }
+                        }
                         val now = System.currentTimeMillis()
                         val latest = dao.latestBackupSequence()
                         // Drain incremental queue FIRST; a later snapshot must not discard a missing destination's queue.
@@ -188,9 +204,11 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
                             state = state.copy(bytes = totalBytes(store))
                         }
                         dao.saveBackupDestination(state.copy(error = null))
+                        checkedChains.add(state.id + ":" + state.chainId)
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (e: Exception) {
                         success = false
+                        checkedChains.remove(state.id + ":" + state.chainId)
                         val detail = if (state.id == SD) "بطاقة الذاكرة غير متاحة أو تعذر النسخ: " else "تعذر النسخ: "
                         dao.saveBackupDestination(state.copy(error = detail + (e.message ?: "تحقق من الإذن والمساحة.")))
                     }
@@ -213,16 +231,22 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
             .put("chain", doc.getString("chain")).put("type", doc.getString("type"))
             .put("sequence", doc.getLong("sequence")).put("from", doc.optLong("from", doc.getLong("sequence")))
             .put("createdAt", doc.getLong("createdAt"))
-        return bytes + writeVerified(store, "Metadata", "$id.rpc", metadata)
+        return bytes + writeVerified(store, "Metadata", "${doc.getString("chain")}--$id.rpc", metadata)
     }
     private fun totalBytes(store: BackupStorage) = listOf("Snapshots", "Changes", "Metadata", "Recovery")
         .sumOf { area -> store.list(area).sumOf { it.bytes } }
 
-    private fun committed(store: BackupStorage, key: ByteArray = activeKey()): List<Pair<String, JSONObject>> =
-        store.list("Metadata").filter { it.name.endsWith(".rpc") }.map { it.name to read(store, "Metadata", it.name, key) }
+    private fun committed(store: BackupStorage, key: ByteArray = activeKey(), chain: String? = null,
+        tolerateUnreadable: Boolean = false): List<Pair<String, JSONObject>> = buildList {
+        for (file in store.list("Metadata")) {
+            if (!file.name.endsWith(".rpc") || (chain != null && !file.name.startsWith("$chain--"))) continue
+            try { add(file.name to read(store, "Metadata", file.name, key)) }
+            catch (e: Exception) { if (!tolerateUnreadable) throw e }
+        }
+    }
 
     private fun retain(store: BackupStorage, state: BackupDestinationEntity) {
-        val files = committed(store).filter { it.second.getString("chain") == state.chainId }
+        val files = committed(store, chain = state.chainId)
         val snapshots = files.filter { it.second.getString("type") == "SNAPSHOT" }.sortedByDescending { it.second.getLong("createdAt") }
         val keep = BackupRetention.keep(snapshots.map { it.first to it.second.getLong("createdAt") })
         if (keep.isEmpty()) return
@@ -244,7 +268,7 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
                 if (!state.enabled) continue
                 try {
                     val store = storage(state)
-                    for ((name, meta) in committed(store)) {
+                    for ((name, meta) in committed(store, tolerateUnreadable = true)) {
                         if (meta.getString("type") == "SNAPSHOT") add(BackupHistoryItem(state.id, name, meta.getLong("createdAt"),
                             store.list("Snapshots").firstOrNull { it.name == meta.getString("file") }?.bytes ?: 0))
                     }
@@ -252,12 +276,15 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
             }
         }.sortedByDescending { it.createdAt } }
     }
-    private fun loadRepository(store: BackupStorage, key: ByteArray, snapshotName: String? = null): RestoredArchive {
-        val files = committed(store, key)
-        val chosen = if (snapshotName != null) files.single { it.first == snapshotName }.second
-            else files.filter { it.second.getString("type") == "SNAPSHOT" }.maxByOrNull { it.second.getLong("createdAt") }?.second
-                ?: error("المجلد لا يحتوي نسخة كاملة سليمة.")
+    private fun loadRepository(store: BackupStorage, key: ByteArray, snapshotName: String? = null, chainId: String? = null): RestoredArchive {
+        val chosen = if (snapshotName != null) read(store, "Metadata", snapshotName, key)
+            else committed(store, key, chainId, tolerateUnreadable = true)
+                .filter { it.second.getString("type") == "SNAPSHOT" }
+                .maxByOrNull { it.second.getLong("createdAt") }?.second
+                    ?: error("المجلد لا يحتوي نسخة كاملة سليمة.")
         val chain = chosen.getString("chain")
+        // Do not let corruption in an older, superseded chain hide a newer independent full point.
+        val files = committed(store, key, chain)
         val sequence = chosen.getLong("sequence")
         val parts = files.filter { (_, m) -> m.getString("chain") == chain && m.getString("type") == "CHANGES" && m.getLong("sequence") > sequence }
         fun payload(meta: JSONObject): JSONObject {
@@ -329,8 +356,9 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
         catch (e: Exception) { BackupRestoreResult(false, e.message ?: "تعذرت الاستعادة. لم يتم نشر البيانات إلى السحابة.") }
     }
     companion object {
-        internal fun forTesting(context: Context, dao: PharmacyLedgerDao, key: ByteArray) =
-            LocalBackupEngine(context, dao, key, false)
+        internal fun forTesting(context: Context, dao: PharmacyLedgerDao, key: ByteArray,
+            storage: ((BackupDestinationEntity) -> BackupStorage)? = null) =
+            LocalBackupEngine(context, dao, key, false, storage)
         const val PRIVATE = "private"
         const val SHARED = "phone"
         const val SD = "sd"

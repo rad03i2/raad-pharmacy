@@ -459,6 +459,8 @@ class CloudSyncEngine(context: Context) {
         check(appContext.getSharedPreferences("raad_cloud_sync_journal", Context.MODE_PRIVATE).edit().clear().commit())
         deviceStore.markBootstrapped(profile.pharmacyId)
         check(syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, System.currentTimeMillis()).commit())
+        // Do not let the normal photo fallback re-upload pictures from the restored archive.
+        com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).rebuildFromBackup(emptyList())
         dao.completeReconciliation(validCustomers, validEntries)
         com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).wake()
     }

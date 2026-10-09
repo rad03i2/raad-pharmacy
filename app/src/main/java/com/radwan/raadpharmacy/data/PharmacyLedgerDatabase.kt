@@ -410,6 +410,7 @@ interface PharmacyLedgerDao {
     @Transaction
     suspend fun completeReconciliation(customers: List<CustomerEntity>, entries: List<LedgerEntryEntity>) {
         replaceAll(customers, entries, "REMOTE")
+        backupPhotos().forEach { setBackupPhoto(it.customerId, null, "REMOTE") }
         saveBackupControl(BackupControlEntity("restore_hold", "0"))
     }
 

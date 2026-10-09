@@ -81,9 +81,6 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
 
     var working by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    var lastBackupAt by remember { mutableStateOf(vm.lastBackupAt()) }
-    var pendingRestoreRaw by remember { mutableStateOf<String?>(null) }
-    var pendingPreview by remember { mutableStateOf<BackupPreview?>(null) }
     var showAbout by remember { mutableStateOf(false) }
     var showSignOutConfirm by remember { mutableStateOf(false) }
     var signOutAnswer by remember { mutableStateOf("") }
@@ -222,12 +219,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                if (lastBackupAt > 0L) {
-                                    "آخر نسخة: " + formatDate(lastBackupAt) +
-                                        " • " + formatTime(lastBackupAt)
-                                } else {
-                                    "إدارة الحماية المحلية من التخزين والنسخ الاحتياطي"
-                                },
+                                "تفاصيل الحماية في التخزين والنسخ الاحتياطي",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
@@ -350,18 +342,4 @@ private fun V8SettingsRow(
             )
         }
     }
-}
-
-private fun intervalLabel(interval: AutoBackupInterval): String =
-    when (interval) {
-        AutoBackupInterval.OFF -> "متوقف"
-        AutoBackupInterval.DAILY -> "يومي"
-        AutoBackupInterval.WEEKLY -> "أسبوعي"
-    }
-
-private fun backupFileName(): String {
-    val stamp = LocalDateTime.now().format(
-        DateTimeFormatter.ofPattern("yyyyMMdd-HHmm", Locale.US)
-    )
-    return "RaadPharmacy-backup-" + stamp + ".json"
 }

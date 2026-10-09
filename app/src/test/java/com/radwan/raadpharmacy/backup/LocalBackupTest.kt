@@ -192,6 +192,52 @@ class LocalBackupTest {
         assertThrows(Exception::class.java) { runBlocking { engine.previewHistory(first) } }
         assertEquals(1, dao.entryCount()); assertNull(dao.restoreHold())
     }
+    @Test fun reattachedRepositoryWithBrokenChainGetsNewIndependentFullSnapshot() = runTest {
+        dao.insertCustomer(customer)
+        var engine = LocalBackupEngine.forTesting(app, dao, key)
+        assertTrue(engine.process())
+        dao.insertEntry(debt("kept")); assertTrue(engine.process())
+        val before = dao.backupDestinations().single().chainId
+        val file = File(app.filesDir, "local_backups_v2/Changes").listFiles()!!.single()
+        file.writeBytes(byteArrayOf(1, 2, 3))
+        engine = LocalBackupEngine.forTesting(app, dao, key)
+        assertTrue(engine.process())
+        assertNotEquals(before, dao.backupDestinations().single().chainId)
+        val recent = engine.history().first()
+        assertEquals(listOf("kept"), engine.previewHistory(recent).ledger.entries.map { it.id })
+        assertTrue(file.exists()) // Corrupted historical chain is kept for investigation.
+    }
+    @Test fun removalMidWriteAndFullStorageKeepDestinationQueueUntilSuccessfulRetry() = runTest {
+        dao.insertCustomer(customer)
+        val sdFolder = File(app.filesDir, "simulated-sd-test").apply { deleteRecursively(); mkdirs() }
+        val sdStore = PrivateBackupStorage(sdFolder)
+        var failWrites = false
+        val failing = object : BackupStorage by sdStore {
+            override fun write(area: String, name: String, bytes: ByteArray) {
+                if (failWrites && area != "Recovery") {
+                    sdStore.write(area, name, bytes.copyOf(bytes.size / 2))
+                    throw java.io.IOException("ENOSPC / removable volume disconnected")
+                }
+                sdStore.write(area, name, bytes)
+            }
+        }
+        val state = BackupDestinationEntity("sd", treeUri = "content://simulated/tree/card")
+        sdStore.write("Recovery", "repository.rpi", BackupCrypto.seal(JSONObject().put("marker", state.markerId).toString().toByteArray(), key))
+        dao.saveBackupDestination(state)
+        val engine = LocalBackupEngine.forTesting(app, dao, key) { destination ->
+            if (destination.id == "sd") failing else PrivateBackupStorage(File(app.filesDir, "local_backups_v2"))
+        }
+        assertTrue(engine.process())
+        dao.insertEntry(debt("offline-sd")); failWrites = true
+        assertFalse(engine.process())
+        assertEquals(1L, dao.backupDestinations().single { it.id == "sd" }.cursor)
+        assertEquals(1, dao.backupChanges(1).size)
+        failWrites = false; assertTrue(engine.process())
+        assertEquals(2L, dao.backupDestinations().single { it.id == "sd" }.cursor)
+        val point = engine.history().first { it.destination == "sd" }
+        assertEquals("offline-sd", engine.previewHistory(point).ledger.entries.single().id)
+        sdFolder.deleteRecursively()
+    }
     @Test fun retentionKeepsRecentDailyWeeklyWithoutDuplicateFiles() {
         val day = 86400000L
         val rows = (0..60).flatMap { d -> (0..3).map { h -> "${d}_$h" to (1700000000000L - d * day - h * 21600000L) } }
