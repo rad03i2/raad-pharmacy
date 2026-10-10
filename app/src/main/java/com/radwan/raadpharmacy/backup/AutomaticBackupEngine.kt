@@ -61,6 +61,8 @@ internal class AutomaticBackupEngine private constructor(context: Context,
         val edit = prefs.edit().putLong("${place.id}.sequence", place.sequence)
             .putLong("${place.id}.updated", place.updatedAt).putLong("${place.id}.bytes", place.bytes)
             .putString("${place.id}.error", place.error)
+        if (place.id in listOf("phone", "sd") && place.error == null && place.updatedAt > 0)
+            edit.putBoolean("${place.id}.portableOwned", true)
         locator?.let { edit.putString("${place.id}.locator", it) }
         check(edit.commit()) { "تعذر حفظ حالة النسخة الاحتياطية." }
         refresh()
@@ -73,9 +75,9 @@ internal class AutomaticBackupEngine private constructor(context: Context,
             addAction(Intent.ACTION_MEDIA_MOUNTED); addAction(Intent.ACTION_MEDIA_UNMOUNTED)
             addAction(Intent.ACTION_MEDIA_REMOVED); addDataScheme("file")
         }
-        runCatching { app.registerReceiver(object : BroadcastReceiver() {
+        runCatching { androidx.core.content.ContextCompat.registerReceiver(app, object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) { wake() }
-        }, filter) }
+        }, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED) }
         WorkManager.getInstance(app).enqueueUniquePeriodicWork("raad-portable-maintenance", ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<AutomaticBackupWorker>(15, TimeUnit.MINUTES).build())
         scope.launch {
@@ -95,9 +97,9 @@ internal class AutomaticBackupEngine private constructor(context: Context,
         WorkManager.getInstance(app).enqueueUniqueWork("raad-portable-drain", ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<AutomaticBackupWorker>().setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
     }
-    private fun wakeDrive() {
+    private fun wakeDrive(replace: Boolean = false) {
         if (!scheduling || !_state.value.drive.enabled) return
-        WorkManager.getInstance(app).enqueueUniqueWork("raad-drive-mirror", ExistingWorkPolicy.KEEP,
+        WorkManager.getInstance(app).enqueueUniqueWork("raad-drive-mirror", if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<DeviceDriveBackupWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
@@ -137,11 +139,13 @@ internal class AutomaticBackupEngine private constructor(context: Context,
                 for (id in listOf("phone", "sd")) {
                     val place = if (id == "phone") _state.value.phone else _state.value.sd
                     if (!place.enabled) continue
-                    if (!force && place.sequence == capture.sequence && place.error == null && place.updatedAt > 0) continue
                     try {
                         val target = if (id == "phone") phone() else sd()
+                        val available = target.list()
+                        if (!force && place.sequence == capture.sequence && place.error == null && place.updatedAt > 0 &&
+                            available.any { it.locator == prefs.getString("$id.locator", null) }) continue
                         // An interrupted attempt may already have a fully written file; verify before reusing it.
-                        val existing = target.list().firstOrNull { it.name == name }
+                        val existing = available.firstOrNull { it.name == name }
                         val locator = if (existing != null && runCatching { target.read(existing.locator).contentEquals(bytes) }.getOrDefault(false)) existing.locator
                             else target.write(name, bytes)
                         save(place.copy(sequence = capture.sequence, updatedAt = now, bytes = bytes.size.toLong(), error = null), locator)
@@ -157,7 +161,7 @@ internal class AutomaticBackupEngine private constructor(context: Context,
         TreeBackupStorage.validateLocalTree(app, tree, sd = true)
         app.contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         mutex.withLock {
-            val root = TreeBackupStorage.createRepository(app, tree)
+            val root = TreeBackupStorage.createRepository(app, tree, PortableBackup.FOLDER)
             val uri = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(root))
             check(prefs.edit().putString("sd.tree", uri.toString()).putBoolean("sd.enabled", true)
                 .putLong("sd.sequence", -1).remove("sd.error").commit())
@@ -168,7 +172,9 @@ internal class AutomaticBackupEngine private constructor(context: Context,
     suspend fun setSdEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
         mutex.withLock {
             check(!enabled || sdOverride != null || prefs.contains("sd.tree")) { "اختر مجلد البطاقة أولًا." }
-            check(prefs.edit().putBoolean("sd.enabled", enabled).commit()); refresh()
+            val edit = prefs.edit().putBoolean("sd.enabled", enabled)
+            if (!enabled) edit.putBoolean("sd.portableOwned", true)
+            check(edit.commit()); refresh()
         }
         if (enabled) { process(); wake() }
     }
@@ -179,7 +185,7 @@ internal class AutomaticBackupEngine private constructor(context: Context,
                 .putLong("drive.sequence", -1).putLong("drive.updated", 0).remove("drive.error").commit())
             refresh()
         }
-        process(); wakeDrive()
+        process(); wakeDrive(replace = true)
     }
     suspend fun disconnectDrive() = withContext(Dispatchers.IO) {
         driveMutex.withLock {
@@ -239,7 +245,7 @@ internal class AutomaticBackupEngine private constructor(context: Context,
             check(saved.contentEquals(bytes)); PortableBackup.decode(saved)
         }
     }
-    fun retryDrive() { wakeDrive() }
+    fun retryDrive() { wakeDrive(replace = true) }
     companion object {
         @Volatile private var instance: AutomaticBackupEngine? = null
         fun get(context: Context) = instance ?: synchronized(this) { instance ?: AutomaticBackupEngine(context).also { instance = it } }

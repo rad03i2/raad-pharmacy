@@ -7,7 +7,7 @@ import java.util.UUID
 internal object PortableBackup {
     const val FORMAT = "raad-portable-backup-v3"
     const val EXTENSION = ".raadbackup"
-    const val FOLDER = "Raad Pharmacy Backups"
+    const val FOLDER = "دفتر صيدلية رعد"
     fun encode(capture: BackupCapture, pending: JSONObject, now: Long): ByteArray {
         val document = BackupArchive.snapshot(capture, UUID.randomUUID().toString(), pending, now)
         document.getJSONObject("ledger").put("appVersion", "3.3.19.4")

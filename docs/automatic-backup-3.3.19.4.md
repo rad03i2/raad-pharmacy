@@ -4,13 +4,13 @@ The working Room ledger, offline operations, Supabase synchronization, multi-use
 
 ## Phone and SD
 
-On Android 10 and later the first app launch creates a verified complete recovery file through MediaStore in `Download/Raad Pharmacy Backups/`. Android 8/9 require a one-time storage permission; opening the backup screen requests it. Public files survive uninstall. After reinstall, Android may require selecting the old file through the system picker rather than letting the new installation enumerate it.
+On Android 10 and later the first app launch creates a verified complete recovery file through MediaStore in `Download/دفتر صيدلية رعد/`. Android 8/9 require a one-time storage permission; opening the backup screen requests it. Public files survive uninstall. After reinstall, Android may require selecting the old file through the system picker rather than letting the new installation enumerate it.
 
 Every committed customer, debt, payment, edit, deletion, photo or remote-ledger change wakes a conflated 250 ms queue. A consistent Room capture produces a complete `.raadbackup` file containing the existing validated ledger, photos and pending-cloud metadata. The same bytes are mirrored to SD and Drive. The private cached file uses AtomicFile and lives in noBackupFilesDir. Repeated failures reuse that verified file; the durable sequence survives process death and pruning of older journal rows.
 
 Public files are immutable recovery points. MediaStore holds a new file pending until write/read-back/byte comparison and full validation complete. SD providers write new files and reopen them; incomplete attempts can be retried. A preceding verified file is never truncated. Cleanup keeps the latest three points and only runs after a successful write. Failed/unavailable SD destinations never stop the phone destination, never advance their acknowledged sequence, and retry on media mount, a bounded WorkManager drain, and periodic maintenance. Disabling SD leaves its files.
 
-The new portable envelope includes a SHA-256 checksum and a full snapshot. This checksum detects corruption, not malicious modification. The format is intentionally not encrypted with an installation-specific key: users can recover on another phone without separately preserving a key. The phone screen explains that the file contains customer information. Existing encrypted private safety copies and legacy encrypted imports remain supported; legacy recovery keys are shown only in the old-backup recovery flow.
+The new portable envelope includes a SHA-256 checksum and a full snapshot. This checksum detects corruption, not malicious modification. The format is intentionally not encrypted with an installation-specific key: users can recover on another phone without separately preserving a key. The phone screen explains that the file contains customer information. When a portable external destination is verified, its legacy external mirror stops writing; old files remain available and no old cursor prevents pruning the private journal. Disabling SD also stops its legacy mirror. Existing encrypted private safety copies and legacy encrypted imports remain supported; legacy recovery keys are shown only in the old-backup recovery flow.
 
 ## Google Drive
 
@@ -22,7 +22,7 @@ After successful authorization, a network-constrained WorkManager job uploads th
 
 1. Enable Google Drive API in the intended Google Cloud project.
 2. Configure the Google Auth Platform consent screen, with the app's privacy policy and `drive.file` scope. Add the three intended users as test users if the app remains in Testing.
-3. Register an Android OAuth client for package `com.radwan.raadpharmacy` using the SHA-1 fingerprint of the existing production signing certificate. The public SHA-256 pin is `506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6`; SHA-1 must be read from that same certificate, not substituted with SHA-256 or a debug signer.
+3. Register an Android OAuth client for package `com.radwan.raadpharmacy` using the SHA-1 fingerprint of the existing production signing certificate. The production SHA-1 fingerprint is `84:29:94:E2:DB:27:1E:E9:CD:39:53:98:BE:0C:4B:E0:7C:9D:C8:92` (read from the previous official APK CI signer report). The public SHA-256 pin is `506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6`; SHA-1 must be read from that same certificate, not substituted with SHA-256 or a debug signer.
 4. Install the official production-signed APK, grant Drive access, change a debt while offline, reconnect, then restore that uploaded file on a second installation/account-authorized phone.
 
 No client secret belongs in the APK. Device-side authorization does not require a new Supabase deployment. Developer-error/missing-API states are shown honestly; the app never reports a cloud backup current before a verified upload.

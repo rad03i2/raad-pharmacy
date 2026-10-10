@@ -100,9 +100,9 @@ internal class TreeBackupStorage(private val context: Context, private val tree:
                 }
             } else require(volume == "primary") { "اختر مجلدًا في ذاكرة الهاتف الداخلية." }
         }
-        fun createRepository(context: Context, tree: Uri): Uri {
+        fun createRepository(context: Context, tree: Uri, prefix: String = "Raad Pharmacy Backups"): Uri {
             val root = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
-            val name = "Raad Pharmacy Backups-" + java.util.UUID.randomUUID().toString().take(8)
+            val name = "$prefix-" + java.util.UUID.randomUUID().toString().take(8)
             val folder = DocumentsContract.createDocument(context.contentResolver, root, DocumentsContract.Document.MIME_TYPE_DIR, name)
                 ?: error("تعذر إنشاء مجلد النسخ.")
             return DocumentsContract.buildTreeDocumentUri(tree.authority, DocumentsContract.getDocumentId(folder))

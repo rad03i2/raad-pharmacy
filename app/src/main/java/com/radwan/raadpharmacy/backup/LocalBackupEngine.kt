@@ -69,6 +69,8 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
     }
     private fun activeKey(): ByteArray = keyOverride ?: keys.key()
+    private fun portableOwns(id: String) = schedule && id in listOf(SHARED, SD) &&
+        app.getSharedPreferences("raad_automatic_backup_v3", Context.MODE_PRIVATE).getBoolean("$id.portableOwned", false)
     fun recoveryCode() = BackupCrypto.recoveryCode(activeKey())
     fun recoveryConfirmed() = keys.confirmed()
     fun confirmRecovery() = keys.confirm()
@@ -140,7 +142,7 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
                 }
                 var success = true
                 for (original in dao.backupDestinations().sortedBy { if (it.id == PRIVATE) 0 else 1 }) {
-                    if (!original.enabled) continue
+                    if (!original.enabled || portableOwns(original.id)) continue
                     var state = original
                     try {
                         val store = storage(state)
@@ -215,7 +217,7 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
                 }
                 // Keep the authoritative sequence counter, and never prune an unavailable destination's queue.
                 val all = dao.backupDestinations()
-                val minimum = all.minOfOrNull { it.cursor } ?: 0
+                val minimum = all.filterNot { portableOwns(it.id) }.minOfOrNull { it.cursor } ?: 0
                 if (minimum > 0) dao.pruneBackupChanges(minimum)
                 success
             } finally { _busy.value = false }

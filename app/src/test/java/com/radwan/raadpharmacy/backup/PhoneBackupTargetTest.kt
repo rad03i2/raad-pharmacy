@@ -47,7 +47,7 @@ class PhoneBackupTargetTest {
         override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor {
             val columns = projection!!.map { it }.toTypedArray()
             return MatrixCursor(columns).apply { rows.values.filter { it.values.getAsInteger(MediaStore.MediaColumns.IS_PENDING) == 0 }.forEach { row ->
-                addRow(columns.map { when (it) {
+                addRow(columns.map<String, Any?> { when (it) {
                     MediaStore.MediaColumns._ID -> row.id
                     MediaStore.MediaColumns.DISPLAY_NAME -> row.values.getAsString(it)
                     MediaStore.MediaColumns.SIZE -> row.file.length()
