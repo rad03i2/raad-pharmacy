@@ -218,7 +218,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             type = EntryType.PAYMENT,
             amount = amount
         )
-        dao.insertEntry(entry.toEntity())
+        dao.insertPaymentProtected(entry.toEntity())
         entriesCache = listOf(entry) + entriesCache.filterNot { it.id == entry.id }
         afterLocalCommit()
         return entry
@@ -349,8 +349,9 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
     private fun afterLocalCommit() {
         // A scheduler/backup failure cannot turn a committed debt into a failed save.
         // The outbox is already durable; startup, reboot and periodic workers recover it.
-        if (afterCommitOverride != null) {
-            runCatching { afterCommitOverride.invoke() }
+        val hook = afterCommitOverride
+        if (hook != null) {
+            runCatching { hook.invoke() }
             return
         }
         runCatching { CloudSyncRuntime.requestSync(appContext) }

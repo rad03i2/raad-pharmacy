@@ -7,6 +7,9 @@ import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
 import com.radwan.raadpharmacy.cloud.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -62,6 +65,15 @@ class OfflineLedgerTest {
         assertEquals(3, dao.cloudOutbox().size)
         assertEquals(7000L, customerBalance(c, dao.getEntries().map { it.toModel() }))
     }
+    @Test fun concurrentPaymentsCannotExceedTheDurableBalance() = runTest {
+        dao.insertCustomer(customer.copy(openingDebt = 10000))
+        val attempts = listOf("p1", "p2").map { id -> async(Dispatchers.IO) {
+            runCatching { dao.insertPaymentProtected(debt(id, 6000).copy(type = "PAYMENT")) }.isSuccess
+        } }.awaitAll()
+        assertEquals(1, attempts.count { it }); assertEquals(1, dao.entryCount())
+        assertEquals(2, dao.cloudOutbox().size)
+    }
+
     @Test fun editsAndDeletesAreQueuedWithoutNetworkOrScheduling() = runTest {
         val c = repository.addCustomer("أحمد", null, "", "", 0, "")
         val d = (repository.addDebt(c.id, 5000, null, null) as DebtCreateResult.Created).entry

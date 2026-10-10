@@ -271,6 +271,15 @@ interface PharmacyLedgerDao {
         return null
     }
 
+    @Transaction
+    suspend fun insertPaymentProtected(entry: LedgerEntryEntity) {
+        require(entry.type == "PAYMENT")
+        val customer = getCustomerById(entry.customerId)?.toModel() ?: error("Customer not found")
+        val balance = customerBalance(customer, getEntriesForCustomer(entry.customerId).map { it.toModel() })
+        require(entry.amount in 1..balance) { "Payment must be within current balance" }
+        insertEntry(entry)
+    }
+
     // Only these transactional entrypoints are used by ledger, sync and restore.
     // Failure to persist the change journal rolls back the financial write as well.
     @Insert(onConflict = OnConflictStrategy.ABORT)

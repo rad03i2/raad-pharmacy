@@ -7,6 +7,7 @@ import kotlinx.coroutines.CancellationException
 fun ledgerSaveError(error: Throwable, fallback: String): String {
     if (error is CancellationException) throw error
     Log.e("LedgerSave", "Local financial save failed", error)
+    runCatching { com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(error) }
     return if (generateSequence(error) { it.cause }.any {
             it.message?.contains("التعديل معلق بعد الاستعادة") == true
         }) "الحفظ موقوف لأن نسخة مستعادة تنتظر المراجعة. افتح التخزين والنسخ الاحتياطي ثم اختر العودة إلى بيانات الصيدلية الحالية بعد مراجعة النسخة."
