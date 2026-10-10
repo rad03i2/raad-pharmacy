@@ -120,4 +120,12 @@ class StorageBackupScreenTest {
         assertTrue(backupWriteResult(listOf(healthy, error.copy(enabled = false)), 10).startsWith("تم إنشاء"))
         assertEquals(0L, backupDestinationStatus(error.copy(enabled = false), 10).pending)
     }
+    @Test fun importFailuresExplainRecoveryInsteadOfShowingCryptographyOrParserErrors() {
+        val wrongKey = backupErrorMessage(javax.crypto.AEADBadTagException("mac check in GCM failed"))
+        assertTrue(wrongKey.contains("هاتف آخر")); assertFalse(wrongKey.contains("GCM"))
+        assertTrue(backupErrorMessage(SecurityException("Permission denial")).contains("إذن"))
+        assertTrue(backupErrorMessage(org.json.JSONException("Unexpected token")).contains("نسخة احتياطية"))
+        assertFalse(backupErrorMessage(IllegalStateException("Internal implementation detail")).contains("Internal"))
+        assertEquals("سلسلة النسخ غير مكتملة", backupErrorMessage(IllegalStateException("سلسلة النسخ غير مكتملة")))
+    }
 }

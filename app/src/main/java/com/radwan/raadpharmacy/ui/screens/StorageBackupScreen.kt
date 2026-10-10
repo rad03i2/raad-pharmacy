@@ -74,7 +74,7 @@ fun StorageBackupScreen(onBack: () -> Unit) {
                 block()?.let { message = it }
                 completed = true
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { message = error.message ?: "تعذرت العملية. تحقق من الملف ومفتاح الاسترداد والمساحة المتاحة." }
+            catch (error: Exception) { message = backupErrorMessage(error) }
             finally {
                 try { refreshLocal() }
                 catch (cancelled: CancellationException) { throw cancelled }

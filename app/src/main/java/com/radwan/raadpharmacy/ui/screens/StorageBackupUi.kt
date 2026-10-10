@@ -50,6 +50,17 @@ internal fun backupWriteResult(states: List<BackupDestinationEntity>, latest: Lo
 }
 internal fun backupTime(time: Long) = if (time <= 0) "لا توجد نسخة بعد" else "${formatDate(time)} • ${formatTime(time)}"
 internal fun backupSize(bytes: Long) = String.format(Locale.US, "%.2f MB", bytes / 1048576.0)
+internal fun backupErrorMessage(error: Exception): String {
+    val causes = generateSequence<Throwable>(error) { it.cause }.take(6).toList()
+    return when {
+        causes.any { it is javax.crypto.AEADBadTagException } -> "تعذر فتح النسخة: المفتاح غير مطابق أو الملف تالف. إذا كانت من هاتف آخر أو تثبيت سابق، اختر ذلك وأدخل مفتاحها."
+        causes.any { it is SecurityException } -> "فُقد إذن الوصول إلى الملفات. اختر مجلد النسخ مجددًا لمنح الإذن، ثم حاول مرة أخرى."
+        causes.any { it is org.json.JSONException } -> "الملف ليس نسخة احتياطية صالحة أو أنه ناقص. اختر ملف النسخة الكامل أو مجلد النسخ."
+        causes.any { it is java.io.IOException } -> "تعذر الوصول إلى الملف أو حفظ النسخة. تحقق من توفر البطاقة والمساحة، ثم اختر المجلد مجددًا."
+        else -> error.message?.takeIf { it.contains(Regex("[ء-ي]")) }?.take(320)
+            ?: "تعذرت العملية. تحقق من ملف النسخة ومفتاح الاسترداد والمساحة المتاحة، ثم حاول مجددًا."
+    }
+}
 internal fun destinationLabel(id: String) = when (id) {
     LocalBackupEngine.PRIVATE -> "داخل التطبيق"
     LocalBackupEngine.SD -> "بطاقة الذاكرة"
