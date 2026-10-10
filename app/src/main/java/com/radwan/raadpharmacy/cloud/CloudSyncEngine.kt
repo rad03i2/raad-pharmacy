@@ -203,12 +203,14 @@ class CloudSyncEngine(context: Context) {
                     // Schedule durable delivery before acknowledging this upload. A retry
                     // reuses the transaction id; the server ignores identical financial updates.
                     CloudPushDispatcher.request(appContext, id)
+                    CloudUploadFeedback.post(appContext, row)
                 }
                 row.kind == "ENTRY" -> {
                     client.from("transactions").update(DeletedAtDevicePatch(toIso(row.occurredAt), deviceStore.deviceId())) {
                         filter { eq("id", id) }
                     }
                     CloudPushDispatcher.request(appContext, id)
+                    CloudUploadFeedback.post(appContext, row)
                 }
                 else -> {
                     val deletedAt = toIso(row.occurredAt)

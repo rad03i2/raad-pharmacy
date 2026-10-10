@@ -200,6 +200,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          latest_head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [ "$latest_head" != "$GITHUB_SHA" ]; then
+            echo '::error::This build was superseded by a newer main commit; refusing to publish.'
+            exit 1
+          fi
           gh release create "$RAAD_RELEASE_TAG" \
             "Raad-Pharmacy-$RAAD_RELEASE_TAG.apk" \
             "Raad-Pharmacy-$RAAD_RELEASE_TAG.apk.sha256" \

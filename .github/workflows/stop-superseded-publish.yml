@@ -1,0 +1,29 @@
+name: Stop superseded Android publication
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  stop-old-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel publication of older main commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/publish-signed-update.yml/runs?per_page=50" \
+            --jq ".workflow_runs[] | select(.head_branch == \"main\" and .head_sha != \"$GITHUB_SHA\" and (.status == \"in_progress\" or .status == \"queued\")) | .id" \
+            > "$RUNNER_TEMP/superseded-publications.txt"
+          while IFS= read -r run_id; do
+            if [ -n "$run_id" ]; then
+              gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel" || \
+                echo "Run $run_id already finished or was cancelled."
+            fi
+          done < "$RUNNER_TEMP/superseded-publications.txt"

@@ -175,6 +175,22 @@ class OfflineLedgerTest {
         assertEquals(9000L, dao.getEntryById("d1")!!.amount)
         DurableCloudDrain(dao) {}.flush(); assertTrue(dao.cloudOutbox().isEmpty())
     }
+    @Test fun authorConfirmationFailureRetainsUploadAndRetryUsesOneStableNotificationId() = runTest {
+        dao.insertCustomer(customer, "REMOTE"); dao.insertEntry(debt())
+        val serverIds = mutableSetOf<String>(); val notices = mutableSetOf<String>()
+        var fail = true
+        val send: suspend (CloudOutboxEntity) -> Unit = { row ->
+            serverIds.add(row.entityId)
+            if (fail) { fail = false; throw IOException("notification interrupted before acknowledgement") }
+            notices.add(CloudUploadFeedback.eventId(row))
+        }
+        assertThrows(IOException::class.java) { runBlocking { DurableCloudDrain(dao, send).flush() } }
+        assertEquals(1, dao.cloudOutbox().size)
+        val id = CloudUploadFeedback.eventId(dao.cloudOutbox().single())
+        DurableCloudDrain(dao, send).flush()
+        assertEquals(setOf("d1"), serverIds); assertEquals(setOf(id), notices)
+        assertTrue(dao.cloudOutbox().isEmpty())
+    }
     @Test fun remoteSnapshotAndRealtimeCannotErasePendingOfflineChanges() = runTest {
         dao.insertCustomer(customer); dao.insertEntry(debt())
         dao.applyCloudSnapshot(emptyList(), emptyList())
