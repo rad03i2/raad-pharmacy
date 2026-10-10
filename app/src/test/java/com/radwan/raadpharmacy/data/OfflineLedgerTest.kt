@@ -51,12 +51,14 @@ class OfflineLedgerTest {
             val entity = entities.getJSONObject(i)
             fun sql(template: String) = template.replace("\${TABLE_NAME}", entity.getString("tableName"))
             old.execSQL(sql(entity.getString("createSql")))
-            val indices = entity.getJSONArray("indices")
-            for (j in 0 until indices.length()) old.execSQL(sql(indices.getJSONObject(j).getString("createSql")))
+            entity.optJSONArray("indices")?.let { indices ->
+                for (j in 0 until indices.length()) old.execSQL(sql(indices.getJSONObject(j).getString("createSql")))
+            }
         }
         old.execSQL("INSERT INTO customers VALUES ('c1', 'أحمد', NULL, '', '', 0, '', 1000)")
         old.execSQL("INSERT INTO ledger_entries VALUES ('existing', 'c1', 'DEBT', 5000, NULL, NULL, '', 2000)")
         old.execSQL("INSERT INTO backup_control VALUES ('watermark', '51')")
+        old.execSQL("INSERT INTO sqlite_sequence (name, seq) VALUES ('backup_changes', 51)")
         old.version = 2; old.close()
         app.getSharedPreferences("raad_cloud_sync_journal", Context.MODE_PRIVATE).edit().clear()
             .putStringSet("transaction_upserts", setOf("existing")).commit()
@@ -69,6 +71,7 @@ class OfflineLedgerTest {
             CloudSyncJournal(app, d).importLegacy()
             assertEquals("existing", d.cloudOutbox().single().entityId)
             d.applyCloudSnapshot(emptyList(), emptyList()); assertEquals(1, d.entryCount())
+            d.insertEntry(debt("after-migration")); assertEquals(52L, d.latestBackupSequence())
         } finally { migrated.close(); app.deleteDatabase(name) }
     }
 
