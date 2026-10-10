@@ -25,7 +25,7 @@ class LedgerReleaseCleanupTest {
         dao.insertCustomer(CustomerEntity(customerId, "تجربة", null, "", "", 0, "", 1000L))
         dao.insertEntry(LedgerEntryEntity("fd12c987-af26-4aa5-93a0-1ce602d4fd40",customerId,
             "DEBT", 2000L, null, null, "", 1000L))
-        CloudSyncJournal(app).markCustomerUpsert(customerId)
+        // The financial transaction now persists its own pending upload atomically.
 
         LedgerReleaseCleanup.clearOnce(app)
 
