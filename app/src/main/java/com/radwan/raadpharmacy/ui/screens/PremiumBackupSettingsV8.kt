@@ -200,7 +200,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    Icons.Rounded.CloudDone,
+                                    Icons.Rounded.Backup,
                                     null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(25.dp)
@@ -230,7 +230,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
 
             item {
                 V8SettingsRow(Icons.Rounded.Backup, "التخزين والنسخ الاحتياطي",
-                    "حماية محلية مستمرة • الهاتف • بطاقة SD • الاستعادة الآمنة") { showLocalBackups = true }
+                    "النسخ على الهاتف والبطاقة والسحابة من شاشة واحدة") { showLocalBackups = true }
             }
 
             item { SectionTitle("التطبيق") }
