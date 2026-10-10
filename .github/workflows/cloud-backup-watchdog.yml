@@ -1,0 +1,22 @@
+name: Cloud backup liveness alert
+on:
+  schedule:
+    - cron: '35 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  watchdog:
+    if: github.ref == 'refs/heads/main' && vars.CLOUD_BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: cloud-backup
+    env:
+      CLOUD_BACKUP_DB_URL: ${{ secrets.CLOUD_BACKUP_DB_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'psycopg[binary]==3.2.10'
+      - run: python -m tools.cloud_backup.watchdog

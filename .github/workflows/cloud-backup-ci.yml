@@ -1,0 +1,37 @@
+name: Cloud backup isolated verification
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: fixture-only-not-a-secret
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      FIXTURE_DB_URL: postgresql://postgres:fixture-only-not-a-secret@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PostgreSQL 17, Age, driver
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17 age
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+          python -m pip install -r tools/cloud_backup/requirements.txt
+      - name: Test retry/auth/quota/corruption/retention/temporary cleanup
+        run: python -m unittest tools.cloud_backup.test_cloud_backup -v
+      - name: Real PostgreSQL17/Age isolated fixture roundtrip and RLS
+        run: python -m tools.cloud_backup.integration_test
+      # No production credentials, real financial fixtures or backup artifacts.
