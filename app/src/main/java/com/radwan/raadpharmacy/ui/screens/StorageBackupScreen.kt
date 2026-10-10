@@ -1,197 +1,263 @@
 package com.radwan.raadpharmacy.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.backup.*
 import com.radwan.raadpharmacy.cloud.CloudSyncEngine
-import com.radwan.raadpharmacy.ui.components.ScreenTopBar
-import com.radwan.raadpharmacy.util.formatDate
-import com.radwan.raadpharmacy.util.formatTime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
 fun StorageBackupScreen(onBack: () -> Unit) {
-    var showCloud by remember { mutableStateOf(false) }
-    if (showCloud) { CentralCloudBackupScreen { showCloud = false }; return }
-    BackHandler(onBack = onBack)
     val context = LocalContext.current
     val engine = remember { LocalBackupEngine.get(context) }
     val scope = rememberCoroutineScope()
-    val destinations by engine.destinations.collectAsState(initial = emptyList())
-    val sequence by engine.sequence.collectAsState(initial = 0L)
-    val engineBusy by engine.busy.collectAsState()
+    val destinations by engine.destinations.collectAsStateWithLifecycle(initialValue = emptyList())
+    val sequence by engine.sequence.collectAsStateWithLifecycle(initialValue = 0L)
+    val engineBusy by engine.busy.collectAsStateWithLifecycle()
+    var page by rememberSaveable { mutableStateOf(BackupPage.HOME) }
     var working by remember { mutableStateOf(false) }
+    var loaded by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var held by remember { mutableStateOf(false) }
     var history by remember { mutableStateOf(emptyList<BackupHistoryItem>()) }
-    var pickingSd by remember { mutableStateOf(false) }
+    var pickingSd by rememberSaveable { mutableStateOf(false) }
+    var pickerOpen by rememberSaveable { mutableStateOf(false) }
     var showKey by remember { mutableStateOf(false) }
     var code by remember { mutableStateOf("") }
     var confirmed by remember { mutableStateOf(false) }
     var savedCheck by remember { mutableStateOf(false) }
-    var importMode by remember { mutableStateOf<String?>(null) }
-    var importCode by remember { mutableStateOf("") }
+    var keyNext by remember { mutableStateOf<BackupAction?>(null) }
+    var importMode by rememberSaveable { mutableStateOf<String?>(null) }
+    var importCode by rememberSaveable { mutableStateOf("") }
+    var importUsesOwnKey by rememberSaveable { mutableStateOf(true) }
+    var importFromOtherPhone by rememberSaveable { mutableStateOf(false) }
+    var importError by remember { mutableStateOf<String?>(null) }
     var preview by remember { mutableStateOf<RestoredArchive?>(null) }
     var reconcileConfirm by remember { mutableStateOf(false) }
-    fun act(block: suspend () -> String) {
+    val busy = working || engineBusy || pickerOpen || !loaded
+
+    suspend fun refreshLocal() {
+        val needsHistory = page == BackupPage.HISTORY
+        val info = withContext(Dispatchers.IO) {
+            Triple(engine.held(), engine.recoveryConfirmed(), if (needsHistory) engine.history() else emptyList())
+        }
+        held = info.first; confirmed = info.second; history = info.third; loaded = true
+    }
+    // Latch before launching, so rapid taps cannot start two operations or pickers.
+    fun act(after: (() -> Unit)? = null, block: suspend () -> String?) {
         if (working) return
+        working = true
         scope.launch {
-            working = true
+            var completed = false
             try {
-                val result = withContext(Dispatchers.IO) { block() }
-                message = if (showKey || preview != null) null else result
+                block()?.let { message = it }
+                completed = true
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { message = backupErrorMessage(error) }
+            finally {
+                try { refreshLocal() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { message = "تعذر تحديث الحالة. افتح الشاشة مجددًا للتحقق من النسخ." }
+                working = false
             }
-            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-            catch (e: Exception) { message = e.message ?: "تعذرت العملية. تحقق من الملف والمفتاح والإذن والمساحة." }
-            finally { working = false; held = withContext(Dispatchers.IO) { engine.held() } }
+            if (completed) after?.invoke()
         }
     }
-    LaunchedEffect(destinations, sequence, engineBusy, working) {
-        withContext(Dispatchers.IO) {
-            held = engine.held(); confirmed = engine.recoveryConfirmed(); history = engine.history()
-        }
+    LaunchedEffect(destinations, sequence, engineBusy, page) {
+        try { refreshLocal() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { loaded = true; message = "تعذر قراءة سجل النسخ. حاول فتح الشاشة مجددًا." }
+    }
+    suspend fun destinationResult(id: String): String {
+        val states = engine.destinations.first()
+        return backupWriteResult(states.filter { it.id == id }, engine.sequence.first())
     }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) act { engine.configureFolder(uri, pickingSd); "تم إعداد الوجهة. راجع حالتها للتأكد من اكتمال النسخ." }
+        pickerOpen = false
+        if (uri != null) act {
+            engine.configureFolder(uri, pickingSd)
+            destinationResult(if (pickingSd) LocalBackupEngine.SD else LocalBackupEngine.SHARED)
+        }
     }
     val restoreFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) act { preview = engine.previewFolder(uri, importCode); "تم التحقق من سلسلة النسخ." }
+        pickerOpen = false
+        if (uri != null) act {
+            try {
+                val key = if (importUsesOwnKey) withContext(Dispatchers.IO) { engine.recoveryCode() } else importCode
+                preview = engine.previewFolder(uri, key); null
+            } finally { importCode = "" }
+        }
+        else importCode = ""
     }
     val restoreFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) act { preview = engine.previewFile(uri, importCode); "تم فحص النسخة. اختر المجلد لاستعادة التغييرات اللاحقة." }
+        pickerOpen = false
+        if (uri != null) act {
+            try {
+                val key = if (importUsesOwnKey) withContext(Dispatchers.IO) { engine.recoveryCode() } else importCode
+                preview = engine.previewFile(uri, key); null
+            } finally { importCode = "" }
+        }
+        else importCode = ""
     }
     val exportFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        if (uri != null) act { engine.exportSnapshot(uri); "تم تصدير نسخة كاملة مشفرة والتحقق منها." }
+        pickerOpen = false
+        if (uri != null) act { engine.exportSnapshot(uri); "تم حفظ نسخة مشفرة والتحقق من سلامتها." }
     }
-    if (showKey) AlertDialog(onDismissRequest = { showKey = false; code = "" }, title = { Text("مفتاح الاسترداد") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("احفظ هذا المفتاح في مكان آمن منفصل عن الهاتف. يلزم لفتح النسخ على هاتف آخر. من يملك المفتاح يستطيع قراءة النسخة.")
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                SelectionContainer { Text(code, style = MaterialTheme.typography.bodyMedium) }
+    fun launchExternal(action: BackupAction) {
+        if (pickerOpen) return
+        pickerOpen = true
+        when (action) {
+            BackupAction.PHONE_FOLDER -> { pickingSd = false; folderPicker.launch(null) }
+            BackupAction.SD_FOLDER -> { pickingSd = true; folderPicker.launch(null) }
+            BackupAction.EXPORT -> exportFile.launch("RaadPharmacy-${System.currentTimeMillis()}.rpb")
+            else -> pickerOpen = false
+        }
+    }
+    fun showRecovery(next: BackupAction? = null) {
+        act {
+            code = withContext(Dispatchers.IO) { engine.recoveryCode() }
+            savedCheck = false; keyNext = next; showKey = true; null
+        }
+    }
+    fun external(action: BackupAction) {
+        if (working || pickerOpen) return
+        if (confirmed) launchExternal(action) else showRecovery(action)
+    }
+    fun back() {
+        if (working) return
+        page = when (page) {
+            BackupPage.HOME -> { onBack(); return }
+            BackupPage.HISTORY -> BackupPage.RESTORE
+            else -> BackupPage.HOME
+        }
+    }
+    if (page == BackupPage.CLOUD) {
+        CentralCloudBackupScreen { page = BackupPage.HOME }
+    } else {
+        BackHandler(onBack = ::back)
+        StorageBackupContent(page, destinations, sequence, busy, confirmed, held, history, ::back,
+            onPage = { if (!working) page = it }, onAction = { action ->
+                when (action) {
+                    BackupAction.BACKUP -> act {
+                        val success = engine.process(force = true)
+                        val result = backupWriteResult(engine.destinations.first(), engine.sequence.first())
+                        if (!success && !result.startsWith("تعذر")) "لم يكتمل النسخ إلى جميع الأماكن. افتح المكان الذي يحتاج مراجعة." else result
+                    }
+                    BackupAction.PHONE_FOLDER, BackupAction.SD_FOLDER, BackupAction.EXPORT -> external(action)
+                    BackupAction.KEY -> showRecovery()
+                    BackupAction.SD_TOGGLE -> {
+                        val state = destinations.firstOrNull { it.id == LocalBackupEngine.SD }
+                        if (state == null) external(BackupAction.SD_FOLDER)
+                        else if (!state.enabled && !confirmed) showRecovery(BackupAction.SD_FOLDER)
+                        else act {
+                            engine.setSdEnabled(!state.enabled)
+                            if (state.enabled) "تم إيقاف النسخ إلى البطاقة. النسخ السابقة باقية." else destinationResult(LocalBackupEngine.SD)
+                        }
+                    }
+                    BackupAction.IMPORT_FOLDER, BackupAction.IMPORT_FILE -> {
+                        importCode = ""; importError = null; importFromOtherPhone = false
+                        importMode = if (action == BackupAction.IMPORT_FOLDER) "folder" else "file"
+                    }
+                    BackupAction.RECONCILE -> reconcileConfirm = true
+                }
+            }, onPreview = { item -> act { preview = engine.previewHistory(item); null } })
+    }
+    if (showKey) AlertDialog(
+        onDismissRequest = { if (!working) { showKey = false; code = ""; keyNext = null } },
+        title = { Text("احفظ مفتاح الاسترداد") }, text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("تحتاج هذا المفتاح لفتح النسخ على هاتف آخر. احفظه خارج الهاتف ولا تشاركه مع الآخرين.")
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    SelectionContainer { Text(code, style = MaterialTheme.typography.bodyMedium) }
+                }
+                TextButton(onClick = {
+                    val clip = ClipData.newPlainText("مفتاح الاسترداد", code)
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        clip.description.extras = android.os.PersistableBundle().apply {
+                            putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
+                        }
+                    }
+                    (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
+                }) { Text("نسخ المفتاح") }
+                Row { Checkbox(savedCheck, onCheckedChange = { savedCheck = it }); Text("حفظته في مكان آمن خارج الهاتف", Modifier.padding(top = 12.dp).weight(1f)) }
             }
-            Row { Checkbox(savedCheck, onCheckedChange = { savedCheck = it }); Text("حفظت المفتاح خارج الهاتف", Modifier.padding(top = 12.dp)) }
-        }
-    }, confirmButton = { TextButton(enabled = savedCheck, onClick = {
-        act { engine.confirmRecovery(); confirmed = true; "تم تأكيد حفظ المفتاح." }; showKey = false; code = ""
-    }) { Text("تأكيد") } }, dismissButton = { TextButton(onClick = { showKey = false; code = "" }) { Text("إغلاق") } })
-    importMode?.let { mode -> AlertDialog(onDismissRequest = { importMode = null }, title = { Text("استيراد نسخة احتياطية") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("أدخل مفتاح استرداد الهاتف الذي أنشأ النسخة. النسخ القديمة بصيغة JSON لا تحتاج مفتاحًا.")
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                OutlinedTextField(importCode, onValueChange = { importCode = it }, label = { Text("مفتاح الاسترداد") }, modifier = Modifier.fillMaxWidth())
+        }, confirmButton = { TextButton(enabled = savedCheck && !working, onClick = {
+            val next = keyNext
+            act(after = { next?.let(::launchExternal) }) {
+                withContext(Dispatchers.IO) { engine.confirmRecovery() }
+                confirmed = true; showKey = false; code = ""
+                keyNext = null
+                if (next == null) "تم تأكيد حفظ المفتاح." else null
             }
-            if (mode == "folder") Text("اختر مجلد Raad Pharmacy Backups الذي يحتوي Snapshots وChanges وMetadata.")
-        }
-    }, confirmButton = { TextButton(onClick = {
-        importMode = null
-        if (mode == "folder") restoreFolder.launch(null) else restoreFile.launch(arrayOf("application/octet-stream", "application/json", "text/plain"))
-    }) { Text("اختيار") } }, dismissButton = { TextButton(onClick = { importMode = null; importCode = "" }) { Text("إلغاء") } }) }
-    preview?.let { archive -> AlertDialog(onDismissRequest = { if (!working) preview = null }, title = { Text("معاينة الاستعادة") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("الزبائن: ${archive.ledger.customers.size} • الحركات: ${archive.ledger.entries.size}")
-            Text("صور الزبائن: ${archive.photos.size} • تاريخ البيانات: ${backupTime(archive.ledger.createdAt)}")
-            Text("تُحفظ نسخة أمان قبل الاستبدال. تُعلّق المزامنة والتعديل بعد الاستعادة لحماية الحركات الأحدث في الحساب المركزي. العمليات المعلقة محفوظة للمراجعة ولا تُرفع تلقائيًا.")
-        }
-    }, confirmButton = { TextButton(enabled = !working, onClick = {
-        preview = null; importCode = ""; act { engine.restore(archive).message }
-    }) { Text("استعادة محلية") } }, dismissButton = { TextButton(onClick = { preview = null; importCode = "" }) { Text("إلغاء") } }) }
-    if (reconcileConfirm) AlertDialog(onDismissRequest = { reconcileConfirm = false }, title = { Text("اعتماد الحالة المركزية الحالية؟") },
-        text = { Text("سيحفظ التطبيق نسخة من الحالة المحلية ثم يحمل بيانات الحساب المركزي الحالية ويستأنف المزامنة. النسخة المستعادة والعمليات المعلقة تبقى في النسخ المشفرة للمراجعة، ولن تُنشر تلقائيًا.") },
+        }) { Text(if (keyNext == null) "تأكيد الحفظ" else "حفظ ومتابعة") } },
+        dismissButton = { TextButton(enabled = !working, onClick = { showKey = false; code = ""; keyNext = null }) { Text("إلغاء") } }
+    )
+    importMode?.let { mode -> AlertDialog(
+        onDismissRequest = { importMode = null; importCode = "" }, title = { Text("فتح نسخة احتياطية") }, text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(if (mode == "folder") "اختر مجلد Raad Pharmacy Backups. تُستعاد النسخة مع التغييرات التي تلتها."
+                    else "اختر ملف النسخة المشفرة أو نسخة JSON قديمة.")
+                Row {
+                    Checkbox(importFromOtherPhone, onCheckedChange = { importFromOtherPhone = it; importError = null })
+                    Text("النسخة من هاتف آخر أو تثبيت سابق", Modifier.padding(top = 12.dp).weight(1f))
+                }
+                if (!importFromOtherPhone) Text("سيُستخدم مفتاح هذا التطبيق تلقائيًا.", style = MaterialTheme.typography.bodySmall)
+                if (importFromOtherPhone) CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    OutlinedTextField(importCode, onValueChange = { importCode = it; importError = null }, label = { Text("مفتاح الاسترداد") },
+                        isError = importError != null, modifier = Modifier.fillMaxWidth())
+                }
+                if (importFromOtherPhone && mode == "file") Text("نسخة JSON القديمة لا تحتاج مفتاحًا.", style = MaterialTheme.typography.bodySmall)
+                importError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        }, confirmButton = { TextButton(onClick = {
+            if (importFromOtherPhone && (mode == "folder" || importCode.isNotBlank()) && runCatching { BackupCrypto.parseCode(importCode) }.isFailure) {
+                importError = "المفتاح غير كامل. الصق مفتاح الاسترداد الذي حفظته عند إنشاء النسخة."
+            } else {
+                importUsesOwnKey = !importFromOtherPhone; importMode = null; pickerOpen = true
+                if (mode == "folder") restoreFolder.launch(null) else restoreFile.launch(arrayOf("*/*"))
+            }
+        }) { Text(if (mode == "folder") "اختيار المجلد" else "اختيار الملف") } },
+        dismissButton = { TextButton(onClick = { importMode = null; importCode = "" }) { Text("إلغاء") } }
+    ) }
+    preview?.let { archive -> AlertDialog(
+        onDismissRequest = { if (!working) { preview = null; importCode = "" } }, title = { Text("تأكيد الاستعادة") }, text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("${archive.ledger.customers.size} زبون • ${archive.ledger.entries.size} حركة")
+                Text("تاريخ النسخة: ${backupTime(archive.ledger.createdAt)}")
+                Text("ستستبدل النسخة بيانات هذا الهاتف. تُحفظ نسخة أمان أولًا، وتُوقف المزامنة والتعديل حتى مراجعة البيانات.")
+                Text("لن تُرفع الديون القديمة إلى الحساب المركزي تلقائيًا.", style = MaterialTheme.typography.bodySmall)
+            }
+        }, confirmButton = { TextButton(enabled = !working, onClick = {
+            preview = null; importCode = ""; act { engine.restore(archive).message }
+        }) { Text("استعادة على هذا الهاتف") } },
+        dismissButton = { TextButton(enabled = !working, onClick = { preview = null; importCode = "" }) { Text("إلغاء") } }
+    ) }
+    if (reconcileConfirm) AlertDialog(onDismissRequest = { reconcileConfirm = false }, title = { Text("العودة إلى البيانات الحالية؟") },
+        text = { Text("تُحفظ نسخة من بيانات الهاتف ثم تُحمّل بيانات الصيدلية الحالية من الحساب المركزي وتعود المزامنة. العمليات المعلقة تبقى محفوظة للمراجعة.") },
         confirmButton = { TextButton(enabled = !working, onClick = {
-            reconcileConfirm = false; act { CloudSyncEngine(context).reconcileRestoredFromServer(); "تم تحميل الحالة المركزية واستئناف المزامنة." }
-        }) { Text("تحميل الحالة المركزية") } }, dismissButton = { TextButton(onClick = { reconcileConfirm = false }) { Text("إلغاء") } })
+            reconcileConfirm = false; act { CloudSyncEngine(context).reconcileRestoredFromServer(); "تم تحميل البيانات الحالية واستئناف المزامنة." }
+        }) { Text("تحميل البيانات الحالية") } }, dismissButton = { TextButton(onClick = { reconcileConfirm = false }) { Text("إلغاء") } })
     message?.let { text -> AlertDialog(onDismissRequest = { message = null }, title = { Text("النسخ الاحتياطي") },
         text = { Text(text) }, confirmButton = { TextButton(onClick = { message = null }) { Text("حسنًا") } }) }
-    Scaffold(topBar = { ScreenTopBar("التخزين والنسخ الاحتياطي", onBack) }) { padding ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding).testTag("backup-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item { BackupCard("النسخ السحابي") {
-                Text("حالة النسخ الاحتياطي المركزي لجميع مستخدمي الصيدلية.")
-                OutlinedButton(onClick = { showCloud = true }) { Text("عرض النسخ الاحتياطي السحابي المركزي") }
-            } }
-            item { BackupCard("حماية مستمرة للبيانات") {
-                Text("كل تغيير مالي محفوظ مع سجل حماية دائم. تُرحّل التغييرات في الخلفية، وتُنشأ نسخ كاملة كل 6 ساعات عند وجود تغييرات، مع نسخة يومية مرجعية.")
-                Text("الحماية الخاصة تُحذف عند إزالة التطبيق. النسخ داخل المجلد المشترك وعلى SD تبقى ما دام المستخدم لم يحذفها.", style = MaterialTheme.typography.bodySmall)
-                Button(enabled = !working, onClick = { act { code = engine.recoveryCode(); showKey = true; savedCheck = confirmed; "احفظ مفتاح الاسترداد." } }) { Text(if (confirmed) "عرض مفتاح الاسترداد" else "حفظ مفتاح الاسترداد") }
-            } }
-            if (held) item { BackupCard("الاستعادة المحلية معلقة عن السحابة", true) {
-                Text("البيانات للعرض حاليًا. المزامنة والتعديل موقوفان؛ لن يعيد الهاتف نشر الديون القديمة. احتفظ بالنسخة لمراجعة العمليات غير المتزامنة.")
-                Button(enabled = !working, onClick = { reconcileConfirm = true }) { Text("مصالحة مع الحساب المركزي") }
-            } }
-            item { BackupCard("النسخ الداخلية") {
-                DestinationDetails(destinations.firstOrNull { it.id == LocalBackupEngine.PRIVATE }, sequence, "مساحة التطبيق الخاصة")
-                HorizontalDivider()
-                DestinationDetails(destinations.firstOrNull { it.id == LocalBackupEngine.SHARED }, sequence, "المجلد الظاهر على الهاتف")
-                Button(enabled = !working, onClick = { act { engine.process(force = true); "انتهت محاولة النسخ. راجع حالة كل وجهة." } }) { Text("إنشاء نسخة الآن") }
-                OutlinedButton(enabled = !working && confirmed, onClick = { pickingSd = false; folderPicker.launch(null) }) { Text("إعداد أو تغيير مجلد النسخ على الهاتف") }
-                if (!confirmed) Text("احفظ مفتاح الاسترداد لتفعيل النسخ خارج التطبيق.")
-            } }
-            item { BackupCard("بطاقة الذاكرة SD") {
-                val state = destinations.firstOrNull { it.id == LocalBackupEngine.SD }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(if (state?.enabled == true) "النسخ إلى البطاقة مفعل" else "النسخ إلى البطاقة معطل", Modifier.weight(1f))
-                    Switch(checked = state?.enabled == true, enabled = !working && confirmed, onCheckedChange = { enable ->
-                        if (state == null && enable) { pickingSd = true; folderPicker.launch(null) }
-                        else act { engine.setSdEnabled(enable); if (enable) "تم تفعيل النسخ إلى البطاقة." else "تم تعطيل النسخ إلى البطاقة." }
-                    })
-                }
-                DestinationDetails(state, sequence, "نسخ مستقل دون إنترنت")
-                Text("عند إزالة البطاقة تبقى التغييرات في الطابور المحلي، وتستمر النسخ الداخلية.")
-                OutlinedButton(enabled = !working && confirmed, onClick = { pickingSd = true; folderPicker.launch(null) }) { Text("تحديد أو تغيير مجلد البطاقة") }
-                Button(enabled = !working && state?.enabled == true, onClick = { act { engine.process(); "انتهت محاولة ترحيل التغييرات. راجع حالة البطاقة." } }) { Text("النسخ الآن") }
-            } }
-            item { BackupCard("الاستعادة وسجل النسخ") {
-                Text("استيراد المجلد يعيد النسخة الكاملة مع التغييرات اللاحقة. استيراد ملف كامل يعيد حالة ذلك الملف فقط.")
-                OutlinedButton(enabled = !working, onClick = { importCode = ""; importMode = "folder" }) { Text("استيراد مجلد نسخ من الهاتف أو SD") }
-                OutlinedButton(enabled = !working, onClick = { importCode = ""; importMode = "file" }) { Text("استيراد ملف مشفر أو نسخة JSON قديمة") }
-                OutlinedButton(enabled = !working && confirmed, onClick = { exportFile.launch("RaadPharmacy-${System.currentTimeMillis()}.rpb") }) { Text("تصدير نسخة كاملة مشفرة") }
-                if (history.isEmpty()) Text("لا توجد نسخ كاملة متاحة بعد.")
-            } }
-            items(history.size, key = { "${history[it].destination}/${history[it].name}" }) { index ->
-                val item = history[index]
-                BackupCard("نسخة كاملة • ${destinationLabel(item.destination)}") {
-                    Text(backupTime(item.createdAt)); Text(backupSize(item.bytes))
-                    OutlinedButton(enabled = !working, onClick = { act { preview = engine.previewHistory(item); "تم التحقق من النسخة والتغييرات اللاحقة." } }) { Text("التحقق والمعاينة") }
-                }
-            }
-            if (working || engineBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            item { Text("قد يتأخر النسخ بسبب قيود أندرويد أو فقدان الإذن أو امتلاء الذاكرة أو عدم توفر SD. كل وجهة تعرض آخر كتابة تم التحقق منها.", style = MaterialTheme.typography.bodySmall) }
-        }
-    }
 }
-@Composable private fun BackupCard(title: String, warning: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
-    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge, colors = CardDefaults.cardColors(
-        containerColor = if (warning) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text(title, style = MaterialTheme.typography.titleLarge); content() }
-    }
-}
-@Composable private fun DestinationDetails(state: BackupDestinationEntity?, latest: Long, title: String) {
-    Text(title, style = MaterialTheme.typography.titleMedium)
-    val pending = (latest - (state?.cursor ?: 0)).coerceAtLeast(0)
-    Text(when { state == null -> "غير مهيأ"; !state.enabled -> "معطل"; state.error != null -> state.error
-        state.lastFullAt == 0L -> "جارٍ إعداد النسخة الأولية"; pending > 0 -> "تغييرات تنتظر الترحيل"; else -> "آخر كتابة متحقق منها — التغييرات مرحّلة" },
-        color = if (state?.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-    Text("آخر نسخة كاملة: ${backupTime(state?.lastFullAt ?: 0)}")
-    Text("آخر تغيير منسوخ: ${backupTime(state?.lastChangeAt ?: 0)}")
-    Text("التغييرات المعلقة: $pending • حجم النسخ: ${backupSize(state?.bytes ?: 0)}")
-    state?.treeUri?.let { uri ->
-        val path = runCatching { android.provider.DocumentsContract.getDocumentId(android.net.Uri.parse(uri)).substringAfter(':') }.getOrDefault("Raad Pharmacy Backups")
-        Text("المجلد: $path", style = MaterialTheme.typography.bodySmall)
-    }
-}
-private fun backupTime(time: Long) = if (time <= 0) "لم تُنشأ بعد" else "${formatDate(time)} • ${formatTime(time)}"
-private fun backupSize(bytes: Long) = java.lang.String.format(java.util.Locale.US, "%.2f MB", bytes / 1048576.0)
-private fun destinationLabel(id: String) = when (id) { LocalBackupEngine.PRIVATE -> "خاصة"; LocalBackupEngine.SD -> "SD"; else -> "الهاتف" }

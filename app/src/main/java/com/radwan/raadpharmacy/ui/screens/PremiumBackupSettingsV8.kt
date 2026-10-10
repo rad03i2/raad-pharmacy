@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -200,7 +201,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    Icons.Rounded.CloudDone,
+                                    Icons.Rounded.Save,
                                     null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(25.dp)
@@ -229,8 +230,8 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
             }
 
             item {
-                V8SettingsRow(Icons.Rounded.Backup, "التخزين والنسخ الاحتياطي",
-                    "حماية محلية مستمرة • الهاتف • بطاقة SD • الاستعادة الآمنة") { showLocalBackups = true }
+                V8SettingsRow(Icons.Rounded.Save, "التخزين والنسخ الاحتياطي",
+                    "النسخ على الهاتف والبطاقة والسحابة من شاشة واحدة") { showLocalBackups = true }
             }
 
             item { SectionTitle("التطبيق") }

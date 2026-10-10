@@ -41,7 +41,8 @@ class CentralCloudBackupScreenTest {
                 }
             }
         }
-        rule.onNodeWithText("الخدمة غير مهيأة بعد").assertExists()
+        rule.onNodeWithText("غير مفعّل").assertExists()
+        rule.onNodeWithText("النسخ المحفوظة: 0").assertDoesNotExist()
         rule.onNodeWithText("طلب نسخة سحابية الآن").assertDoesNotExist()
         rule.onNodeWithText("استعادة الآن").assertDoesNotExist()
         val folder=File("build/reports/cloud-backup-preview").apply { mkdirs() }
@@ -68,5 +69,31 @@ class CentralCloudBackupScreenTest {
         } }
         rule.onNodeWithTag("cloud-backup-list").performScrollToNode(hasText("طلب نسخة سحابية الآن"))
         rule.onNodeWithText("طلب نسخة سحابية الآن").assertIsEnabled()
+    }
+    @Test fun unavailableServiceHidesActionsEvenWhenAdministrativeFlagsAreSet() {
+        rule.setContent { PharmacyLedgerTheme {
+            CentralCloudBackupContent(CentralBackupStatus(canViewHistory=true,canRequest=true),false,null,{},{},{})
+        } }
+        rule.onNodeWithText("طلب نسخة سحابية الآن").assertDoesNotExist()
+        rule.onNodeWithText("عرض التفاصيل").assertDoesNotExist()
+    }
+    @Test fun runningBackupDisablesRepeatRequestsAndDetailsStayCollapsed() {
+        rule.setContent { PharmacyLedgerTheme {
+            CentralCloudBackupContent(CentralBackupStatus(configured=true,phase="RUNNING",canViewHistory=true,canRequest=true),false,null,{},{},{})
+        } }
+        rule.onNodeWithText("طلب نسخة سحابية الآن").assertIsNotEnabled()
+        rule.onNodeWithText("سجل النسخ").assertDoesNotExist()
+        rule.onNodeWithTag("cloud-backup-list").performScrollToNode(hasText("عرض التفاصيل"))
+        rule.onNodeWithTag("cloud-details-toggle").performClick()
+        rule.onNodeWithTag("cloud-backup-list").performScrollToNode(hasText("سجل النسخ"))
+        rule.onNodeWithText("سجل النسخ").assertExists()
+    }
+    @Test fun networkFailureDoesNotPretendServiceIsDisabled() {
+        rule.setContent { PharmacyLedgerTheme {
+            CentralCloudBackupContent(CentralBackupStatus(),false,"تعذر الاتصال",{},{},{},true)
+        } }
+        rule.onNodeWithText("تعذر التحقق من الحالة").assertExists()
+        rule.onNodeWithText("غير مفعّل").assertDoesNotExist()
+        rule.onNodeWithText("تحديث الحالة").assertIsEnabled()
     }
 }
