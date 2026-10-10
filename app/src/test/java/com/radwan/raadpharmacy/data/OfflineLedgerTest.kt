@@ -20,6 +20,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.IOException
+import java.io.File
+import org.json.JSONObject
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -38,6 +40,37 @@ class OfflineLedgerTest {
         repository = AppRepository(app, dao) { throw IOException("scheduler/backup unavailable") }
     }
     @After fun close() { db.close() }
+
+    @Test fun versionTwoMigrationPreservesLedgerBackupStateAndPendingLegacyWork() = runTest {
+        val name = "offline-migration-v2.db"
+        app.deleteDatabase(name); app.getDatabasePath(name).parentFile!!.mkdirs()
+        val old = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(app.getDatabasePath(name), null)
+        val entities = JSONObject(File("schemas/com.radwan.raadpharmacy.data.PharmacyLedgerDatabase/2.json").readText())
+            .getJSONObject("database").getJSONArray("entities")
+        for (i in 0 until entities.length()) {
+            val entity = entities.getJSONObject(i)
+            fun sql(template: String) = template.replace("\${TABLE_NAME}", entity.getString("tableName"))
+            old.execSQL(sql(entity.getString("createSql")))
+            val indices = entity.getJSONArray("indices")
+            for (j in 0 until indices.length()) old.execSQL(sql(indices.getJSONObject(j).getString("createSql")))
+        }
+        old.execSQL("INSERT INTO customers VALUES ('c1', 'أحمد', NULL, '', '', 0, '', 1000)")
+        old.execSQL("INSERT INTO ledger_entries VALUES ('existing', 'c1', 'DEBT', 5000, NULL, NULL, '', 2000)")
+        old.execSQL("INSERT INTO backup_control VALUES ('watermark', '51')")
+        old.version = 2; old.close()
+        app.getSharedPreferences("raad_cloud_sync_journal", Context.MODE_PRIVATE).edit().clear()
+            .putStringSet("transaction_upserts", setOf("existing")).commit()
+        val migrated = Room.databaseBuilder<PharmacyLedgerDatabase>(app, name).setDriver(DurableLedgerDriver())
+            .addMigrations(CloudOutboxMigration.MIGRATION_2_3).build()
+        try {
+            val d = migrated.dao()
+            assertEquals(1, d.customerCount()); assertEquals(1, d.entryCount()); assertEquals(51L, d.latestBackupSequence())
+            assertTrue(d.cloudOutbox().isEmpty())
+            CloudSyncJournal(app, d).importLegacy()
+            assertEquals("existing", d.cloudOutbox().single().entityId)
+            d.applyCloudSnapshot(emptyList(), emptyList()); assertEquals(1, d.entryCount())
+        } finally { migrated.close(); app.deleteDatabase(name) }
+    }
 
     @Test fun productionWriterUsesFullDiskSyncAcrossReopen() = runTest {
         val name = "offline-durability-mode.db"

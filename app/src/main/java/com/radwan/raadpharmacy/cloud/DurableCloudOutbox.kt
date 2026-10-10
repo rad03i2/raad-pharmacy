@@ -50,13 +50,17 @@ internal class DurableCloudDrain(private val dao: PharmacyLedgerDao,
     private val send: suspend (CloudOutboxEntity) -> Unit) {
     suspend fun flush() {
         var firstFailure: Exception? = null
+        var failures = 0
         for (row in dao.cloudOutbox()) {
             if (dao.restoreHold() == "1") return
             try {
                 send(row)
                 dao.acknowledgeCloudMutation(row.key, row.revision)
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { if (firstFailure == null) firstFailure = error }
+            catch (error: Exception) {
+                if (firstFailure == null) firstFailure = error
+                if (++failures >= 3) break // Bound repeated failures during a shared outage.
+            }
         }
         firstFailure?.let { throw it }
     }
