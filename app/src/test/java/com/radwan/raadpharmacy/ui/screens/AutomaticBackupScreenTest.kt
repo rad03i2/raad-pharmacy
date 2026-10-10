@@ -53,6 +53,9 @@ class AutomaticBackupScreenTest {
         rule.onNodeWithTag("automatic-backup-list").performScrollToNode(hasTestTag("auto-restore"))
         rule.onNodeWithTag("auto-restore").assertIsDisplayed()
         capture("automatic-home-360")
+        rule.onNodeWithTag("auto-restore").performClick()
+        rule.onNodeWithText("اختيار ملف من الهاتف أو البطاقة").assertExists()
+        rule.runOnIdle { page = AutoBackupPage.HOME }
         rule.onNodeWithTag("auto-phone").performClick()
         rule.onNodeWithText("نسخة تلقائية على الهاتف").assertExists()
         capture("automatic-phone-360")

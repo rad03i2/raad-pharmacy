@@ -26,7 +26,8 @@ import java.util.concurrent.TimeUnit
 /** Observes the existing durable watermark; never changes the ledger or its ordinary cloud sync. */
 internal class AutomaticBackupEngine private constructor(context: Context,
     daoOverride: PharmacyLedgerDao? = null, private val phoneOverride: PortableBackupTarget? = null,
-    private val sdOverride: PortableBackupTarget? = null, private val scheduling: Boolean = true
+    private val sdOverride: PortableBackupTarget? = null, private val scheduling: Boolean = true,
+    private val driveOverride: ((String) -> DeviceDriveBackup)? = null
 ) {
     private val app = context.applicationContext
     private val dao = daoOverride ?: PharmacyLedgerDatabase.get(app).dao()
@@ -37,7 +38,7 @@ internal class AutomaticBackupEngine private constructor(context: Context,
     private val wakes = Channel<Unit>(Channel.CONFLATED)
     private val cache = AtomicFile(File(app.noBackupFilesDir, "raad-portable-latest.backup"))
     private val device = prefs.getString("device", null) ?: UUID.randomUUID().toString().also {
-        check(prefs.edit().putString("device", it).commit())
+        prefs.edit().putString("device", it).commit()
     }
     private val _state = MutableStateFlow(readState())
     val state = _state.asStateFlow()
@@ -70,16 +71,17 @@ internal class AutomaticBackupEngine private constructor(context: Context,
     @Synchronized fun start() {
         if (started) return
         started = true
-        if (!scheduling) return
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_MEDIA_MOUNTED); addAction(Intent.ACTION_MEDIA_UNMOUNTED)
-            addAction(Intent.ACTION_MEDIA_REMOVED); addDataScheme("file")
+        if (scheduling) {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_MEDIA_MOUNTED); addAction(Intent.ACTION_MEDIA_UNMOUNTED)
+                addAction(Intent.ACTION_MEDIA_REMOVED); addDataScheme("file")
+            }
+            runCatching { androidx.core.content.ContextCompat.registerReceiver(app, object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) { wake() }
+            }, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED) }
+            WorkManager.getInstance(app).enqueueUniquePeriodicWork("raad-portable-maintenance", ExistingPeriodicWorkPolicy.KEEP,
+                PeriodicWorkRequestBuilder<AutomaticBackupWorker>(15, TimeUnit.MINUTES).build())
         }
-        runCatching { androidx.core.content.ContextCompat.registerReceiver(app, object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) { wake() }
-        }, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED) }
-        WorkManager.getInstance(app).enqueueUniquePeriodicWork("raad-portable-maintenance", ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<AutomaticBackupWorker>(15, TimeUnit.MINUTES).build())
         scope.launch {
             // Adopt an existing SD grant. Old encrypted files remain available for recovery.
             if (!prefs.contains("sd.tree")) dao.backupDestinations().firstOrNull { it.id == LocalBackupEngine.SD }?.let { old ->
@@ -92,8 +94,8 @@ internal class AutomaticBackupEngine private constructor(context: Context,
         wake()
     }
     fun wake() {
-        if (!scheduling) return
         wakes.trySend(Unit)
+        if (!scheduling) return
         WorkManager.getInstance(app).enqueueUniqueWork("raad-portable-drain", ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<AutomaticBackupWorker>().setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
     }
@@ -105,6 +107,7 @@ internal class AutomaticBackupEngine private constructor(context: Context,
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
     }
     private fun phone() = phoneOverride ?: PhoneBackupTarget(app)
+    private suspend fun drive(account: String) = driveOverride?.invoke(account) ?: DeviceDriveBackup.authorized(app, account)
     private fun sd(): PortableBackupTarget {
         sdOverride?.let { return it }
         val uri = Uri.parse(checkNotNull(prefs.getString("sd.tree", null)) { "اختر مجلد البطاقة مرة واحدة." })
@@ -154,6 +157,11 @@ internal class AutomaticBackupEngine private constructor(context: Context,
                 }
                 wakeDrive()
                 success
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                // A backup/cache failure must never crash the working ledger application.
+                _state.update { it.copy(phone = it.phone.copy(error = localError(error, "phone"))) }
+                false
             } finally { _state.update { it.copy(busy = false) } }
         }
     }
@@ -199,7 +207,7 @@ internal class AutomaticBackupEngine private constructor(context: Context,
             if (!_state.value.drive.enabled) return@withLock true
             _state.update { it.copy(uploading = true) }
             try {
-                val client = DeviceDriveBackup.authorized(app, account)
+                val client = drive(account)
                 // A bounded drain catches changes made while the preceding upload was running.
                 repeat(3) {
                     val bytes = mutex.withLock { cached() } ?: return@withLock false
@@ -224,13 +232,13 @@ internal class AutomaticBackupEngine private constructor(context: Context,
             if (_state.value.sd.enabled) addAll(runCatching { sd().list() }.getOrDefault(emptyList()))
         } }
         val cloud = if (includeDrive && _state.value.account != null) {
-            DeviceDriveBackup.authorized(app, _state.value.account!!).history()
+            drive(_state.value.account!!).history()
         } else emptyList()
         (local + cloud).sortedByDescending { it.createdAt }
     }
     suspend fun preview(item: PortableBackupItem): RestoredArchive = withContext(Dispatchers.IO) {
         val bytes = when (item.place) {
-            "drive" -> DeviceDriveBackup.authorized(app, checkNotNull(_state.value.account)).download(item.locator)
+            "drive" -> drive(checkNotNull(_state.value.account)).download(item.locator)
             "sd" -> mutex.withLock { sd().read(item.locator) }
             else -> mutex.withLock { phone().read(item.locator) }
         }
@@ -246,11 +254,12 @@ internal class AutomaticBackupEngine private constructor(context: Context,
         }
     }
     fun retryDrive() { wakeDrive(replace = true) }
+    internal fun stopForTesting() { check(!scheduling); scope.cancel() }
     companion object {
         @Volatile private var instance: AutomaticBackupEngine? = null
         fun get(context: Context) = instance ?: synchronized(this) { instance ?: AutomaticBackupEngine(context).also { instance = it } }
-        internal fun forTesting(context: Context, dao: PharmacyLedgerDao, phone: PortableBackupTarget, sd: PortableBackupTarget? = null) =
-            AutomaticBackupEngine(context, dao, phone, sd, false)
+        internal fun forTesting(context: Context, dao: PharmacyLedgerDao, phone: PortableBackupTarget, sd: PortableBackupTarget? = null,
+            drive: ((String) -> DeviceDriveBackup)? = null) = AutomaticBackupEngine(context, dao, phone, sd, false, drive)
         private fun localError(error: Exception, id: String) = if (error.message?.contains(Regex("[ء-ي]")) == true) error.message!!.take(220)
             else if (id == "sd") "البطاقة غير متاحة أو فُقد الإذن. ستتحدث النسخة عند توفرها."
             else "تعذر حفظ نسخة الهاتف. تحقق من الإذن والمساحة المتاحة."

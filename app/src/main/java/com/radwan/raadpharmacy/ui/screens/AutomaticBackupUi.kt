@@ -26,6 +26,9 @@ internal fun AutomaticBackupContent(page: AutoBackupPage, state: AutomaticBackup
     onPage: (AutoBackupPage) -> Unit, onAction: (AutoBackupAction) -> Unit, onPreview: (PortableBackupItem) -> Unit
 ) {
     val list = remember(page) { LazyListState() }
+    val enabledPlaces = listOf(state.phone, state.sd, state.drive).filter { it.enabled }
+    val hasError = enabledPlaces.any { it.error != null }
+    val pending = enabledPlaces.any { it.sequence != sequence || it.updatedAt == 0L }
     Scaffold(topBar = { ScreenTopBar(page.title, onBack) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("automatic-backup-list"), state = list,
             contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -39,7 +42,8 @@ internal fun AutomaticBackupContent(page: AutoBackupPage, state: AutomaticBackup
             } }
             when (page) {
                 AutoBackupPage.HOME -> {
-                    item { BackupPanel("حالة النسخ الاحتياطية", Icons.Rounded.CheckCircle) {
+                    item { BackupPanel("حالة النسخ الاحتياطية", if (hasError) Icons.Rounded.WarningAmber
+                        else if (pending) Icons.Rounded.Schedule else Icons.Rounded.CheckCircle, warning = hasError) {
                         Text("تتحدّث النسخة تلقائيًا بعد إضافة زبون أو تغيير دين أو تحصيل.")
                         AutoBackupSummary("الهاتف", state.phone, sequence)
                         AutoBackupSummary("بطاقة الذاكرة", state.sd, sequence)
