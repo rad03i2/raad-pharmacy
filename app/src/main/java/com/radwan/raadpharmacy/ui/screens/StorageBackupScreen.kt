@@ -50,7 +50,7 @@ fun StorageBackupScreen(onBack: () -> Unit) {
     var keyNext by remember { mutableStateOf<BackupAction?>(null) }
     var importMode by rememberSaveable { mutableStateOf<String?>(null) }
     var importCode by rememberSaveable { mutableStateOf("") }
-    var ownImportCode by rememberSaveable { mutableStateOf("") }
+    var importUsesOwnKey by rememberSaveable { mutableStateOf(true) }
     var importFromOtherPhone by rememberSaveable { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
     var preview by remember { mutableStateOf<RestoredArchive?>(null) }
@@ -58,18 +58,21 @@ fun StorageBackupScreen(onBack: () -> Unit) {
     val busy = working || engineBusy || pickerOpen || !loaded
 
     suspend fun refreshLocal() {
+        val needsHistory = page == BackupPage.HISTORY
         val info = withContext(Dispatchers.IO) {
-            Triple(engine.held(), engine.recoveryConfirmed(), engine.history())
+            Triple(engine.held(), engine.recoveryConfirmed(), if (needsHistory) engine.history() else emptyList())
         }
         held = info.first; confirmed = info.second; history = info.third; loaded = true
     }
     // Latch before launching, so rapid taps cannot start two operations or pickers.
-    fun act(block: suspend () -> String?) {
+    fun act(after: (() -> Unit)? = null, block: suspend () -> String?) {
         if (working) return
         working = true
         scope.launch {
+            var completed = false
             try {
                 block()?.let { message = it }
+                completed = true
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { message = error.message ?: "تعذرت العملية. تحقق من الملف ومفتاح الاسترداد والمساحة المتاحة." }
             finally {
@@ -78,9 +81,10 @@ fun StorageBackupScreen(onBack: () -> Unit) {
                 catch (_: Exception) { message = "تعذر تحديث الحالة. افتح الشاشة مجددًا للتحقق من النسخ." }
                 working = false
             }
+            if (completed) after?.invoke()
         }
     }
-    LaunchedEffect(destinations, sequence, engineBusy) {
+    LaunchedEffect(destinations, sequence, engineBusy, page) {
         try { refreshLocal() }
         catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { loaded = true; message = "تعذر قراءة سجل النسخ. حاول فتح الشاشة مجددًا." }
@@ -98,12 +102,22 @@ fun StorageBackupScreen(onBack: () -> Unit) {
     }
     val restoreFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         pickerOpen = false
-        if (uri != null) act { preview = engine.previewFolder(uri, importCode); null }
+        if (uri != null) act {
+            try {
+                val key = if (importUsesOwnKey) withContext(Dispatchers.IO) { engine.recoveryCode() } else importCode
+                preview = engine.previewFolder(uri, key); null
+            } finally { importCode = "" }
+        }
         else importCode = ""
     }
     val restoreFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         pickerOpen = false
-        if (uri != null) act { preview = engine.previewFile(uri, importCode); null }
+        if (uri != null) act {
+            try {
+                val key = if (importUsesOwnKey) withContext(Dispatchers.IO) { engine.recoveryCode() } else importCode
+                preview = engine.previewFile(uri, key); null
+            } finally { importCode = "" }
+        }
         else importCode = ""
     }
     val exportFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -162,12 +176,8 @@ fun StorageBackupScreen(onBack: () -> Unit) {
                         }
                     }
                     BackupAction.IMPORT_FOLDER, BackupAction.IMPORT_FILE -> {
-                        act {
-                            ownImportCode = withContext(Dispatchers.IO) { engine.recoveryCode() }
-                            importCode = ""; importError = null; importFromOtherPhone = false
-                            importMode = if (action == BackupAction.IMPORT_FOLDER) "folder" else "file"
-                            null
-                        }
+                        importCode = ""; importError = null; importFromOtherPhone = false
+                        importMode = if (action == BackupAction.IMPORT_FOLDER) "folder" else "file"
                     }
                     BackupAction.RECONCILE -> reconcileConfirm = true
                 }
@@ -193,11 +203,11 @@ fun StorageBackupScreen(onBack: () -> Unit) {
                 Row { Checkbox(savedCheck, onCheckedChange = { savedCheck = it }); Text("حفظته في مكان آمن خارج الهاتف", Modifier.padding(top = 12.dp).weight(1f)) }
             }
         }, confirmButton = { TextButton(enabled = savedCheck && !working, onClick = {
-            act {
+            val next = keyNext
+            act(after = { next?.let(::launchExternal) }) {
                 withContext(Dispatchers.IO) { engine.confirmRecovery() }
                 confirmed = true; showKey = false; code = ""
-                val next = keyNext; keyNext = null
-                next?.let(::launchExternal)
+                keyNext = null
                 if (next == null) "تم تأكيد حفظ المفتاح." else null
             }
         }) { Text(if (keyNext == null) "تأكيد الحفظ" else "حفظ ومتابعة") } },
@@ -221,11 +231,10 @@ fun StorageBackupScreen(onBack: () -> Unit) {
                 importError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }, confirmButton = { TextButton(onClick = {
-            val selectedCode = if (importFromOtherPhone) importCode else ownImportCode
-            if ((mode == "folder" || selectedCode.isNotBlank()) && runCatching { BackupCrypto.parseCode(selectedCode) }.isFailure) {
+            if (importFromOtherPhone && (mode == "folder" || importCode.isNotBlank()) && runCatching { BackupCrypto.parseCode(importCode) }.isFailure) {
                 importError = "المفتاح غير كامل. الصق مفتاح الاسترداد الذي حفظته عند إنشاء النسخة."
             } else {
-                importCode = selectedCode; ownImportCode = ""; importMode = null; pickerOpen = true
+                importUsesOwnKey = !importFromOtherPhone; importMode = null; pickerOpen = true
                 if (mode == "folder") restoreFolder.launch(null) else restoreFile.launch(arrayOf("*/*"))
             }
         }) { Text(if (mode == "folder") "اختيار المجلد" else "اختيار الملف") } },
