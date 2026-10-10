@@ -9,6 +9,9 @@ import com.radwan.raadpharmacy.data.CustomerEntity
 import com.radwan.raadpharmacy.data.LedgerEntryEntity
 import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
 import com.radwan.raadpharmacy.data.LedgerReleaseCleanup
+import com.radwan.raadpharmacy.data.BackupJson
+import com.radwan.raadpharmacy.data.toEntity
+import kotlinx.coroutines.CancellationException
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.postgrest.from
@@ -63,6 +66,7 @@ class CloudSyncEngine(context: Context) {
 
     suspend fun syncOnce() = globalSyncMutex.withLock {
         if (dao.restoreHold() == "1") return@withLock
+        journal.importLegacy()
         LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         val session = client.auth.currentSessionOrNull() ?: return@withLock
@@ -72,7 +76,7 @@ class CloudSyncEngine(context: Context) {
             .decodeSingle<CloudProfileRow>()
 
         registerDevice(profile, userId)
-        registerPushToken(profile, userId)
+        registerPushTokenBestEffort(profile, userId)
 
         if (!deviceStore.isBootstrapped(profile.pharmacyId)) {
             bootstrap(profile)
@@ -85,6 +89,7 @@ class CloudSyncEngine(context: Context) {
 
     suspend fun flushPendingOnly() = globalSyncMutex.withLock {
         if (dao.restoreHold() == "1") return@withLock
+        journal.importLegacy()
         LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         val session = client.auth.currentSessionOrNull() ?: return@withLock
@@ -94,12 +99,13 @@ class CloudSyncEngine(context: Context) {
             .decodeSingle<CloudProfileRow>()
 
         registerDevice(profile, userId)
-        registerPushToken(profile, userId)
+        registerPushTokenBestEffort(profile, userId)
         pushPending(profile)
     }
 
     suspend fun pullRemoteNow() = globalSyncMutex.withLock {
         if (dao.restoreHold() == "1") return@withLock
+        journal.importLegacy()
         LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         if (client.auth.currentSessionOrNull() == null) return@withLock
@@ -184,54 +190,43 @@ class CloudSyncEngine(context: Context) {
     }
 
     private suspend fun pushPending(profile: CloudProfileRow) {
-        val pending = journal.snapshot()
-
-        pending.customerUpserts.forEach { id ->
-            val local = dao.getCustomerById(id)
-            if (local == null) {
-                journal.markCustomerDelete(id)
-                journal.clearCustomerUpsert(id)
-            } else {
-                client.from("customers").upsert(local.toCloud(profile.pharmacyId)) {
-                    onConflict = "id"
+        DurableCloudDrain(dao) { row ->
+            val id = row.entityId
+            when {
+                row.kind == "CUSTOMER" && row.action == "UPSERT" -> {
+                    val local = BackupJson.parse(row.payload).customers.single().toEntity()
+                    client.from("customers").upsert(local.toCloud(profile.pharmacyId)) { onConflict = "id" }
                 }
-                journal.clearCustomerUpsert(id)
-            }
-        }
-
-        pending.transactionUpserts.forEach { id ->
-            val local = dao.getEntryById(id)
-            if (local == null) {
-                journal.markTransactionDelete(id)
-                journal.clearTransactionUpsert(id)
-            } else {
-                client.from("transactions").upsert(local.toCloud(profile.pharmacyId)) {
-                    onConflict = "id"
+                row.kind == "ENTRY" && row.action == "UPSERT" -> {
+                    val local = BackupJson.parse(row.payload).entries.single().toEntity()
+                    client.from("transactions").upsert(local.toCloud(profile.pharmacyId)) { onConflict = "id" }
+                    // Schedule durable delivery before acknowledging this upload. A retry
+                    // reuses the transaction id; the server ignores identical financial updates.
+                    CloudPushDispatcher.request(appContext, id)
                 }
-                journal.clearTransactionUpsert(id)
-                CloudPushDispatcher.request(appContext, id)
+                row.kind == "ENTRY" -> {
+                    client.from("transactions").update(DeletedAtDevicePatch(toIso(row.occurredAt), deviceStore.deviceId())) {
+                        filter { eq("id", id) }
+                    }
+                    CloudPushDispatcher.request(appContext, id)
+                }
+                else -> {
+                    val deletedAt = toIso(row.occurredAt)
+                    client.from("transactions").update(DeletedAtDevicePatch(deletedAt, deviceStore.deviceId())) {
+                        filter { eq("customer_id", id) }
+                    }
+                    client.from("customers").update(DeletedAtPatch(deletedAt)) { filter { eq("id", id) } }
+                }
             }
-        }
+        }.flush()
+    }
 
-        journal.snapshot().transactionDeletes.forEach { id ->
-            client.from("transactions").update(
-                DeletedAtDevicePatch(nowIso(), deviceStore.deviceId())
-            ) {
-                filter { eq("id", id) }
-            }
-            journal.clearTransactionDelete(id)
-            CloudPushDispatcher.request(appContext, id)
-        }
-
-        journal.snapshot().customerDeletes.forEach { id ->
-            val deletedAt = nowIso()
-            client.from("transactions").update(DeletedAtDevicePatch(deletedAt, deviceStore.deviceId())) {
-                filter { eq("customer_id", id) }
-            }
-            client.from("customers").update(DeletedAtPatch(deletedAt)) {
-                filter { eq("id", id) }
-            }
-            journal.clearCustomerDelete(id)
+    private suspend fun registerPushTokenBestEffort(profile: CloudProfileRow, userId: String) {
+        try { registerPushToken(profile, userId) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            Log.w(TAG, "Push registration deferred; financial upload continues", error)
+            CloudPushRegistrationWorker.enqueue(appContext)
         }
     }
 
@@ -360,7 +355,7 @@ class CloudSyncEngine(context: Context) {
         }
 
         if (row.deletedAt != null) {
-            dao.deleteEntryById(row.id, "REMOTE")
+            dao.applyCloudEntry(row.id, null)
             return
         }
 
@@ -372,13 +367,13 @@ class CloudSyncEngine(context: Context) {
             }.getOrNull()
 
             if (customer != null && customer.deletedAt == null) {
-                dao.insertCustomer(customer.toLocal(), "REMOTE")
+                dao.applyCloudCustomer(customer.id, customer.toLocal())
             }
         }
 
         if (dao.getCustomerById(row.customerId) != null) {
             val local = row.toLocal()
-            if (dao.getEntryById(row.id) != local) dao.insertEntry(local, "REMOTE")
+            dao.applyCloudEntry(row.id, local)
         }
     }
 
@@ -392,53 +387,21 @@ class CloudSyncEngine(context: Context) {
         }
 
         if (row.deletedAt != null) {
-            dao.getEntriesForCustomer(row.id)
-                .forEach { dao.deleteEntryById(it.id, "REMOTE") }
-            dao.deleteCustomerById(row.id, "REMOTE")
-            com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).remove(row.id)
+            dao.applyCloudCustomer(row.id, null)
+            if (dao.getCustomerById(row.id) == null)
+                com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).remove(row.id)
         } else {
-            val local = row.toLocal()
-            // REPLACE deletes the parent and cascades into ledger entries. Update in place.
-            dao.upsertCustomerPreservingEntries(local, "REMOTE")
+            dao.applyCloudCustomer(row.id, row.toLocal())
             runCatching { mediaStore.syncCustomerPhoto(row) }
         }
     }
 
     private suspend fun applyRemoteSnapshot(
-        remoteCustomers: List<CloudCustomerRow>,
-        remoteTransactions: List<CloudTransactionRow>
+        remoteCustomers: List<CloudCustomerRow>, remoteTransactions: List<CloudTransactionRow>
     ) {
-        val pending = journal.snapshot()
-
-        val customerMap = remoteCustomers
-            .asSequence()
-            .filter { it.deletedAt == null }
-            .associate { it.id to it.toLocal() }
-            .toMutableMap()
-
-        pending.customerDeletes.forEach(customerMap::remove)
-        pending.customerUpserts.forEach { id ->
-            dao.getCustomerById(id)?.let { customerMap[id] = it }
-        }
-
-        val entryMap = remoteTransactions
-            .asSequence()
-            .filter { it.deletedAt == null }
-            .associate { it.id to it.toLocal() }
-            .toMutableMap()
-
-        pending.transactionDeletes.forEach(entryMap::remove)
-        pending.transactionUpserts.forEach { id ->
-            dao.getEntryById(id)?.let { entryMap[id] = it }
-        }
-
-        val validCustomerIds = customerMap.keys
-        val validEntries = entryMap.values.filter { it.customerId in validCustomerIds }
-
-        dao.replaceAll(
-            customers = customerMap.values.sortedByDescending { it.createdAt },
-            entries = validEntries.sortedByDescending { it.createdAt },
-            origin = "REMOTE"
+        dao.applyCloudSnapshot(
+            remoteCustomers.filter { it.deletedAt == null }.map { it.toLocal() },
+            remoteTransactions.filter { it.deletedAt == null }.map { it.toLocal() }
         )
     }
 

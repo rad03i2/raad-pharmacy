@@ -9,7 +9,7 @@ import android.provider.DocumentsContract
 import android.util.AtomicFile
 import androidx.work.*
 import com.google.android.gms.common.api.ApiException
-import com.radwan.raadpharmacy.cloud.CloudSyncJournal
+import com.radwan.raadpharmacy.cloud.pendingMutations
 import com.radwan.raadpharmacy.data.PharmacyLedgerDao
 import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
 import kotlinx.coroutines.*
@@ -113,8 +113,8 @@ internal class AutomaticBackupEngine private constructor(context: Context,
         val uri = Uri.parse(checkNotNull(prefs.getString("sd.tree", null)) { "اختر مجلد البطاقة مرة واحدة." })
         return CardBackupTarget(TreeBackupStorage(app, uri, DocumentsContract.getDocumentId(uri)))
     }
-    private fun pending(): JSONObject {
-        val p = CloudSyncJournal(app).snapshot()
+    private suspend fun pending(): JSONObject {
+        val p = dao.cloudOutbox().pendingMutations()
         return JSONObject().put("customersUpsert", JSONArray(p.customerUpserts.toList()))
             .put("customersDelete", JSONArray(p.customerDeletes.toList()))
             .put("transactionsUpsert", JSONArray(p.transactionUpserts.toList()))

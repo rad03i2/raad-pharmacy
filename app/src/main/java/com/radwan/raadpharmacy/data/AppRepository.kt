@@ -13,11 +13,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-class AppRepository(context: Context) {
+class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
+    private val afterCommitOverride: (() -> Unit)? = null) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("raad_pharmacy_data", Context.MODE_PRIVATE)
-    private val dao = PharmacyLedgerDatabase.get(appContext).dao()
-    private val cloudJournal = CloudSyncJournal(appContext)
+    private val dao = daoOverride ?: PharmacyLedgerDatabase.get(appContext).dao()
+    private val cloudJournal = CloudSyncJournal(appContext, dao)
 
     @Volatile
     private var customersCache: List<Customer> = emptyList()
@@ -26,14 +27,19 @@ class AppRepository(context: Context) {
     private var entriesCache: List<LedgerEntry> = emptyList()
 
     suspend fun initialize() {
+        cloudJournal.importLegacy()
         loadRoomOrMigrateLegacy()
         if (dao.restoreHold() != "1") normalizeLegacyIdsForCloud()
         withContext(Dispatchers.IO) {
-            com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).importExistingToBackup()
+            runCatching { com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).importExistingToBackup() }
+                .onFailure { android.util.Log.w("AppRepository", "Photo backup deferred", it) }
         }
-        com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).start()
-        com.radwan.raadpharmacy.backup.AutomaticBackupEngine.get(appContext).start()
-        CloudSyncRuntime.start(appContext)
+        runCatching { com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).start() }
+            .onFailure { android.util.Log.w("AppRepository", "Local backup startup deferred", it) }
+        runCatching { com.radwan.raadpharmacy.backup.AutomaticBackupEngine.get(appContext).start() }
+            .onFailure { android.util.Log.w("AppRepository", "Portable backup startup deferred", it) }
+        runCatching { CloudSyncRuntime.start(appContext) }
+            .onFailure { android.util.Log.w("AppRepository", "Cloud startup deferred", it) }
     }
 
     fun observeCustomers(): Flow<List<Customer>> =
@@ -74,9 +80,7 @@ class AppRepository(context: Context) {
         )
         dao.insertCustomer(customer.toEntity())
         customersCache = listOf(customer) + customersCache.filterNot { it.id == customer.id }
-        cloudJournal.markCustomerUpsert(customer.id)
-        CloudSyncRuntime.requestSync(appContext)
-        maybeCreateAutomaticBackup()
+        afterLocalCommit()
         return customer
     }
 
@@ -113,9 +117,7 @@ class AppRepository(context: Context) {
 
         dao.updateCustomer(updated.toEntity())
         customersCache = customersCache.map { if (it.id == customerId) updated else it }
-        cloudJournal.markCustomerUpsert(customerId)
-        CloudSyncRuntime.requestSync(appContext)
-        maybeCreateAutomaticBackup()
+        afterLocalCommit()
         return MutationResult(true, "تم تحديث بيانات الزبون.")
     }
 
@@ -133,9 +135,7 @@ class AppRepository(context: Context) {
 
         dao.deleteCustomerById(customerId)
         customersCache = customersCache.filterNot { it.id == customerId }
-        cloudJournal.markCustomerDelete(customerId)
-        CloudSyncRuntime.requestSync(appContext)
-        maybeCreateAutomaticBackup()
+        afterLocalCommit()
         return MutationResult(true, "تم حذف الزبون.")
     }
 
@@ -201,9 +201,7 @@ class AppRepository(context: Context) {
         }
 
         entriesCache = listOf(entry) + entriesCache.filterNot { it.id == entry.id }
-        cloudJournal.markTransactionUpsert(entry.id)
-        CloudSyncRuntime.requestSync(appContext)
-        maybeCreateAutomaticBackup()
+        afterLocalCommit()
         return DebtCreateResult.Created(entry)
     }
 
@@ -220,11 +218,9 @@ class AppRepository(context: Context) {
             type = EntryType.PAYMENT,
             amount = amount
         )
-        dao.insertEntry(entry.toEntity())
+        dao.insertPaymentProtected(entry.toEntity())
         entriesCache = listOf(entry) + entriesCache.filterNot { it.id == entry.id }
-        cloudJournal.markTransactionUpsert(entry.id)
-        CloudSyncRuntime.requestSync(appContext)
-        maybeCreateAutomaticBackup()
+        afterLocalCommit()
         return entry
     }
 
@@ -262,9 +258,7 @@ class AppRepository(context: Context) {
 
         dao.updateEntry(updated.toEntity())
         entriesCache = entriesCache.map { if (it.id == entryId) updated else it }
-        cloudJournal.markTransactionUpsert(entryId)
-        CloudSyncRuntime.requestSync(appContext)
-        maybeCreateAutomaticBackup()
+        afterLocalCommit()
         return MutationResult(true, "تم تعديل الحركة.")
     }
 
@@ -287,9 +281,7 @@ class AppRepository(context: Context) {
 
         dao.deleteEntryById(entryId)
         entriesCache = entriesCache.filterNot { it.id == entryId }
-        cloudJournal.markTransactionDelete(entryId)
-        CloudSyncRuntime.requestSync(appContext)
-        maybeCreateAutomaticBackup()
+        afterLocalCommit()
         return MutationResult(true, "تم حذف الحركة.")
     }
 
@@ -352,6 +344,20 @@ class AppRepository(context: Context) {
             .putString(AUTO_BACKUP_INTERVAL_KEY, interval.storageValue)
             .apply()
         maybeCreateAutomaticBackup(force = interval != AutoBackupInterval.OFF)
+    }
+
+    private fun afterLocalCommit() {
+        // A scheduler/backup failure cannot turn a committed debt into a failed save.
+        // The outbox is already durable; startup, reboot and periodic workers recover it.
+        val hook = afterCommitOverride
+        if (hook != null) {
+            runCatching { hook.invoke() }
+            return
+        }
+        runCatching { CloudSyncRuntime.requestSync(appContext) }
+            .onFailure { android.util.Log.w("AppRepository", "Sync scheduling deferred", it) }
+        runCatching { com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).wake() }
+            .onFailure { android.util.Log.w("AppRepository", "Backup scheduling deferred", it) }
     }
 
     private suspend fun maybeCreateAutomaticBackup(force: Boolean = false) {

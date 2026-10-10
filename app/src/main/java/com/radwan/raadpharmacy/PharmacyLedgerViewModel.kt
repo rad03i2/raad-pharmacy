@@ -140,6 +140,12 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
     fun entriesFor(customerId: String): List<LedgerEntry> =
         entriesByCustomer[customerId].orEmpty()
 
+    private fun rememberLocalActor(entryId: String) {
+        runCatching {
+            EntryActorStore.get(app).rememberActor(entryId, SupabaseProvider.client.auth.currentSessionOrNull()?.user?.id)
+        }.onFailure { android.util.Log.w("PharmacyLedger", "Author metadata deferred", it) }
+    }
+
     suspend fun addCustomer(
         name: String,
         phone: String?,
@@ -224,7 +230,7 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
 
         if (result is DebtCreateResult.Created) {
             val entry = result.entry
-            EntryActorStore.get(app).rememberActor(entry.id, SupabaseProvider.client.auth.currentSessionOrNull()?.user?.id)
+            rememberLocalActor(entry.id)
             _entries.value = listOf(entry) + _entries.value.filterNot { it.id == entry.id }
             rebuildIndexes()
             loadAdvancedReport(_advancedReport.value.period)
@@ -237,7 +243,7 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         val customer = customer(customerId) ?: return@withLock false
         if (amount <= 0 || amount > balance(customer)) return@withLock false
         val entry = repository.addPayment(customerId, amount)
-        EntryActorStore.get(app).rememberActor(entry.id, SupabaseProvider.client.auth.currentSessionOrNull()?.user?.id)
+        rememberLocalActor(entry.id)
         _entries.value = listOf(entry) + _entries.value.filterNot { it.id == entry.id }
         rebuildIndexes()
         loadAdvancedReport(_advancedReport.value.period)

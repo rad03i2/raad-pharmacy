@@ -312,7 +312,7 @@ fun AddDebtScreenV12(
                 }
             }
         }.onFailure {
-            errorText = "تعذر حفظ الدين. حاول مرة أخرى."
+            errorText = com.radwan.raadpharmacy.data.ledgerSaveError(it, "تعذر حفظ الدين. حاول مرة أخرى.")
         }
     }
 
@@ -501,14 +501,14 @@ fun AddPaymentScreenV12(
         errorText = null
 
         scope.launch {
-            val success = runCatching {
+            val result = runCatching {
                 withContext(Dispatchers.IO) {
                     vm.addPayment(customerId, amount)
                 }
-            }.getOrDefault(false)
+            }
 
             isSaving = false
-            if (success) {
+            if (result.getOrDefault(false)) {
                 savedWasFull = amount == currentBalance
                 savedAmount = amount
                 financialFeedback.onSaved(
@@ -525,7 +525,10 @@ fun AddPaymentScreenV12(
                     )
                 )
             } else {
-                errorText = "تعذر تسجيل التحصيل. تحقق من الرصيد وحاول مرة أخرى."
+                val failure = result.exceptionOrNull()
+                errorText = if (failure != null) com.radwan.raadpharmacy.data.ledgerSaveError(failure,
+                    "تعذر تسجيل التحصيل. تحقق من الرصيد وحاول مرة أخرى.")
+                else "تعذر تسجيل التحصيل. تحقق من الرصيد وحاول مرة أخرى."
             }
         }
     }

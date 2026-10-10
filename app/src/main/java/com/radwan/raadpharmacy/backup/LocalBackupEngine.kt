@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.work.*
-import com.radwan.raadpharmacy.cloud.CloudSyncJournal
+import com.radwan.raadpharmacy.cloud.pendingMutations
 import com.radwan.raadpharmacy.cloud.CloudSyncEngine
 import com.radwan.raadpharmacy.customer.CustomerPhotoStore
 import com.radwan.raadpharmacy.data.*
@@ -108,8 +108,8 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
             // Root is a subdirectory; retain permission tree id as well as target document id.
             TreeBackupStorage(app, saved, rootId)
         }
-    private fun pending(): JSONObject {
-        val journal = CloudSyncJournal(app).snapshot()
+    private suspend fun pending(): JSONObject {
+        val journal = dao.cloudOutbox().pendingMutations()
         return JSONObject().put("customerUpserts", JSONArray(journal.customerUpserts.toList()))
             .put("customerDeletes", JSONArray(journal.customerDeletes.toList()))
             .put("transactionUpserts", JSONArray(journal.transactionUpserts.toList()))
