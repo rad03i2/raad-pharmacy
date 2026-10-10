@@ -50,7 +50,7 @@ class StorageBackupScreenTest {
                 }
             }
         }
-        rule.onNodeWithText("إنشاء نسخة الآن").assertIsEnabled().performClick()
+        rule.onNodeWithText("إنشاء نسخة محلية الآن").assertIsEnabled().performClick()
         assertEquals(listOf(BackupAction.BACKUP), actions)
         rule.onNodeWithText("المصالحة مع الحساب المركزي").assertDoesNotExist()
         rule.onNodeWithText("التغييرات المعلقة").assertDoesNotExist()
@@ -77,7 +77,7 @@ class StorageBackupScreenTest {
         rule.setContent { PharmacyLedgerTheme {
             StorageBackupContent(BackupPage.HOME, listOf(healthy), 10, true, true, false, emptyList(), {}, {}, {}, {})
         } }
-        rule.onNodeWithText("إنشاء نسخة الآن").assertIsNotEnabled()
+        rule.onNodeWithText("إنشاء نسخة محلية الآن").assertIsNotEnabled()
         rule.onNodeWithText("استعادة نسخة").assertIsNotEnabled()
         rule.onNodeWithTag("backup-phone").assertIsNotEnabled()
         rule.onNodeWithTag("backup-cloud").assertIsNotEnabled()

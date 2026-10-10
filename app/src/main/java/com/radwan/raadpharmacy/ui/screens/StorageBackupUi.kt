@@ -46,7 +46,7 @@ internal fun backupWriteResult(states: List<BackupDestinationEntity>, latest: Lo
     val active = states.filter { it.enabled }
     if (active.isEmpty()) return "تعذر النسخ. لم يتم إعداد مكان للحفظ بعد."
     val incomplete = active.filter { backupDestinationStatus(it, latest).warning }
-    return if (incomplete.isEmpty()) "تم إنشاء النسخة والتحقق من سلامتها في جميع الأماكن المفعّلة."
+    return if (incomplete.isEmpty()) "تم إنشاء النسخة والتحقق من سلامتها في أماكن الحفظ المحلية المفعّلة."
     else "تعذر إكمال النسخ إلى: ${incomplete.joinToString("، ") { destinationLabel(it.id) }}. افتح المكان للتحقق من الإذن والمساحة، ثم حاول مجددًا."
 }
 internal fun backupTime(time: Long) = if (time <= 0) "لا توجد نسخة بعد" else "${formatDate(time)} • ${formatTime(time)}"
@@ -96,13 +96,13 @@ internal fun StorageBackupContent(
             when (page) {
                 BackupPage.HOME -> {
                     item {
-                        BackupPanel("احفظ نسخة من بياناتك", icon = Icons.Rounded.Backup) {
+                        BackupPanel("احفظ نسخة من بياناتك", icon = Icons.Rounded.Save) {
                             val status = backupDestinationStatus(private, sequence)
                             Text(if (private == null) "جارٍ إعداد الحماية داخل التطبيق" else "حماية داخل التطبيق: ${status.label}",
                                 color = if (status.warning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("آخر نسخة داخل التطبيق: ${backupTime(private?.lastFullAt ?: 0)}", style = MaterialTheme.typography.bodySmall)
                             Button(enabled = !busy, onClick = { onAction(BackupAction.BACKUP) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                                Icon(Icons.Rounded.Backup, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("إنشاء نسخة الآن")
+                                Icon(Icons.Rounded.Save, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("إنشاء نسخة محلية الآن")
                             }
                             OutlinedButton(enabled = !busy, onClick = { onPage(BackupPage.RESTORE) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                 Icon(Icons.Rounded.Restore, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("استعادة نسخة")
