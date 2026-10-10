@@ -55,7 +55,9 @@ class StorageBackupScreenTest {
         rule.onNodeWithText("المصالحة مع الحساب المركزي").assertDoesNotExist()
         rule.onNodeWithText("التغييرات المعلقة").assertDoesNotExist()
         capture("backup-home-360")
+        rule.onNodeWithTag("backup-list").performScrollToNode(hasText("الهاتف"))
         rule.onNodeWithTag("backup-phone").performClick()
+        rule.onNodeWithText("داخل التطبيق").assertIsDisplayed()
         rule.onNodeWithTag("backup-list").performScrollToNode(hasText("اختيار مجلد النسخ"))
         // The action stays usable before key confirmation: the controller guides setup.
         rule.onNodeWithText("اختيار مجلد النسخ").assertIsEnabled().performClick()

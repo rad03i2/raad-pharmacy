@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -76,8 +77,9 @@ internal fun StorageBackupContent(
     val private = destinations.firstOrNull { it.id == LocalBackupEngine.PRIVATE }
     val phone = destinations.firstOrNull { it.id == LocalBackupEngine.SHARED }
     val sd = destinations.firstOrNull { it.id == LocalBackupEngine.SD }
+    val listState = remember(page) { androidx.compose.foundation.lazy.LazyListState() }
     Scaffold(topBar = { ScreenTopBar(page.title, onBack) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("backup-list"), contentPadding = PaddingValues(16.dp),
+        LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("backup-list"), state = listState, contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (busy) item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
