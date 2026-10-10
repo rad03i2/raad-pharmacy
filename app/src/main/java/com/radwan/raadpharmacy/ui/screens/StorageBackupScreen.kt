@@ -28,14 +28,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun StorageBackupScreen(onBack: () -> Unit) {
+internal fun LegacyBackupRestoreScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val engine = remember { LocalBackupEngine.get(context) }
     val scope = rememberCoroutineScope()
     val destinations by engine.destinations.collectAsStateWithLifecycle(initialValue = emptyList())
     val sequence by engine.sequence.collectAsStateWithLifecycle(initialValue = 0L)
     val engineBusy by engine.busy.collectAsStateWithLifecycle()
-    var page by rememberSaveable { mutableStateOf(BackupPage.HOME) }
+    var page by rememberSaveable { mutableStateOf(BackupPage.RESTORE) }
     var working by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -147,7 +147,7 @@ fun StorageBackupScreen(onBack: () -> Unit) {
     fun back() {
         if (working) return
         page = when (page) {
-            BackupPage.HOME -> { onBack(); return }
+            BackupPage.HOME, BackupPage.RESTORE -> { onBack(); return }
             BackupPage.HISTORY -> BackupPage.RESTORE
             else -> BackupPage.HOME
         }

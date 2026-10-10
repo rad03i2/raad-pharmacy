@@ -309,7 +309,8 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
     }
     suspend fun previewFile(uri: Uri, code: String): RestoredArchive = withContext(Dispatchers.IO) {
         val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBackupBytes() } ?: error("تعذر قراءة الملف.")
-        if (BackupCrypto.isEncrypted(bytes)) {
+        if (PortableBackup.isPortable(bytes)) PortableBackup.decode(bytes)
+        else if (BackupCrypto.isEncrypted(bytes)) {
             val doc = JSONObject(String(BackupCrypto.open(bytes, BackupCrypto.parseCode(code)), Charsets.UTF_8))
             BackupArchive.restore(doc) // Single full file is a standalone point; folder import applies subsequent segments.
         } else RestoredArchive(BackupValidator.parseValid(String(bytes, Charsets.UTF_8)), emptyList(), JSONObject(), 0)
