@@ -32,6 +32,7 @@ class AppRepository(context: Context) {
             com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).importExistingToBackup()
         }
         com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).start()
+        com.radwan.raadpharmacy.backup.AutomaticBackupEngine.get(appContext).start()
         CloudSyncRuntime.start(appContext)
     }
 
