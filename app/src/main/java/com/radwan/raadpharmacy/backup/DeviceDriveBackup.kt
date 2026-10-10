@@ -3,6 +3,7 @@ package com.radwan.raadpharmacy.backup
 import android.accounts.Account
 import android.content.Context
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.ClearTokenRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
 import com.google.android.gms.tasks.Task
@@ -25,6 +26,7 @@ internal suspend fun <T> Task<T>.awaitBackupTask(): T = suspendCancellableCorout
 
 internal class DriveAuthorizationNeeded : Exception("أعد ربط حساب Google للسماح بتحديث النسخة.")
 internal class DeviceDriveBackup(private val token: String,
+    private val onUnauthorized: (() -> Unit)? = null,
     private val connectionOverride: ((String, String) -> HttpURLConnection)? = null) {
     private fun connection(path: String, method: String = "GET"): HttpURLConnection =
         (connectionOverride?.invoke(path, method) ?: (URL("https://www.googleapis.com/$path").openConnection() as HttpURLConnection)).apply {
@@ -35,7 +37,10 @@ internal class DeviceDriveBackup(private val token: String,
     private fun response(connection: HttpURLConnection): ByteArray {
         val status = connection.responseCode
         if (status !in 200..299) {
-            if (status == 401) throw DriveAuthorizationNeeded()
+            if (status == 401) {
+                runCatching { onUnauthorized?.invoke() }
+                throw DriveAuthorizationNeeded()
+            }
             val reason = runCatching { connection.errorStream?.use { it.readBackupBytes() }?.let { JSONObject(String(it)).getJSONObject("error").toString() } }.getOrNull().orEmpty()
             throw IllegalStateException(when {
                 reason.contains("accessNotConfigured") || reason.contains("SERVICE_DISABLED") -> "خدمة Google Drive غير مفعّلة في إعدادات التطبيق."
@@ -127,10 +132,15 @@ internal class DeviceDriveBackup(private val token: String,
         fun request(email: String? = null): AuthorizationRequest = AuthorizationRequest.builder()
             .setRequestedScopes(listOf(Scope("https://www.googleapis.com/auth/drive.file")))
             .apply { email?.let { setAccount(Account(it, "com.google")) } }.build()
+        fun forToken(context: Context, token: String) = DeviceDriveBackup(token, onUnauthorized = {
+            Identity.getAuthorizationClient(context.applicationContext)
+                .clearToken(ClearTokenRequest.builder().setToken(token).build())
+            Unit
+        })
         suspend fun authorized(context: Context, email: String): DeviceDriveBackup {
             val result = Identity.getAuthorizationClient(context).authorize(request(email)).awaitBackupTask()
             if (result.hasResolution()) throw DriveAuthorizationNeeded()
-            return DeviceDriveBackup(checkNotNull(result.accessToken) { "تعذر الحصول على إذن Google Drive." })
+            return forToken(context, checkNotNull(result.accessToken) { "تعذر الحصول على إذن Google Drive." })
         }
         private fun encode(value: String) = URLEncoder.encode(value, "UTF-8")
         internal fun md5(bytes: ByteArray) = MessageDigest.getInstance("MD5").digest(bytes).joinToString("") { "%02x".format(it) }

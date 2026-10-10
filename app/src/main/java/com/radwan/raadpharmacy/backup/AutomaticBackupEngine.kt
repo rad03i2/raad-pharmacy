@@ -74,7 +74,7 @@ internal class AutomaticBackupEngine private constructor(context: Context,
         if (scheduling) {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_MEDIA_MOUNTED); addAction(Intent.ACTION_MEDIA_UNMOUNTED)
-                addAction(Intent.ACTION_MEDIA_REMOVED); addDataScheme("file")
+                addAction(Intent.ACTION_MEDIA_REMOVED); addAction(Intent.ACTION_MEDIA_BAD_REMOVAL); addDataScheme("file")
             }
             runCatching { androidx.core.content.ContextCompat.registerReceiver(app, object : BroadcastReceiver() {
                 override fun onReceive(context: Context?, intent: Intent?) { wake() }
@@ -187,7 +187,7 @@ internal class AutomaticBackupEngine private constructor(context: Context,
         if (enabled) { process(); wake() }
     }
     suspend fun connectDrive(token: String) = withContext(Dispatchers.IO) {
-        val account = DeviceDriveBackup(token).email()
+        val account = DeviceDriveBackup.forToken(app, token).email()
         driveMutex.withLock {
             check(prefs.edit().putString("drive.account", account).putBoolean("drive.enabled", true)
                 .putLong("drive.sequence", -1).putLong("drive.updated", 0).remove("drive.error").commit())

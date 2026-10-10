@@ -52,8 +52,10 @@ class DeviceDriveBackupTest {
         assertTrue(replies.isEmpty())
     }
     @Test fun expiredAuthorizationAndMissingDriveServiceAreReportedWithoutRawServerDetails() {
-        val expired = DeviceDriveBackup("test-token") { _, _ -> Reply(401, "{}") }
+        var invalidated = false
+        val expired = DeviceDriveBackup("test-token", onUnauthorized = { invalidated = true }) { _, _ -> Reply(401, "{}") }
         assertThrows(DriveAuthorizationNeeded::class.java) { expired.email() }
+        assertTrue(invalidated)
         val disabled = DeviceDriveBackup("test-token") { _, _ -> Reply(403, "{\"error\":{\"reason\":\"accessNotConfigured\"}}") }
         val error = assertThrows(IllegalStateException::class.java) { disabled.email() }
         assertTrue(error.message!!.contains("غير مفعّلة")); assertFalse(error.message!!.contains("accessNotConfigured"))

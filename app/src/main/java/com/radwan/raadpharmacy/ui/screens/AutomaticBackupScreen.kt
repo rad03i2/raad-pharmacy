@@ -72,6 +72,7 @@ fun StorageBackupScreen(onBack: () -> Unit) {
     }
     // Modern Android creates its public Download folder without a broad storage permission.
     LaunchedEffect(Unit) {
+        engine.wake()
         if (Build.VERSION.SDK_INT <= 28 && ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
             picker = true; permission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
