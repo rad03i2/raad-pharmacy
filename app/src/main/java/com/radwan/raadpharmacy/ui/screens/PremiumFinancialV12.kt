@@ -312,7 +312,7 @@ fun AddDebtScreenV12(
                 }
             }
         }.onFailure {
-            errorText = "تعذر حفظ الدين. حاول مرة أخرى."
+            errorText = com.radwan.raadpharmacy.data.ledgerSaveError(it, "تعذر حفظ الدين. حاول مرة أخرى.")
         }
     }
 
@@ -525,7 +525,7 @@ fun AddPaymentScreenV12(
                     )
                 )
             } else {
-                errorText = "تعذر تسجيل التحصيل. تحقق من الرصيد وحاول مرة أخرى."
+                errorText = com.radwan.raadpharmacy.data.ledgerSaveError(it, "تعذر تسجيل التحصيل. تحقق من الرصيد وحاول مرة أخرى.")
             }
         }
     }

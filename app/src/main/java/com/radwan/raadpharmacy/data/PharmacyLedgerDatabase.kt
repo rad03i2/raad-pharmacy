@@ -15,8 +15,9 @@ import androidx.room3.Room
 import androidx.room3.RoomDatabase
 import androidx.room3.Transaction
 import androidx.room3.Update
-import androidx.sqlite.driver.AndroidSQLiteDriver
 import com.radwan.raadpharmacy.backup.*
+import com.radwan.raadpharmacy.cloud.CloudOutboxEntity
+import com.radwan.raadpharmacy.cloud.CloudOutboxMigration
 import kotlinx.coroutines.flow.Flow
 
 @Entity(
@@ -291,7 +292,66 @@ interface PharmacyLedgerDao {
     suspend fun appendBackupChange(change: BackupChangeEntity): Long {
         val seq = appendBackupChangeRow(change)
         saveBackupControl(BackupControlEntity("watermark", seq.toString()))
+        if (change.origin == "LOCAL" && change.kind in listOf("CUSTOMER", "ENTRY")) {
+            saveCloudMutation(CloudOutboxEntity.from(change))
+        }
         return seq
+    }
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveCloudMutation(row: CloudOutboxEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun importCloudMutation(row: CloudOutboxEntity)
+    @Query("SELECT * FROM cloud_outbox ORDER BY CASE WHEN kind = 'CUSTOMER' AND action = 'UPSERT' THEN 0 WHEN kind = 'ENTRY' AND action = 'UPSERT' THEN 1 WHEN kind = 'ENTRY' THEN 2 ELSE 3 END, occurredAt, `key`")
+    suspend fun cloudOutbox(): List<CloudOutboxEntity>
+    @Query("SELECT COUNT(*) FROM cloud_outbox")
+    fun observeCloudPendingCount(): Flow<Int>
+    @Query("SELECT COUNT(*) FROM cloud_outbox WHERE kind = :kind AND entityId = :id")
+    suspend fun cloudPending(kind: String, id: String): Int
+    @Query("DELETE FROM cloud_outbox WHERE `key` = :key AND revision = :revision")
+    suspend fun acknowledgeCloudMutation(key: String, revision: String): Int
+    @Query("DELETE FROM cloud_outbox")
+    suspend fun clearCloudOutbox()
+    @Query("SELECT value FROM backup_control WHERE id = 'cloud_legacy_imported'")
+    suspend fun legacyCloudImported(): String?
+    @Transaction
+    suspend fun importLegacyCloud(rows: List<CloudOutboxEntity>) {
+        if (legacyCloudImported() == "1") return
+        rows.forEach { importCloudMutation(it) }
+        saveBackupControl(BackupControlEntity("cloud_legacy_imported", "1"))
+    }
+    @Query("SELECT COUNT(*) FROM cloud_outbox o JOIN ledger_entries e ON o.entityId = e.id WHERE o.kind = 'ENTRY' AND e.customer_id = :id")
+    suspend fun pendingCloudEntriesForCustomer(id: String): Int
+    @Transaction
+    suspend fun applyCloudCustomer(id: String, customer: CustomerEntity?) {
+        if (restoreHold() == "1" || cloudPending("CUSTOMER", id) != 0) return
+        if (customer != null) insertCustomer(customer, "REMOTE")
+        else if (pendingCloudEntriesForCustomer(id) == 0) deleteCustomerById(id, "REMOTE")
+    }
+    @Transaction
+    suspend fun applyCloudEntry(id: String, entry: LedgerEntryEntity?) {
+        if (restoreHold() == "1" || cloudPending("ENTRY", id) != 0) return
+        if (entry == null) deleteEntryById(id, "REMOTE")
+        else if (getCustomerById(entry.customerId) != null) insertEntry(entry, "REMOTE")
+    }
+    @Transaction
+    suspend fun applyCloudSnapshot(customers: List<CustomerEntity>, entries: List<LedgerEntryEntity>) {
+        if (restoreHold() == "1") return
+        val pending = cloudOutbox()
+        val customerMap = customers.associateBy { it.id }.toMutableMap()
+        val entryMap = entries.associateBy { it.id }.toMutableMap()
+        for (row in pending) {
+            if (row.kind == "CUSTOMER") {
+                if (row.action == "DELETE") customerMap.remove(row.entityId)
+                else getCustomerById(row.entityId)?.let { customerMap[it.id] = it }
+            } else {
+                if (row.action == "DELETE") entryMap.remove(row.entityId)
+                else getEntryById(row.entityId)?.let {
+                    entryMap[it.id] = it
+                    getCustomerById(it.customerId)?.let { parent -> customerMap[parent.id] = parent }
+                }
+            }
+        }
+        replaceAll(customerMap.values.toList(), entryMap.values.filter { it.customerId in customerMap }, "REMOTE")
     }
     @Query("SELECT * FROM backup_changes WHERE sequence > :after ORDER BY sequence LIMIT :limit")
     suspend fun backupChanges(after: Long, limit: Int = 100): List<BackupChangeEntity>
@@ -412,6 +472,7 @@ interface PharmacyLedgerDao {
 
     @Transaction
     suspend fun completeReconciliation(customers: List<CustomerEntity>, entries: List<LedgerEntryEntity>) {
+        clearCloudOutbox()
         replaceAll(customers, entries, "REMOTE")
         backupPhotos().forEach { setBackupPhoto(it.customerId, null, "REMOTE") }
         saveBackupControl(BackupControlEntity("restore_hold", "0"))
@@ -420,6 +481,9 @@ interface PharmacyLedgerDao {
     @Transaction
     suspend fun restoreLocal(customers: List<CustomerEntity>, entries: List<LedgerEntryEntity>, photos: List<BackupPhotoEntity>) {
         saveBackupControl(BackupControlEntity("restore_hold", "1"))
+        // Existing requests were protected in the pre-restore safety archive. Restored
+        // rows cannot impersonate them or be uploaded before explicit reconciliation.
+        clearCloudOutbox()
         replaceAll(customers, entries, "RESTORE")
         backupPhotos().forEach { setBackupPhoto(it.customerId, null, "RESTORE") }
         photos.forEach { setBackupPhoto(it.customerId, it.bytes, "RESTORE") }
@@ -434,8 +498,9 @@ interface PharmacyLedgerDao {
 
 @Database(
     entities = [CustomerEntity::class, LedgerEntryEntity::class, BackupChangeEntity::class,
-        BackupDestinationEntity::class, BackupPhotoEntity::class, BackupControlEntity::class],
-    version = 2,
+        BackupDestinationEntity::class, BackupPhotoEntity::class, BackupControlEntity::class,
+        CloudOutboxEntity::class],
+    version = 3,
     exportSchema = true
 )
 abstract class PharmacyLedgerDatabase : RoomDatabase() {
@@ -451,8 +516,8 @@ abstract class PharmacyLedgerDatabase : RoomDatabase() {
                     context.applicationContext,
                     "raad_pharmacy_ledger.db"
                 )
-                    .setDriver(AndroidSQLiteDriver())
-                    .addMigrations(BackupMigration.MIGRATION_1_2)
+                    .setDriver(DurableLedgerDriver())
+                    .addMigrations(BackupMigration.MIGRATION_1_2, CloudOutboxMigration.MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }

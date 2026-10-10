@@ -15,8 +15,8 @@ android {
         applicationId = "com.radwan.raadpharmacy"
         minSdk = 26
         targetSdk = 37
-        versionCode = 59
-        versionName = "3.3.19.4"
+        versionCode = 60
+        versionName = "3.3.19.5"
         buildConfigField("String", "SUPABASE_URL", "\"https://gsyrjhqkbfomxqacexle.supabase.co\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_dEvMmAVvoihNljWjLAutRg_lkAD934q\"")
         manifestPlaceholders["debtVoicePermission"] =

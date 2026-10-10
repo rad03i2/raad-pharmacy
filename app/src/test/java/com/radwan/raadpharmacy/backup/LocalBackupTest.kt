@@ -165,7 +165,7 @@ class LocalBackupTest {
         old.version = 1
         old.close()
         val migrated = Room.databaseBuilder<PharmacyLedgerDatabase>(app, name).setDriver(AndroidSQLiteDriver())
-            .addMigrations(BackupMigration.MIGRATION_1_2).build()
+            .addMigrations(BackupMigration.MIGRATION_1_2, com.radwan.raadpharmacy.cloud.CloudOutboxMigration.MIGRATION_2_3).build()
         assertEquals(1, migrated.dao().customerCount()); assertEquals(1, migrated.dao().entryCount())
         migrated.dao().insertEntry(debt("new-after-migration"))
         assertEquals(1, migrated.dao().backupChanges(0).size)

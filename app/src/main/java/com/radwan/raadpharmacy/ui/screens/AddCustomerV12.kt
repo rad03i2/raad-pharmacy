@@ -227,7 +227,7 @@ fun AddCustomerScreenV12(
                 vm.playFinancialSuccessSound()
                 onSaved(customer.id)
             }.onFailure {
-                errorText = "تعذر حفظ الزبون. حاول مرة أخرى."
+                errorText = com.radwan.raadpharmacy.data.ledgerSaveError(it, "تعذر حفظ الزبون. حاول مرة أخرى.")
             }
         }
     }
