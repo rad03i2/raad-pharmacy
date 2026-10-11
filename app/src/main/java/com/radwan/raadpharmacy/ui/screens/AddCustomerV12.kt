@@ -111,6 +111,7 @@ fun AddCustomerScreenV12(
             selectedPhotoText = cameraUriText
             errorText = null
         }
+        cameraUriText = null
     }
 
     fun openCamera() {
