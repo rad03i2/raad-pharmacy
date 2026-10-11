@@ -191,12 +191,37 @@ jobs:
             echo "SigningCertificateSHA256: $signer"
             echo
             echo "تحديث مستقر لدفتر صيدلية رعد."
-            echo "إصلاح فحص التحديثات بإضافة مصدر CDN بديل عند تعذر الوصول إلى api.github.com."
-            echo "إتاحة اختيار رقم الهاتف من داخل التطبيق مع حفظ شاشة إضافة الزبون."
+            echo "إصلاح فحص التحديثات عبر ملف manifest مرفق بالإصدار الرسمي، مع مصادر بديلة للشبكات التي تحجب api.github.com."
+            echo "إصلاح اختيار رقم الهاتف من جهات الاتصال مع إبقاء شاشة إنشاء الزبون وبياناتها مفتوحة."
             echo "يتحقق التطبيق من بصمة SHA-256 وشهادة التوقيع قبل بدء تثبيت النسخة الجديدة."
           } > "$RUNNER_TEMP/release-notes.txt"
           echo "RAAD_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           echo "RAAD_RELEASE_NOTES=$RUNNER_TEMP/release-notes.txt" >> "$GITHUB_ENV"
+          # Attach the same small manifest to the release so the updater can use
+          # github.com/releases/latest/download/latest.json without the GitHub API.
+          apk_name="Raad-Pharmacy-$tag.apk"
+          hash_name="$apk_name.sha256"
+          apk_size=$(stat -c '%s' "$apk_name")
+          hash_size=$(stat -c '%s' "$hash_name")
+          body=$(cat "$RUNNER_TEMP/release-notes.txt")
+          jq -n \
+            --arg tag "$tag" \
+            --arg body "$body" \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg apk "$apk_name" \
+            --arg hash "$hash_name" \
+            --argjson apk_size "$apk_size" \
+            --argjson hash_size "$hash_size" \
+            '{
+              tag_name: $tag,
+              draft: false,
+              prerelease: false,
+              body: $body,
+              assets: [
+                {name: $apk, size: $apk_size, browser_download_url: ("https://github.com/" + $repo + "/releases/download/" + $tag + "/" + $apk)},
+                {name: $hash, size: $hash_size, browser_download_url: ("https://github.com/" + $repo + "/releases/download/" + $tag + "/" + $hash)}
+              ]
+            }' > latest.json
 
       - name: Publish immutable GitHub Release
         if: steps.gate.outputs.publish == 'true'
@@ -211,6 +236,7 @@ jobs:
           gh release create "$RAAD_RELEASE_TAG" \
             "Raad-Pharmacy-$RAAD_RELEASE_TAG.apk" \
             "Raad-Pharmacy-$RAAD_RELEASE_TAG.apk.sha256" \
+            "latest.json" \
             --title "دفتر صيدلية رعد $RAAD_RELEASE_TAG" \
             --notes-file "$RAAD_RELEASE_NOTES" \
             --target "$GITHUB_SHA"

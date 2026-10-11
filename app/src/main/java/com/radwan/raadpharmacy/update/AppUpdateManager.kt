@@ -22,6 +22,9 @@ import java.util.Locale
 
 /** Only official signed stable GitHub Releases may be installed, never a CI artifact. */
 object AppUpdateManager {
+    // The latest-release asset is served from github.com, avoiding api.github.com entirely.
+    // New releases attach latest.json beside the signed APK and checksum.
+    private const val LATEST_RELEASE_MANIFEST = "https://github.com/rad03i2/raad-pharmacy/releases/latest/download/latest.json"
     private const val LATEST_MANIFEST = "https://raw.githubusercontent.com/rad03i2/raad-pharmacy/main/docs/updates/latest.json"
     private const val LATEST_CDN = "https://cdn.jsdelivr.net/gh/rad03i2/raad-pharmacy@main/docs/updates/latest.json"
     private const val LATEST_API = "https://api.github.com/repos/rad03i2/raad-pharmacy/releases/latest"
@@ -39,28 +42,68 @@ object AppUpdateManager {
     data class Progress(val finished: Boolean, val percent: Int, val failed: String? = null)
 
     suspend fun checkForUpdate(context: Context): Release? = withContext(Dispatchers.IO) {
-        // Prefer the small public manifest on raw.githubusercontent.com because some
-        // networks block api.github.com while GitHub release downloads still work.
-        // Keep the official API as a fallback, and never relax signature/hash checks.
-        val manifestResponse = runCatching { readHttps(LATEST_MANIFEST, 1_000_000) }.getOrNull()
-        val cdnResponse = if (manifestResponse?.first == 200) null else
-            runCatching { readHttps(LATEST_CDN, 1_000_000) }.getOrNull()
-        val response = manifestResponse?.takeIf { it.first == 200 }
-            ?: cdnResponse?.takeIf { it.first == 200 }
-            ?: run {
-                runCatching { readHttps(LATEST_API, 1_000_000) }.getOrElse {
-                    throw IllegalStateException(
-                        "تعذر الاتصال بخوادم التحديثات. جرّب شبكة إنترنت أخرى أو أعد المحاولة.",
-                        it
-                    )
-                }
+        // Prefer a manifest attached to the latest official release. It follows the
+        // ordinary github.com download path and does not require api.github.com.
+        // The repository manifest and CDN are independent fallbacks; the API is last.
+        val sources = listOf(
+            LATEST_RELEASE_MANIFEST,
+            LATEST_MANIFEST,
+            LATEST_CDN,
+            LATEST_API
+        )
+        var selected: JSONObject? = null
+        var selectedCode = -1L
+        var lastFailure: Throwable? = null
+
+        for (source in sources) {
+            val response = try {
+                readHttps(source, 1_000_000)
+            } catch (failure: Exception) {
+                lastFailure = failure
+                continue
             }
-        val (status, data) = response
-        if (status == 404) return@withContext null
-        check(status == 200) { "تعذر فحص التحديثات (HTTP $status)." }
-        val json = JSONObject(data)
-        check(!json.optBoolean("draft", true) && !json.optBoolean("prerelease", true)) {
-            "هذا الإصدار غير مستقر."
+            if (response.first == 404) continue
+            if (response.first != 200) {
+                lastFailure = IllegalStateException("HTTP " + response.first + " from update source")
+                continue
+            }
+
+            val candidate = try {
+                JSONObject(response.second)
+            } catch (failure: Exception) {
+                lastFailure = failure
+                continue
+            }
+            if (candidate.optBoolean("draft", true) || candidate.optBoolean("prerelease", true)) continue
+
+            val candidateTag = candidate.optString("tag_name")
+            val candidateBody = candidate.optString("body")
+            val candidateCode = CODE_FIELD.find(candidateBody)?.groupValues?.get(1)?.toLongOrNull()
+            val candidateSigner = CERT_FIELD.find(candidateBody)?.groupValues?.get(1)?.lowercase(Locale.US)
+            if (!VERSION.matches(candidateTag) || candidateCode == null || candidateCode <= 0 ||
+                candidateSigner == null || !SHA.matches(candidateSigner)) {
+                lastFailure = IllegalStateException("Invalid update metadata from " + source)
+                continue
+            }
+
+            if (candidateCode > selectedCode) {
+                selected = candidate
+                selectedCode = candidateCode
+            }
+            // The stable release endpoint is first. If any trusted source advertises
+            // a version newer than the installed one, use it without waiting on a
+            // potentially blocked fallback host.
+            if (candidateCode > BuildConfig.VERSION_CODE.toLong()) break
+        }
+
+        val json = selected ?: run {
+            if (lastFailure != null) {
+                throw IllegalStateException(
+                    "تعذر الاتصال بخوادم التحديثات. جرّب شبكة إنترنت أخرى أو أعد المحاولة.",
+                    lastFailure
+                )
+            }
+            return@withContext null
         }
         val tag = json.getString("tag_name")
         check(VERSION.matches(tag)) { "رقم النسخة المنشورة غير صحيح." }
@@ -120,8 +163,8 @@ object AppUpdateManager {
             check(target.protocol == "https") { "الاتصال غير آمن." }
             val conn = (target.openConnection() as HttpURLConnection)
             try {
-                conn.connectTimeout = 12_000
-                conn.readTimeout = 15_000
+                conn.connectTimeout = 6_000
+                conn.readTimeout = 8_000
                 conn.instanceFollowRedirects = false
                 conn.setRequestProperty("User-Agent", "Raad-Pharmacy-Updater")
                 val response = conn.responseCode
