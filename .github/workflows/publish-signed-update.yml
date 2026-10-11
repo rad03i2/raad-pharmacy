@@ -79,7 +79,8 @@ jobs:
         if: steps.gate.outputs.publish == 'true'
         run: |
           set -euo pipefail
-          gradle :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
+          # Room debug/release KSP tasks share the schema directory; one worker prevents concurrent schema writes.
+          gradle --max-workers=1 :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
 
       - name: Set up Deno for dispatcher verification
         if: steps.gate.outputs.publish == 'true'
