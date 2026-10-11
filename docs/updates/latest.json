@@ -1,0 +1,18 @@
+{
+  "tag_name": "v3.3.19.6",
+  "draft": false,
+  "prerelease": false,
+  "body": "VersionCode: 61\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث مستقر لدفتر صيدلية رعد.\nيتحقق التطبيق من بصمة SHA-256 وشهادة التوقيع قبل بدء تثبيت النسخة الجديدة.",
+  "assets": [
+    {
+      "name": "Raad-Pharmacy-v3.3.19.6.apk",
+      "size": 5450246,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.19.6/Raad-Pharmacy-v3.3.19.6.apk"
+    },
+    {
+      "name": "Raad-Pharmacy-v3.3.19.6.apk.sha256",
+      "size": 94,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.19.6/Raad-Pharmacy-v3.3.19.6.apk.sha256"
+    }
+  ]
+}
