@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import android.text.Html
 import androidx.core.content.FileProvider
 import com.radwan.raadpharmacy.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +25,8 @@ import java.util.Locale
 object AppUpdateManager {
     private const val LATEST_MANIFEST = "https://raw.githubusercontent.com/rad03i2/raad-pharmacy/main/docs/updates/latest.json"
     private const val LATEST_CDN = "https://cdn.jsdelivr.net/gh/rad03i2/raad-pharmacy@main/docs/updates/latest.json"
-    private const val LATEST_API = "https://api.github.com/repos/rad03i2/raad-pharmacy/releases/latest"
+    private const val LATEST_RELEASE_PAGE = "https://github.com/rad03i2/raad-pharmacy/releases/latest"
+    private const val LATEST_RELEASE_ASSETS = "https://github.com/rad03i2/raad-pharmacy/releases/expanded_assets"
     private const val MIME = "application/vnd.android.package-archive"
     private const val PREFS = "raad_app_update_v1"
     private const val MAX_APK = 150L * 1024L * 1024L
@@ -32,6 +34,9 @@ object AppUpdateManager {
     private val SHA = Regex("(?i)^[a-f0-9]{64}$")
     private val CODE_FIELD = Regex("(?m)^VersionCode: ([0-9]+)\\s*$")
     private val CERT_FIELD = Regex("(?m)^SigningCertificateSHA256: ([a-fA-F0-9]{64})\\s*$")
+    private val RELEASE_TAG_IN_PAGE = Regex("""/rad03i2/raad-pharmacy/releases/tag/(v[0-9]+\\.[0-9]+\\.[0-9]+(?:\\.[0-9]+)?)""")
+    private val RELEASE_BODY_IN_PAGE = Regex("""(?s)<div[^>]*data-test-selector="body-content"[^>]*>(.*?)</div>""")
+    private val ASSET_SIZE = Regex("""(?i)([0-9]+(?:\\.[0-9]+)?)\\s*(bytes?|b|kb|mb|gb)\\b""")
 
     data class Release(val tag: String, val versionCode: Long, val notes: String,
         val size: Long, val apkUrl: String, val signer: String, val sha256: String)
@@ -39,21 +44,19 @@ object AppUpdateManager {
     data class Progress(val finished: Boolean, val percent: Int, val failed: String? = null)
 
     suspend fun checkForUpdate(context: Context): Release? = withContext(Dispatchers.IO) {
-        // Prefer the small public manifest on raw.githubusercontent.com because some
-        // networks block api.github.com while GitHub release downloads still work.
-        // Keep the official API as a fallback, and never relax signature/hash checks.
+        // Never depend on api.github.com: some mobile networks time out that host
+        // while the public release page and direct APK downloads remain reachable.
+        // All sources still pass through the same version, signer and SHA-256 checks.
         val manifestResponse = runCatching { readHttps(LATEST_MANIFEST, 1_000_000) }.getOrNull()
         val cdnResponse = if (manifestResponse?.first == 200) null else
             runCatching { readHttps(LATEST_CDN, 1_000_000) }.getOrNull()
         val response = manifestResponse?.takeIf { it.first == 200 }
             ?: cdnResponse?.takeIf { it.first == 200 }
-            ?: run {
-                runCatching { readHttps(LATEST_API, 1_000_000) }.getOrElse {
-                    throw IllegalStateException(
-                        "تعذر الاتصال بخوادم التحديثات. جرّب شبكة إنترنت أخرى أو أعد المحاولة.",
-                        it
-                    )
-                }
+            ?: runCatching { readLatestReleasePage() }.getOrElse {
+                throw IllegalStateException(
+                    "تعذر الوصول إلى مصادر التحديث. افتح رابط الإصدار الرسمي من المتصفح أو جرّب شبكة أخرى.",
+                    it
+                )
             }
         val (status, data) = response
         if (status == 404) return@withContext null
@@ -102,6 +105,74 @@ object AppUpdateManager {
         Release(tag, code, body.lineSequence()
             .filterNot { it.startsWith("VersionCode:") || it.startsWith("SigningCertificateSHA256:") }
             .joinToString("\n").trim().take(2500), size, apkUrl, signer, expectedHash)
+    }
+
+    /**
+     * Last-resort public source for networks that block both raw GitHub and jsDelivr.
+     * The stable-release webpage is served by github.com, not api.github.com.
+     */
+    private fun readLatestReleasePage(): Pair<Int, String> {
+        val (status, html) = readHttps(LATEST_RELEASE_PAGE, 2_000_000)
+        if (status != 200) return status to html
+        val tag = RELEASE_TAG_IN_PAGE.find(html)?.groupValues?.get(1)
+            ?: error("تعذر تحديد رقم الإصدار من صفحة GitHub الرسمية.")
+        val (assetsStatus, assetsHtml) = readHttps("$LATEST_RELEASE_ASSETS/$tag", 1_000_000)
+        check(assetsStatus == 200) { "تعذر قراءة ملفات الإصدار الرسمي." }
+        return 200 to parseLatestReleasePage(html, assetsHtml)
+    }
+
+    /** Pure parser kept internal so the HTML fallback can be regression-tested offline. */
+    internal fun parseLatestReleasePage(html: String, assetsHtml: String): String {
+        val tag = RELEASE_TAG_IN_PAGE.find(html)?.groupValues?.get(1)
+            ?: error("صفحة الإصدار لا تحتوي على رقم نسخة صالح.")
+        check(VERSION.matches(tag)) { "رقم النسخة المنشورة غير صحيح." }
+        val bodyHtml = RELEASE_BODY_IN_PAGE.find(html)?.groupValues?.get(1)
+            ?: error("تعذر قراءة ملاحظات الإصدار من GitHub.")
+        val body = Html.fromHtml(bodyHtml, Html.FROM_HTML_MODE_LEGACY).toString().trim()
+        check(CODE_FIELD.containsMatchIn(body) && CERT_FIELD.containsMatchIn(body)) {
+            "بيانات التوقيع غير مكتملة. لن يتم تحميل ملف غير موثوق."
+        }
+
+        val apkName = "Raad-Pharmacy-$tag.apk"
+        val hashName = "$apkName.sha256"
+        val apkUrl = "https://github.com/rad03i2/raad-pharmacy/releases/download/$tag/$apkName"
+        val hashUrl = "https://github.com/rad03i2/raad-pharmacy/releases/download/$tag/$hashName"
+        check(assetsHtml.contains(apkUrl) && assetsHtml.contains(hashUrl)) {
+            "ملفات APK أو البصمة غير موجودة في الإصدار الرسمي."
+        }
+        val apkSize = parseAssetSize(assetsHtml, apkName)
+        val hashSize = parseAssetSize(assetsHtml, hashName)
+        val assets = org.json.JSONArray()
+            .put(org.json.JSONObject().put("name", apkName).put("size", apkSize)
+                .put("browser_download_url", apkUrl))
+            .put(org.json.JSONObject().put("name", hashName).put("size", hashSize)
+                .put("browser_download_url", hashUrl))
+        return JSONObject()
+            .put("tag_name", tag)
+            .put("draft", false)
+            .put("prerelease", false)
+            .put("body", body)
+            .put("assets", assets)
+            .toString()
+    }
+
+    private fun parseAssetSize(html: String, name: String): Long {
+        val nameIndex = html.indexOf(name)
+        check(nameIndex >= 0) { "ملف الإصدار غير موجود: $name" }
+        val rowStart = html.lastIndexOf("<li", nameIndex).takeIf { it >= 0 } ?: nameIndex
+        val rowEnd = html.indexOf("</li>", nameIndex).takeIf { it >= 0 } ?: html.length
+        val row = html.substring(rowStart, rowEnd)
+        val match = ASSET_SIZE.find(row) ?: error("تعذر تحديد حجم الملف: $name")
+        val amount = match.groupValues[1].toDouble()
+        val unit = match.groupValues[2].lowercase(Locale.US)
+        val multiplier = when (unit) {
+            "b", "byte", "bytes" -> 1.0
+            "kb" -> 1024.0
+            "mb" -> 1024.0 * 1024.0
+            "gb" -> 1024.0 * 1024.0 * 1024.0
+            else -> error("وحدة حجم ملف غير معروفة.")
+        }
+        return (amount * multiplier).toLong().coerceAtLeast(1L)
     }
 
     private fun verifyGitHubAssetUrl(link: String, tag: String, name: String) {
