@@ -90,7 +90,7 @@ fun AddCustomerScreenV12(
 
     var selectedPhotoText by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedPhoto = selectedPhotoText?.let(Uri::parse)
-    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    var cameraUriText by rememberSaveable { mutableStateOf<String?>(null) }
     var showPhotoSources by remember { mutableStateOf(false) }
     var showConfirmation by remember { mutableStateOf(false) }
     var infoMessage by remember { mutableStateOf<String?>(null) }
@@ -108,7 +108,7 @@ fun AddCustomerScreenV12(
         ActivityResultContracts.TakePicture()
     ) { success ->
         if (success) {
-            selectedPhotoText = cameraUri?.toString()
+            selectedPhotoText = cameraUriText
             errorText = null
         }
     }
@@ -116,7 +116,7 @@ fun AddCustomerScreenV12(
     fun openCamera() {
         runCatching {
             val uri = photoStore.createTemporaryCameraUri()
-            cameraUri = uri
+            cameraUriText = uri.toString()
             cameraLauncher.launch(uri)
         }.onFailure {
             infoMessage = "تعذر فتح الكاميرا على هذا الهاتف."
