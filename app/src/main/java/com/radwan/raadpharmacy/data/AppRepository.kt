@@ -83,8 +83,8 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             address = address.trim(),
             openingDebt = openingDebt.coerceAtLeast(0L),
             notes = notes.trim(),
-            createdByName = com.radwan.raadpharmacy.cloud.CloudTeamStore(appContext)
-                .cachedSnapshot().current?.displayName.orEmpty().ifBlank { "المستخدم الحالي" }
+            createdByName = CustomerCreatorNameStore.get(appContext)
+                .ifBlank { "المستخدم الحالي" }
         )
         dao.insertCustomer(customer.toEntity())
         customersCache = listOf(customer) + customersCache.filterNot { it.id == customer.id }
