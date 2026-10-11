@@ -42,9 +42,7 @@ object AppUpdateManager {
         // networks block api.github.com while GitHub release downloads still work.
         // Keep the official API as a fallback, and never relax signature/hash checks.
         val manifestResponse = runCatching { readHttps(LATEST_MANIFEST, 1_000_000) }.getOrNull()
-        val response = if (manifestResponse?.first == 200) {
-            manifestResponse
-        } else {
+        val response = manifestResponse?.takeIf { it.first == 200 } ?: run {
             runCatching { readHttps(LATEST_API, 1_000_000) }.getOrElse {
                 throw IllegalStateException(
                     "تعذر الاتصال بخادم التحديثات. تحقق من الإنترنت ثم حاول مجددًا.",
