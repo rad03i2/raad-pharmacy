@@ -66,10 +66,17 @@ class CloudMediaStore(context: Context) {
         }
     }
 
-    suspend fun uploadMyAvatar(bytes: ByteArray): String {
+    suspend fun uploadAvatar(targetUserId: String, bytes: ByteArray): String {
+        require(targetUserId.isNotBlank())
         require(bytes.isNotEmpty())
-        val profile = currentProfile()
-        val path = profile.pharmacyId + "/profiles/" + profile.id + "/" +
+        val current = currentProfile()
+        val target = client.from("profiles")
+            .select { filter { eq("id", targetUserId) } }
+            .decodeSingle<CloudProfileRow>()
+        check(target.pharmacyId == current.pharmacyId) {
+            "لا يمكن تغيير صورة مستخدم من صيدلية أخرى."
+        }
+        val path = current.pharmacyId + "/profiles/" + target.id + "/" +
             System.currentTimeMillis() + ".jpg"
 
         val optimized = optimizeJpeg(bytes, maxDimension = 720, quality = 86)
@@ -80,12 +87,18 @@ class CloudMediaStore(context: Context) {
         }
 
         client.from("profiles").update(ProfileAvatarPathPatch(path)) {
-            filter { eq("id", profile.id) }
+            filter {
+                eq("id", target.id)
+                eq("pharmacy_id", current.pharmacyId)
+            }
         }
 
-        saveProfilePhoto(profile.id, path, optimized)
+        saveProfilePhoto(target.id, path, optimized)
         return path
     }
+
+    suspend fun uploadMyAvatar(bytes: ByteArray): String =
+        uploadAvatar(currentProfile().id, bytes)
 
     suspend fun syncProfilePhoto(userId: String, remotePath: String?): File? {
         if (remotePath.isNullOrBlank()) return profilePhotoFile(userId).takeIf { it.isFile }
