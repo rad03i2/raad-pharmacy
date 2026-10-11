@@ -13,7 +13,8 @@ data class Customer(
     val address: String = "",
     val openingDebt: Long = 0L,
     val notes: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val createdByName: String = ""
 )
 
 data class LedgerEntry(
