@@ -63,7 +63,10 @@ class OfflineLedgerTest {
         app.getSharedPreferences("raad_cloud_sync_journal", Context.MODE_PRIVATE).edit().clear()
             .putStringSet("transaction_upserts", setOf("existing")).commit()
         val migrated = Room.databaseBuilder<PharmacyLedgerDatabase>(app, name).setDriver(DurableLedgerDriver())
-            .addMigrations(CloudOutboxMigration.MIGRATION_2_3).build()
+            .addMigrations(
+                CloudOutboxMigration.MIGRATION_2_3,
+                CustomerCreatorMigration.MIGRATION_3_4
+            ).build()
         try {
             val d = migrated.dao()
             assertEquals(1, d.customerCount()); assertEquals(1, d.entryCount()); assertEquals(51L, d.latestBackupSequence())
@@ -119,6 +122,26 @@ class OfflineLedgerTest {
         assertTrue(repository.deleteCustomer(c.id).success)
         assertTrue(dao.cloudOutbox().all { it.action == "DELETE" })
     }
+    @Test fun settledCustomerWithHistoricalDebtAndPaymentCanBeDeleted() = runTest {
+        val c = repository.addCustomer("زبون مسدد", null, "", "", 0, "", "مستخدم الاختبار")
+        val debtEntry = (repository.addDebt(c.id, 5000, null, null) as DebtCreateResult.Created).entry
+        assertTrue(repository.addPayment(c.id, 5000).amount == 5000L)
+        assertEquals(0L, customerBalance(c, dao.getEntries().map { it.toModel() }))
+        assertTrue(repository.deleteCustomer(c.id).success)
+        assertNull(dao.getCustomerById(c.id))
+        assertNull(dao.getEntryById(debtEntry.id))
+        assertTrue(dao.cloudOutbox().filter { it.entityId == c.id || it.entityId == debtEntry.id }.all { it.action == "DELETE" })
+    }
+
+    @Test fun movementDeletionPersistsEvenWhenItChangesHistoricalPaymentValidity() = runTest {
+        val c = repository.addCustomer("زبون", null, "", "", 0, "")
+        val debtEntry = (repository.addDebt(c.id, 5000, null, null) as DebtCreateResult.Created).entry
+        repository.addPayment(c.id, 5000)
+        assertTrue(repository.deleteEntry(debtEntry.id).success)
+        assertNull(dao.getEntryById(debtEntry.id))
+        assertTrue(dao.cloudOutbox().any { it.kind == "ENTRY" && it.entityId == debtEntry.id && it.action == "DELETE" })
+    }
+
     @Test fun financialRowAndOutboxRollbackTogetherOnStorageFailure() = runTest {
         dao.insertCustomer(customer)
         db.useWriterConnection { connection -> connection.usePrepared("CREATE TRIGGER reject_queue BEFORE INSERT ON cloud_outbox BEGIN SELECT RAISE(ABORT, 'disk failure'); END") { it.step() } }
