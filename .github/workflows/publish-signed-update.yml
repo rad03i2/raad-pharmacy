@@ -191,6 +191,8 @@ jobs:
             echo "SigningCertificateSHA256: $signer"
             echo
             echo "تحديث مستقر لدفتر صيدلية رعد."
+            echo "إصلاح فحص التحديثات بإضافة مصدر CDN بديل عند تعذر الوصول إلى api.github.com."
+            echo "إتاحة اختيار رقم الهاتف من داخل التطبيق مع حفظ شاشة إضافة الزبون."
             echo "يتحقق التطبيق من بصمة SHA-256 وشهادة التوقيع قبل بدء تثبيت النسخة الجديدة."
           } > "$RUNNER_TEMP/release-notes.txt"
           echo "RAAD_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
