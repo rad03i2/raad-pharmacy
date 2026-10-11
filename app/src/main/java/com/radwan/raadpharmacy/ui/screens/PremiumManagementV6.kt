@@ -245,6 +245,13 @@ fun CustomerProfileScreenV6(
                     ) {
                         V6ProfileInfo("المنطقة", customer.area.ifBlank { "غير محددة" })
                         V6ProfileInfo("الهاتف", customer.phone ?: "غير مضاف")
+                        if (customer.createdByName.isNotBlank()) {
+                            Text(
+                                "أضاف الزبون: " + customer.createdByName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         V6ProfileInfo(
                             "الدين السابق",
                             if (security.hideAmounts) "•••• د.ع" else formatMoney(customer.openingDebt)
