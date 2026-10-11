@@ -80,8 +80,7 @@ class CloudTeamStore(context: Context) {
                 val pharmacyId = profiles.firstOrNull { it.id == userId }?.pharmacyId
                 EntryActorStore.get(appContext).rememberProfiles(profiles.filter { it.pharmacyId == pharmacyId })
                 val visible = profiles.filter {
-                    it.pharmacyId == pharmacyId &&
-                        (it.id == userId || (it.role == "MANAGER" && !it.isHidden))
+                    it.pharmacyId == pharmacyId && (it.id == userId || !it.isHidden)
                 }
                 val previous = cachedSnapshot().let { listOfNotNull(it.current) + it.others }.associateBy { it.id }
                 fun snapshot(members: List<CloudTeamMember>) = CloudTeamSnapshot(
@@ -153,6 +152,10 @@ class CloudTeamStore(context: Context) {
 
     suspend fun uploadMyAvatar(bytes: ByteArray) {
         mediaStore.uploadMyAvatar(bytes)
+    }
+
+    suspend fun uploadAvatar(userId: String, bytes: ByteArray) {
+        mediaStore.uploadAvatar(userId, bytes)
     }
 
     private fun parseIso(value: String): Long? =
