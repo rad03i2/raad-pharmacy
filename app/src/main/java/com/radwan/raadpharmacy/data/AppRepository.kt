@@ -40,6 +40,8 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             .onFailure { android.util.Log.w("AppRepository", "Portable backup startup deferred", it) }
         runCatching { CloudSyncRuntime.start(appContext) }
             .onFailure { android.util.Log.w("AppRepository", "Cloud startup deferred", it) }
+        runCatching { withContext(Dispatchers.IO) { com.radwan.raadpharmacy.cloud.CloudTeamStore(appContext).load() } }
+            .onFailure { android.util.Log.w("AppRepository", "Team profile cache deferred", it) }
     }
 
     fun observeCustomers(): Flow<List<Customer>> =
@@ -76,7 +78,9 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             area = area.trim(),
             address = address.trim(),
             openingDebt = openingDebt.coerceAtLeast(0L),
-            notes = notes.trim()
+            notes = notes.trim(),
+            createdByName = com.radwan.raadpharmacy.cloud.CloudTeamStore(appContext)
+                .cachedSnapshot().current?.displayName.orEmpty().ifBlank { "المستخدم الحالي" }
         )
         dao.insertCustomer(customer.toEntity())
         customersCache = listOf(customer) + customersCache.filterNot { it.id == customer.id }
@@ -125,14 +129,16 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         val customer = dao.getCustomerById(customerId)?.toModel()
             ?: return MutationResult(false, "تعذر العثور على الزبون.")
         val customerEntries = dao.getEntriesForCustomer(customerId).map(LedgerEntryEntity::toModel)
-
-        if (customer.openingDebt != 0L) {
-            return MutationResult(false, "لا يمكن حذف الزبون قبل تصفير الدين السابق.")
-        }
-        if (customerEntries.isNotEmpty()) {
-            return MutationResult(false, "لا يمكن حذف الزبون لأن لديه حركات مالية محفوظة.")
+        val currentBalance = customer.openingDebt + customerEntries.sumOf {
+            if (it.type == EntryType.DEBT) it.amount else -it.amount
         }
 
+        if (currentBalance != 0L) {
+            return MutationResult(false, "لا يمكن حذف الزبون لأن رصيده الحالي ليس صفرًا.")
+        }
+
+        // A settled account may have a complete historical ledger. Delete its rows
+        // through the DAO so the local backup journal and cloud outbox stay consistent.
         dao.deleteCustomerById(customerId)
         customersCache = customersCache.filterNot { it.id == customerId }
         afterLocalCommit()
@@ -268,17 +274,8 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         val customer = dao.getCustomerById(current.customerId)?.toModel()
             ?: return MutationResult(false, "تعذر العثور على الزبون المرتبط بالحركة.")
 
-        val candidateEntries = dao.getEntriesForCustomer(current.customerId)
-            .map(LedgerEntryEntity::toModel)
-            .filter { it.id != entryId }
-
-        if (!LedgerRules.isChronologicallyValid(customer, candidateEntries)) {
-            return MutationResult(
-                false,
-                "لا يمكن حذف هذه الحركة لأن حذفها يجعل سجل الحساب غير صالح محاسبيًا."
-            )
-        }
-
+        // Explicit user-confirmed deletion removes this movement from the ledger
+        // and records the deletion in the durable backup/cloud journal.
         dao.deleteEntryById(entryId)
         entriesCache = entriesCache.filterNot { it.id == entryId }
         afterLocalCommit()
