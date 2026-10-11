@@ -129,9 +129,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         val customer = dao.getCustomerById(customerId)?.toModel()
             ?: return MutationResult(false, "تعذر العثور على الزبون.")
         val customerEntries = dao.getEntriesForCustomer(customerId).map(LedgerEntryEntity::toModel)
-        val currentBalance = customer.openingDebt + customerEntries.sumOf {
-            if (it.type == EntryType.DEBT) it.amount else -it.amount
-        }
+        val currentBalance = customerBalance(customer, customerEntries)
 
         if (currentBalance != 0L) {
             return MutationResult(false, "لا يمكن حذف الزبون لأن رصيده الحالي ليس صفرًا.")
