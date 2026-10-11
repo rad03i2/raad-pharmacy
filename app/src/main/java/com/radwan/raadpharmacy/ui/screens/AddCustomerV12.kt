@@ -206,7 +206,10 @@ fun AddCustomerScreenV12(
             }
             result.onSuccess { loaded ->
                 contactEntries = loaded
-                if (loaded.isEmpty()) infoMessage = "لم يتم العثور على أرقام هاتف في جهات الاتصال."
+                if (loaded.isEmpty()) {
+                    showContactPicker = false
+                    infoMessage = "لم يتم العثور على أرقام هاتف في جهات الاتصال."
+                }
             }.onFailure {
                 showContactPicker = false
                 infoMessage = "تعذر قراءة جهات الاتصال. تحقق من صلاحية الوصول ثم حاول مجددًا."
