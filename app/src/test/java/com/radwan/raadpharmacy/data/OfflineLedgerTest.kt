@@ -124,6 +124,7 @@ class OfflineLedgerTest {
     }
     @Test fun settledCustomerWithHistoricalDebtAndPaymentCanBeDeleted() = runTest {
         val c = repository.addCustomer("زبون مسدد", null, "", "", 0, "", "مستخدم الاختبار")
+        assertEquals("مستخدم الاختبار", BackupJson.parse(repository.createBackupJson()).customers.single().createdByName)
         val debtEntry = (repository.addDebt(c.id, 5000, null, null) as DebtCreateResult.Created).entry
         assertTrue(repository.addPayment(c.id, 5000).amount == 5000L)
         assertEquals(0L, customerBalance(c, dao.getEntries().map { it.toModel() }))
