@@ -683,7 +683,7 @@ private fun CustomerPhotoSourceDialogV211(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    "صورة الزبون",
+                    "تنبيه",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
