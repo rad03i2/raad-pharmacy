@@ -66,10 +66,13 @@ class CloudMediaStore(context: Context) {
         }
     }
 
-    suspend fun uploadMyAvatar(bytes: ByteArray): String {
-        require(bytes.isNotEmpty())
+    suspend fun uploadMyAvatar(bytes: ByteArray): String =
+        uploadAvatar(currentProfile().id, bytes)
+
+    suspend fun uploadAvatar(userId: String, bytes: ByteArray): String {
+        require(userId.isNotBlank() && bytes.isNotEmpty())
         val profile = currentProfile()
-        val path = profile.pharmacyId + "/profiles/" + profile.id + "/" +
+        val path = profile.pharmacyId + "/profiles/" + userId + "/" +
             System.currentTimeMillis() + ".jpg"
 
         val optimized = optimizeJpeg(bytes, maxDimension = 720, quality = 86)
@@ -80,10 +83,17 @@ class CloudMediaStore(context: Context) {
         }
 
         client.from("profiles").update(ProfileAvatarPathPatch(path)) {
-            filter { eq("id", profile.id) }
+            filter {
+                eq("id", userId)
+                eq("pharmacy_id", profile.pharmacyId)
+            }
         }
 
-        saveProfilePhoto(profile.id, path, optimized)
+        val updated = client.from("profiles").select {
+            filter { eq("id", userId); eq("pharmacy_id", profile.pharmacyId) }
+        }.decodeSingle<CloudProfileRow>()
+        check(updated.avatarPath == path) { "تعذر حفظ صورة المستخدم المختار." }
+        saveProfilePhoto(userId, path, optimized)
         return path
     }
 

@@ -63,7 +63,7 @@ class OfflineLedgerTest {
         app.getSharedPreferences("raad_cloud_sync_journal", Context.MODE_PRIVATE).edit().clear()
             .putStringSet("transaction_upserts", setOf("existing")).commit()
         val migrated = Room.databaseBuilder<PharmacyLedgerDatabase>(app, name).setDriver(DurableLedgerDriver())
-            .addMigrations(CloudOutboxMigration.MIGRATION_2_3).build()
+            .addMigrations(CloudOutboxMigration.MIGRATION_2_3, PharmacyLedgerDatabase.MIGRATION_3_4).build()
         try {
             val d = migrated.dao()
             assertEquals(1, d.customerCount()); assertEquals(1, d.entryCount()); assertEquals(51L, d.latestBackupSequence())
@@ -119,6 +119,25 @@ class OfflineLedgerTest {
         assertTrue(repository.deleteCustomer(c.id).success)
         assertTrue(dao.cloudOutbox().all { it.action == "DELETE" })
     }
+
+    @Test fun settledCustomerWithHistoricalDebtAndPaymentCanBeDeleted() = runTest {
+        val c = repository.addCustomer("حساب مسدد", null, "", "", 0, "")
+        repository.addDebt(c.id, 5000, null, null)
+        repository.addPayment(c.id, 5000)
+        assertEquals(0L, customerBalance(c, dao.getEntries().map { it.toModel() }))
+        assertTrue(repository.deleteCustomer(c.id).success)
+        assertNull(dao.getCustomerById(c.id))
+        assertTrue(dao.getEntriesForCustomer(c.id).isEmpty())
+    }
+
+    @Test fun customerCreatorNameSurvivesBackupRoundTrip() {
+        val customer = Customer("creator-c", "زبون", createdByName = "الصيدلي")
+        val restored = BackupJson.parse(
+            BackupJson.encode(listOf(customer), emptyList(), "3.3.19.6")
+        ).customers.single()
+        assertEquals("الصيدلي", restored.createdByName)
+    }
+
     @Test fun financialRowAndOutboxRollbackTogetherOnStorageFailure() = runTest {
         dao.insertCustomer(customer)
         db.useWriterConnection { connection -> connection.usePrepared("CREATE TRIGGER reject_queue BEFORE INSERT ON cloud_outbox BEGIN SELECT RAISE(ABORT, 'disk failure'); END") { it.step() } }

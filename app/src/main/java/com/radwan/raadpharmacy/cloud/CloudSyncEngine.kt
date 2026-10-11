@@ -439,6 +439,7 @@ class CloudSyncEngine(context: Context) {
         address = address.takeIf { it.isNotBlank() },
         openingDebt = openingDebt,
         notes = notes.takeIf { it.isNotBlank() },
+        createdByName = createdByName,
         createdAt = toIso(createdAt)
     )
 
@@ -463,7 +464,8 @@ class CloudSyncEngine(context: Context) {
         address = address.orEmpty(),
         openingDebt = openingDebt,
         notes = notes.orEmpty(),
-        createdAt = parseIso(createdAt)
+        createdAt = parseIso(createdAt),
+        createdByName = createdByName.orEmpty()
     )
 
     private fun CloudTransactionRow.toLocal() = LedgerEntryEntity(

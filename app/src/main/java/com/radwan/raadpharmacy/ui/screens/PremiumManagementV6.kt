@@ -127,8 +127,8 @@ fun CustomerProfileScreenV6(
             title = { Text("حذف الزبون؟") },
             text = {
                 Text(
-                    "يُسمح بالحذف فقط عندما لا توجد أي حركات مالية ولا دين سابق. " +
-                        "هذا الشرط يمنع فقدان السجل المالي بالخطأ."
+                    "يمكن حذف الزبون إذا كان رصيده الحالي صفرًا، حتى لو كانت لديه حركات سابقة. " +
+                        "سيُحذف سجل حسابه المرتبط بهذا الزبون."
                 )
             },
             confirmButton = {
@@ -251,6 +251,11 @@ fun CustomerProfileScreenV6(
                         )
                         if (customer.address.isNotBlank()) V6ProfileInfo("المكان", customer.address)
                         if (customer.notes.isNotBlank()) V6ProfileInfo("ملاحظات", customer.notes)
+                        if (customer.createdByName.isNotBlank()) Text(
+                            "أضيف بواسطة: ${customer.createdByName}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -400,6 +405,10 @@ fun CustomerTransactionsScreenV6(
     var recentOnly by remember { mutableStateOf(false) }
     var editEntry by remember { mutableStateOf<LedgerEntry?>(null) }
     var deleteEntry by remember { mutableStateOf<LedgerEntry?>(null) }
+    var deleteMathA by remember { mutableStateOf((2..9).random()) }
+    var deleteMathB by remember { mutableStateOf((2..9).random()) }
+    var deleteMathAnswer by remember { mutableStateOf("") }
+    var deleteMathError by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
 
     val thirtyDaysAgo = remember {
@@ -450,26 +459,46 @@ fun CustomerTransactionsScreenV6(
 
     deleteEntry?.let { entry ->
         AlertDialog(
-            onDismissRequest = { deleteEntry = null },
+            onDismissRequest = { deleteEntry = null; deleteMathError = null },
             icon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("حذف الحركة؟") },
+            title = { Text("تأكيد حذف الحركة") },
             text = {
-                Text(
-                    "سيتم فحص الرصيد الزمني للحساب قبل الحذف. " +
-                        "إذا كان الحذف سيجعل تحصيلًا لاحقًا غير صالح فسيتم رفض العملية."
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("سيتم حذف الحركة نهائيًا من سجل الزبون. لحماية الحساب، حل المسألة التالية:")
+                    Text("$deleteMathA + $deleteMathB = ؟", style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = deleteMathAnswer,
+                        onValueChange = { deleteMathAnswer = it.filter(Char::isDigit).take(4); deleteMathError = null },
+                        label = { Text("الإجابة") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        isError = deleteMathError != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    deleteMathError?.let { Text(it, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall) }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    scope.launch {
-                        val result = vm.deleteEntry(entry.id)
-                        message = result.message
-                        if (result.success) deleteEntry = null
+                    if (deleteMathAnswer.toIntOrNull() != deleteMathA + deleteMathB) {
+                        deleteMathError = "الإجابة غير صحيحة. حاول مرة أخرى."
+                    } else {
+                        scope.launch {
+                            val result = vm.deleteEntry(entry.id)
+                            if (result.success) {
+                                deleteEntry = null
+                                message = result.message
+                            } else {
+                                deleteMathError = result.message
+                            }
+                        }
                     }
-                }) { Text("حذف", color = MaterialTheme.colorScheme.error) }
+                }) { Text("حذف نهائيًا", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { deleteEntry = null }) { Text("إلغاء") }
+                TextButton(onClick = { deleteEntry = null; deleteMathError = null }) { Text("إلغاء") }
             }
         )
     }
@@ -598,7 +627,13 @@ fun CustomerTransactionsScreenV6(
                                     Icon(Icons.Rounded.Edit, null, modifier = Modifier.size(17.dp))
                                     Text("تعديل", modifier = Modifier.padding(horizontal = 5.dp))
                                 }
-                                TextButton(onClick = { deleteEntry = entry }) {
+                                TextButton(onClick = {
+                                    deleteMathA = (2..9).random()
+                                    deleteMathB = (2..9).random()
+                                    deleteMathAnswer = ""
+                                    deleteMathError = null
+                                    deleteEntry = entry
+                                }) {
                                     Icon(
                                         Icons.Rounded.DeleteOutline,
                                         null,

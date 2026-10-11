@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -73,6 +74,7 @@ internal fun CloudAccountPanelV330() {
     val snapshot by updates.collectAsStateWithLifecycle(initialValue = store.cachedSnapshot())
     var loading by remember { mutableStateOf(true) }
     var uploading by remember { mutableStateOf(false) }
+    var avatarTargetId by remember { mutableStateOf<String?>(null) }
     var sendingTo by remember { mutableStateOf(emptySet<String>()) }
     var alertMessage by remember { mutableStateOf<String?>(null) }
     val messagesStore = remember(context) { CloudTeamMessageStore(context) }
@@ -99,17 +101,28 @@ internal fun CloudAccountPanelV330() {
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
-        if (uri != null && !uploading) {
+        val targetId = avatarTargetId ?: snapshot.current?.id
+        if (uri != null && targetId != null && !uploading) {
             scope.launch {
                 uploading = true
-                runCatching {
-                    val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
-                        ?: error("تعذر قراءة الصورة")
-                    withContext(Dispatchers.IO) { store.uploadMyAvatar(bytes) }
+                try {
+                    val bytes = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    } ?: error("تعذر قراءة الصورة")
+                    withContext(Dispatchers.IO) { store.uploadAvatar(targetId, bytes) }
+                    alertMessage = "تم تغيير صورة المستخدم بنجاح."
+                    refresh(force = true)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    alertMessage = "تعذر تغيير الصورة. تحقق من الاتصال ثم أعد المحاولة."
+                } finally {
+                    uploading = false
+                    avatarTargetId = null
                 }
-                refresh(force = true)
-                uploading = false
             }
+        } else {
+            avatarTargetId = null
         }
     }
 
@@ -187,6 +200,7 @@ internal fun CloudAccountPanelV330() {
                 ) {
                     Box(
                         modifier = Modifier.clickable(enabled = !uploading) {
+                            avatarTargetId = current.id
                             picker.launch("image/*")
                         }
                     ) {
@@ -261,8 +275,14 @@ internal fun CloudAccountPanelV330() {
                 )
 
                 snapshot.others.forEach { member ->
-                    TeamMemberRow(member, member.id in sendingTo,
+                    TeamMemberRow(member, member.id in sendingTo, uploading,
                         hasUnread = unread.any { it.actorUserId == member.id },
+                        onChangeAvatar = {
+                            if (!uploading) {
+                                avatarTargetId = member.id
+                                picker.launch("image/*")
+                            }
+                        },
                         onCompose = {
                             composeTo = member; messageText = ""; messageError = null
                             messageId = UUID.randomUUID().toString()
@@ -299,8 +319,8 @@ internal fun CloudAccountPanelV330() {
 }
 
 @Composable
-private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, hasUnread: Boolean,
-    onCompose: () -> Unit, onRead: () -> Unit, onAlert: () -> Unit) {
+private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, uploading: Boolean, hasUnread: Boolean,
+    onChangeAvatar: () -> Unit, onCompose: () -> Unit, onRead: () -> Unit, onAlert: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -334,6 +354,10 @@ private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, hasUnread: 
                     MaterialTheme.colorScheme.onSurfaceVariant
                 }
             )
+        }
+        IconButton(onClick = onChangeAvatar, enabled = !uploading) {
+            Icon(Icons.Rounded.AddAPhoto, contentDescription = "تغيير صورة " + member.displayName,
+                tint = MaterialTheme.colorScheme.primary)
         }
         TeamMessageActions(member.displayName, sending, hasUnread, onAlert, onCompose, onRead)
     }
