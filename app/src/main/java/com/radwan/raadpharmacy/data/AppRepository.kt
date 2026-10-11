@@ -67,7 +67,8 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         area: String,
         address: String,
         openingDebt: Long,
-        notes: String
+        notes: String,
+        createdByName: String = ""
     ): Customer {
         val customer = Customer(
             id = UUID.randomUUID().toString(),
@@ -76,7 +77,8 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             area = area.trim(),
             address = address.trim(),
             openingDebt = openingDebt.coerceAtLeast(0L),
-            notes = notes.trim()
+            notes = notes.trim(),
+            createdByName = createdByName.trim()
         )
         dao.insertCustomer(customer.toEntity())
         customersCache = listOf(customer) + customersCache.filterNot { it.id == customer.id }
