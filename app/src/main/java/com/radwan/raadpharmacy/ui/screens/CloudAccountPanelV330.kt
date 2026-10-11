@@ -73,6 +73,7 @@ internal fun CloudAccountPanelV330() {
     val snapshot by updates.collectAsStateWithLifecycle(initialValue = store.cachedSnapshot())
     var loading by remember { mutableStateOf(true) }
     var uploading by remember { mutableStateOf(false) }
+    var avatarTargetId by remember { mutableStateOf<String?>(null) }
     var sendingTo by remember { mutableStateOf(emptySet<String>()) }
     var alertMessage by remember { mutableStateOf<String?>(null) }
     val messagesStore = remember(context) { CloudTeamMessageStore(context) }
@@ -99,16 +100,20 @@ internal fun CloudAccountPanelV330() {
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
-        if (uri != null && !uploading) {
+        val targetId = avatarTargetId
+        if (uri != null && targetId != null && !uploading) {
             scope.launch {
                 uploading = true
-                runCatching {
-                    val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
-                        ?: error("تعذر قراءة الصورة")
-                    withContext(Dispatchers.IO) { store.uploadMyAvatar(bytes) }
+                val result = runCatching {
+                    val bytes = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    } ?: error("تعذر قراءة الصورة")
+                    withContext(Dispatchers.IO) { store.uploadAvatar(targetId, bytes) }
                 }
+                result.onFailure { alertMessage = "تعذر تغيير الصورة. تحقق من الاتصال ثم أعد المحاولة." }
                 refresh(force = true)
                 uploading = false
+                avatarTargetId = null
             }
         }
     }
@@ -187,6 +192,7 @@ internal fun CloudAccountPanelV330() {
                 ) {
                     Box(
                         modifier = Modifier.clickable(enabled = !uploading) {
+                            avatarTargetId = current.id
                             picker.launch("image/*")
                         }
                     ) {
@@ -199,7 +205,7 @@ internal fun CloudAccountPanelV330() {
                             color = MaterialTheme.colorScheme.primary
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                if (uploading) {
+                                if (uploading && avatarTargetId == current.id) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(14.dp),
                                         strokeWidth = 2.dp,
@@ -263,6 +269,12 @@ internal fun CloudAccountPanelV330() {
                 snapshot.others.forEach { member ->
                     TeamMemberRow(member, member.id in sendingTo,
                         hasUnread = unread.any { it.actorUserId == member.id },
+                        onChangeAvatar = {
+                            if (!uploading) {
+                                avatarTargetId = member.id
+                                picker.launch("image/*")
+                            }
+                        },
                         onCompose = {
                             composeTo = member; messageText = ""; messageError = null
                             messageId = UUID.randomUUID().toString()
@@ -300,14 +312,30 @@ internal fun CloudAccountPanelV330() {
 
 @Composable
 private fun TeamMemberRow(member: CloudTeamMember, sending: Boolean, hasUnread: Boolean,
-    onCompose: () -> Unit, onRead: () -> Unit, onAlert: () -> Unit) {
+    onChangeAvatar: () -> Unit, onCompose: () -> Unit, onRead: () -> Unit, onAlert: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box {
+        Box(modifier = Modifier.clickable(onClick = onChangeAvatar)) {
             TeamAvatar(member.avatarFile, member.avatarRevision, 48.dp)
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(20.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Rounded.AddAPhoto,
+                        contentDescription = "تغيير صورة " + member.displayName,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+            }
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
