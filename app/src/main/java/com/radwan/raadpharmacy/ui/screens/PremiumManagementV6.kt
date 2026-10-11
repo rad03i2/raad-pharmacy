@@ -483,8 +483,12 @@ fun CustomerTransactionsScreenV6(
                     } else {
                         scope.launch {
                             val result = vm.deleteEntry(entry.id)
-                            message = result.message
-                            if (result.success) deleteEntry = null
+                            if (result.success) {
+                                deleteEntry = null
+                                message = result.message
+                            } else {
+                                deleteMathError = result.message
+                            }
                         }
                     }
                 }) { Text("حذف نهائيًا", color = MaterialTheme.colorScheme.error) }
