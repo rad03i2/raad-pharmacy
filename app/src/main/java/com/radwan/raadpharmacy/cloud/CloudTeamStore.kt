@@ -1,6 +1,7 @@
 package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
+import com.radwan.raadpharmacy.data.CustomerCreatorNameStore
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
@@ -77,7 +78,9 @@ class CloudTeamStore(context: Context) {
                     catch (_: Exception) { emptyMap() }
                 }
                 val profiles = profilesRequest.await()
-                val pharmacyId = profiles.firstOrNull { it.id == userId }?.pharmacyId
+                val currentProfile = profiles.firstOrNull { it.id == userId }
+                currentProfile?.displayName?.let { CustomerCreatorNameStore.save(appContext, it) }
+                val pharmacyId = currentProfile?.pharmacyId
                 EntryActorStore.get(appContext).rememberProfiles(profiles.filter { it.pharmacyId == pharmacyId })
                 val visible = profiles.filter {
                     it.pharmacyId == pharmacyId && (it.id == userId || !it.isHidden)
