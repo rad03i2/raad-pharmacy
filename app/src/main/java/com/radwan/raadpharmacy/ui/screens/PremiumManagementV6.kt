@@ -251,7 +251,11 @@ fun CustomerProfileScreenV6(
                         )
                         if (customer.address.isNotBlank()) V6ProfileInfo("المكان", customer.address)
                         if (customer.notes.isNotBlank()) V6ProfileInfo("ملاحظات", customer.notes)
-                        if (customer.createdByName.isNotBlank()) V6ProfileInfo("أضيف بواسطة", customer.createdByName)
+                        if (customer.createdByName.isNotBlank()) Text(
+                            "أضيف بواسطة: ${customer.createdByName}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
