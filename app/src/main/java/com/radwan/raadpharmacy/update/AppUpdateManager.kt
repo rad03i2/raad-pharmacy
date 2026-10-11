@@ -23,6 +23,7 @@ import java.util.Locale
 /** Only official signed stable GitHub Releases may be installed, never a CI artifact. */
 object AppUpdateManager {
     private const val LATEST_MANIFEST = "https://raw.githubusercontent.com/rad03i2/raad-pharmacy/main/docs/updates/latest.json"
+    private const val LATEST_CDN = "https://cdn.jsdelivr.net/gh/rad03i2/raad-pharmacy@main/docs/updates/latest.json"
     private const val LATEST_API = "https://api.github.com/repos/rad03i2/raad-pharmacy/releases/latest"
     private const val MIME = "application/vnd.android.package-archive"
     private const val PREFS = "raad_app_update_v1"
@@ -42,14 +43,18 @@ object AppUpdateManager {
         // networks block api.github.com while GitHub release downloads still work.
         // Keep the official API as a fallback, and never relax signature/hash checks.
         val manifestResponse = runCatching { readHttps(LATEST_MANIFEST, 1_000_000) }.getOrNull()
-        val response = manifestResponse?.takeIf { it.first == 200 } ?: run {
-            runCatching { readHttps(LATEST_API, 1_000_000) }.getOrElse {
-                throw IllegalStateException(
-                    "تعذر الاتصال بخادم التحديثات. تحقق من الإنترنت ثم حاول مجددًا.",
-                    it
-                )
+        val cdnResponse = if (manifestResponse?.first == 200) null else
+            runCatching { readHttps(LATEST_CDN, 1_000_000) }.getOrNull()
+        val response = manifestResponse?.takeIf { it.first == 200 }
+            ?: cdnResponse?.takeIf { it.first == 200 }
+            ?: run {
+                runCatching { readHttps(LATEST_API, 1_000_000) }.getOrElse {
+                    throw IllegalStateException(
+                        "تعذر الاتصال بخوادم التحديثات. جرّب شبكة إنترنت أخرى أو أعد المحاولة.",
+                        it
+                    )
+                }
             }
-        }
         val (status, data) = response
         if (status == 404) return@withContext null
         check(status == 200) { "تعذر فحص التحديثات (HTTP $status)." }
@@ -124,7 +129,7 @@ object AppUpdateManager {
                     val newUrl = URL(target, conn.getHeaderField("Location") ?: error("رابط تحويل ناقص."))
                     check(newUrl.protocol == "https" &&
                         (newUrl.host == "github.com" || newUrl.host.endsWith(".githubusercontent.com") ||
-                            newUrl.host == "objects.githubusercontent.com")) { "تحويل غير موثوق." }
+                            newUrl.host == "objects.githubusercontent.com" || newUrl.host == "cdn.jsdelivr.net")) { "تحويل غير موثوق." }
                     target = newUrl
                 } else {
                     if (response == 404) return response to ""
