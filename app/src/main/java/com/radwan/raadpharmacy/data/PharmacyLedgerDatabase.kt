@@ -15,6 +15,9 @@ import androidx.room3.Room
 import androidx.room3.RoomDatabase
 import androidx.room3.Transaction
 import androidx.room3.Update
+import androidx.room3.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import com.radwan.raadpharmacy.backup.*
 import com.radwan.raadpharmacy.cloud.CloudOutboxEntity
 import com.radwan.raadpharmacy.cloud.CloudOutboxMigration
@@ -39,7 +42,9 @@ data class CustomerEntity(
     val openingDebt: Long,
     val notes: String,
     @ColumnInfo(name = "created_at")
-    val createdAt: Long
+    val createdAt: Long,
+    @ColumnInfo(name = "created_by_name", defaultValue = "''")
+    val createdByName: String = ""
 )
 
 @Entity(
@@ -505,11 +510,19 @@ interface PharmacyLedgerDao {
 
 }
 
+object CustomerCreatorMigration {
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            connection.execSQL("ALTER TABLE customers ADD COLUMN created_by_name TEXT NOT NULL DEFAULT ''")
+        }
+    }
+}
+
 @Database(
     entities = [CustomerEntity::class, LedgerEntryEntity::class, BackupChangeEntity::class,
         BackupDestinationEntity::class, BackupPhotoEntity::class, BackupControlEntity::class,
         CloudOutboxEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class PharmacyLedgerDatabase : RoomDatabase() {
@@ -526,7 +539,11 @@ abstract class PharmacyLedgerDatabase : RoomDatabase() {
                     "raad_pharmacy_ledger.db"
                 )
                     .setDriver(DurableLedgerDriver())
-                    .addMigrations(BackupMigration.MIGRATION_1_2, CloudOutboxMigration.MIGRATION_2_3)
+                    .addMigrations(
+                        BackupMigration.MIGRATION_1_2,
+                        CloudOutboxMigration.MIGRATION_2_3,
+                        CustomerCreatorMigration.MIGRATION_3_4
+                    )
                     .build()
                     .also { instance = it }
             }
@@ -541,7 +558,8 @@ fun Customer.toEntity(): CustomerEntity = CustomerEntity(
     address = address,
     openingDebt = openingDebt,
     notes = notes,
-    createdAt = createdAt
+    createdAt = createdAt,
+    createdByName = createdByName
 )
 
 fun CustomerEntity.toModel(): Customer = Customer(
@@ -552,7 +570,8 @@ fun CustomerEntity.toModel(): Customer = Customer(
     address = address,
     openingDebt = openingDebt,
     notes = notes,
-    createdAt = createdAt
+    createdAt = createdAt,
+    createdByName = createdByName
 )
 
 fun LedgerEntry.toEntity(): LedgerEntryEntity = LedgerEntryEntity(
