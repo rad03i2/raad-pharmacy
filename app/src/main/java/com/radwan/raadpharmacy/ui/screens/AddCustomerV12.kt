@@ -203,13 +203,18 @@ fun AddCustomerScreenV12(
         scope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
+                    val creatorName = runCatching {
+                        com.radwan.raadpharmacy.cloud.CloudTeamStore(context)
+                            .cachedSnapshot().current?.displayName
+                    }.getOrNull().orEmpty().ifBlank { "مستخدم التطبيق" }
                     val customer = vm.addCustomer(
                         name = name.trim(),
                         phone = phone.takeIf { it.isNotBlank() },
                         area = area.trim(),
                         address = "",
                         openingDebt = openingDebt.toLongOrNull() ?: 0L,
-                        notes = notes.trim()
+                        notes = notes.trim(),
+                        createdByName = creatorName
                     )
                     selectedPhoto?.let { uri ->
                         runCatching {
