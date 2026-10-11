@@ -37,6 +37,7 @@ object BackupJson {
                         put("openingDebt", customer.openingDebt)
                         put("notes", customer.notes)
                         put("createdAt", customer.createdAt)
+                        put("createdByName", customer.createdByName)
                     })
                 }
             })
@@ -91,7 +92,8 @@ object BackupJson {
                     address = item.optString("address"),
                     openingDebt = item.optLong("openingDebt"),
                     notes = item.optString("notes"),
-                    createdAt = item.optLong("createdAt")
+                    createdAt = item.optLong("createdAt"),
+                    createdByName = item.optString("createdByName")
                 ))
             }
         }
