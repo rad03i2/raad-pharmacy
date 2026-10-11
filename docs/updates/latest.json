@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.19.8",
+  "tag_name": "v3.3.19.9",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 63\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث مستقر لدفتر صيدلية رعد.\nإصلاح فحص التحديثات بإضافة مصدر CDN بديل عند تعذر الوصول إلى api.github.com.\nإتاحة اختيار رقم الهاتف من داخل التطبيق مع حفظ شاشة إضافة الزبون.\nيتحقق التطبيق من بصمة SHA-256 وشهادة التوقيع قبل بدء تثبيت النسخة الجديدة.",
+  "body": "VersionCode: 64\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث مستقر لدفتر صيدلية رعد.\nإصلاح فحص التحديثات عبر ملف manifest مرفق بالإصدار الرسمي، مع مصادر بديلة للشبكات التي تحجب api.github.com.\nإصلاح اختيار رقم الهاتف من جهات الاتصال مع إبقاء شاشة إنشاء الزبون وبياناتها مفتوحة.\nيتحقق التطبيق من بصمة SHA-256 وشهادة التوقيع قبل بدء تثبيت النسخة الجديدة.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.19.8.apk",
+      "name": "Raad-Pharmacy-v3.3.19.9.apk",
       "size": 5450270,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.19.8/Raad-Pharmacy-v3.3.19.8.apk"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.19.9/Raad-Pharmacy-v3.3.19.9.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.19.8.apk.sha256",
+      "name": "Raad-Pharmacy-v3.3.19.9.apk.sha256",
       "size": 94,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.19.8/Raad-Pharmacy-v3.3.19.8.apk.sha256"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.19.9/Raad-Pharmacy-v3.3.19.9.apk.sha256"
     }
   ]
 }
