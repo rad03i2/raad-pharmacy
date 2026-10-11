@@ -127,8 +127,8 @@ fun CustomerProfileScreenV6(
             title = { Text("حذف الزبون؟") },
             text = {
                 Text(
-                    "يُسمح بالحذف فقط عندما لا توجد أي حركات مالية ولا دين سابق. " +
-                        "هذا الشرط يمنع فقدان السجل المالي بالخطأ."
+                    "يمكن حذف الزبون عندما يكون رصيده الحالي صفرًا، حتى لو كان لديه سجل حركات سابق. " +
+                        "سيتم حذف سجل هذا الزبون وحركاته المرتبطة فقط."
                 )
             },
             confirmButton = {
@@ -400,6 +400,10 @@ fun CustomerTransactionsScreenV6(
     var recentOnly by remember { mutableStateOf(false) }
     var editEntry by remember { mutableStateOf<LedgerEntry?>(null) }
     var deleteEntry by remember { mutableStateOf<LedgerEntry?>(null) }
+    var mathFirst by remember { mutableStateOf(2) }
+    var mathSecond by remember { mutableStateOf(3) }
+    var mathAnswer by remember { mutableStateOf("") }
+    var mathError by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
 
     val thirtyDaysAgo = remember {
@@ -454,19 +458,41 @@ fun CustomerTransactionsScreenV6(
             icon = { Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("حذف الحركة؟") },
             text = {
-                Text(
-                    "سيتم فحص الرصيد الزمني للحساب قبل الحذف. " +
-                        "إذا كان الحذف سيجعل تحصيلًا لاحقًا غير صالح فسيتم رفض العملية."
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("لحذف هذه الحركة نهائيًا، حل العملية الحسابية التالية:")
+                    OutlinedTextField(
+                        value = mathAnswer,
+                        onValueChange = {
+                            mathAnswer = it.filter(Char::isDigit).take(3)
+                            mathError = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("$mathFirst + $mathSecond = ؟") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    mathError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    scope.launch {
-                        val result = vm.deleteEntry(entry.id)
-                        message = result.message
-                        if (result.success) deleteEntry = null
+                    if (mathAnswer.toIntOrNull() != mathFirst + mathSecond) {
+                        mathError = "الإجابة غير صحيحة. أعد حل العملية الحسابية."
+                    } else {
+                        scope.launch {
+                            val result = vm.deleteEntry(entry.id)
+                            message = result.message
+                            if (result.success) {
+                                deleteEntry = null
+                                mathAnswer = ""
+                                mathError = null
+                            }
+                        }
                     }
-                }) { Text("حذف", color = MaterialTheme.colorScheme.error) }
+                }) { Text("تأكيد الحذف", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { deleteEntry = null }) { Text("إلغاء") }
@@ -598,7 +624,13 @@ fun CustomerTransactionsScreenV6(
                                     Icon(Icons.Rounded.Edit, null, modifier = Modifier.size(17.dp))
                                     Text("تعديل", modifier = Modifier.padding(horizontal = 5.dp))
                                 }
-                                TextButton(onClick = { deleteEntry = entry }) {
+                                TextButton(onClick = {
+                                    mathFirst = kotlin.random.Random.nextInt(1, 10)
+                                    mathSecond = kotlin.random.Random.nextInt(1, 10)
+                                    mathAnswer = ""
+                                    mathError = null
+                                    deleteEntry = entry
+                                }) {
                                     Icon(
                                         Icons.Rounded.DeleteOutline,
                                         null,
