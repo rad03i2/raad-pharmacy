@@ -79,10 +79,9 @@ class CloudTeamStore(context: Context) {
                 val profiles = profilesRequest.await()
                 val pharmacyId = profiles.firstOrNull { it.id == userId }?.pharmacyId
                 EntryActorStore.get(appContext).rememberProfiles(profiles.filter { it.pharmacyId == pharmacyId })
-                val visible = profiles.filter {
-                    it.pharmacyId == pharmacyId &&
-                        (it.id == userId || (it.role == "MANAGER" && !it.isHidden))
-                }
+                // All accounts in one pharmacy are peers; no manager role is required
+                // for visibility or avatar updates.
+                val visible = profiles.filter { it.pharmacyId == pharmacyId }
                 val previous = cachedSnapshot().let { listOfNotNull(it.current) + it.others }.associateBy { it.id }
                 fun snapshot(members: List<CloudTeamMember>) = CloudTeamSnapshot(
                     members.firstOrNull { it.isCurrent }, members.filterNot { it.isCurrent }.sortedBy { it.displayName })
@@ -151,8 +150,14 @@ class CloudTeamStore(context: Context) {
         ) { onConflict = "user_id" }
     }
 
+    suspend fun uploadAvatar(userId: String, bytes: ByteArray) {
+        mediaStore.uploadAvatar(userId, bytes)
+    }
+
     suspend fun uploadMyAvatar(bytes: ByteArray) {
-        mediaStore.uploadMyAvatar(bytes)
+        val currentId = client.auth.currentSessionOrNull()?.user?.id
+            ?: error("يرجى تسجيل الدخول")
+        mediaStore.uploadAvatar(currentId, bytes)
     }
 
     private fun parseIso(value: String): Long? =
