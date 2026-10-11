@@ -126,11 +126,10 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             ?: return MutationResult(false, "تعذر العثور على الزبون.")
         val customerEntries = dao.getEntriesForCustomer(customerId).map(LedgerEntryEntity::toModel)
 
-        if (customer.openingDebt != 0L) {
-            return MutationResult(false, "لا يمكن حذف الزبون قبل تصفير الدين السابق.")
-        }
-        if (customerEntries.isNotEmpty()) {
-            return MutationResult(false, "لا يمكن حذف الزبون لأن لديه حركات مالية محفوظة.")
+        // A settled account can be removed even when it has a complete historical ledger.
+        // The DAO journals each entry/customer deletion so cloud sync and backups receive tombstones.
+        if (customerBalance(customer, customerEntries) != 0L) {
+            return MutationResult(false, "لا يمكن حذف الزبون لأن رصيده الحالي ليس صفرًا.")
         }
 
         dao.deleteCustomerById(customerId)
@@ -265,20 +264,12 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
     suspend fun deleteEntry(entryId: String): MutationResult {
         val current = dao.getEntryById(entryId)?.toModel()
             ?: return MutationResult(false, "تعذر العثور على الحركة.")
-        val customer = dao.getCustomerById(current.customerId)?.toModel()
-            ?: return MutationResult(false, "تعذر العثور على الزبون المرتبط بالحركة.")
-
-        val candidateEntries = dao.getEntriesForCustomer(current.customerId)
-            .map(LedgerEntryEntity::toModel)
-            .filter { it.id != entryId }
-
-        if (!LedgerRules.isChronologicallyValid(customer, candidateEntries)) {
-            return MutationResult(
-                false,
-                "لا يمكن حذف هذه الحركة لأن حذفها يجعل سجل الحساب غير صالح محاسبيًا."
-            )
+        if (dao.getCustomerById(current.customerId) == null) {
+            return MutationResult(false, "تعذر العثور على الزبون المرتبط بالحركة.")
         }
 
+        // The user explicitly confirmed this destructive operation in the UI's math challenge.
+        // Persist the tombstone through the DAO so it is not restored by cloud sync or backup replay.
         dao.deleteEntryById(entryId)
         entriesCache = entriesCache.filterNot { it.id == entryId }
         afterLocalCommit()
