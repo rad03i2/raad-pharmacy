@@ -2,7 +2,8 @@ package com.radwan.raadpharmacy.ui.screens
 
 import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
 
-import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -17,9 +18,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -61,6 +65,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.customer.CustomerPhotoStore
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
@@ -68,6 +73,22 @@ import com.radwan.raadpharmacy.util.formatMoney
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private data class CustomerPhoneContact(
+    val name: String,
+    val displayNumber: String,
+    val normalizedNumber: String
+)
+
+private fun normalizeCustomerPhone(raw: String): String {
+    val digits = raw.filter(Char::isDigit)
+    return when {
+        digits.startsWith("00964") -> ("0" + digits.removePrefix("00964")).take(11)
+        digits.startsWith("964") -> ("0" + digits.removePrefix("964")).take(11)
+        digits.length == 10 && digits.startsWith("7") -> ("0" + digits).take(11)
+        else -> digits.take(11)
+    }
+}
 
 @Composable
 fun AddCustomerScreenV12(
@@ -92,8 +113,21 @@ fun AddCustomerScreenV12(
     val selectedPhoto = selectedPhotoText?.let(Uri::parse)
     var cameraUriText by rememberSaveable { mutableStateOf<String?>(null) }
     var showPhotoSources by remember { mutableStateOf(false) }
+    var showContactPicker by rememberSaveable { mutableStateOf(false) }
+    var contactSearch by rememberSaveable { mutableStateOf("") }
+    var contactEntries by remember { mutableStateOf<List<CustomerPhoneContact>>(emptyList()) }
+    var loadingContacts by remember { mutableStateOf(false) }
     var showConfirmation by remember { mutableStateOf(false) }
     var infoMessage by remember { mutableStateOf<String?>(null) }
+    val filteredContacts = remember(contactEntries, contactSearch) {
+        val query = contactSearch.trim().lowercase()
+        if (query.isBlank()) contactEntries
+        else contactEntries.filter {
+            it.name.lowercase().contains(query) ||
+                it.displayNumber.contains(query) ||
+                it.normalizedNumber.contains(query)
+        }
+    }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -125,65 +159,79 @@ fun AddCustomerScreenV12(
         }
     }
 
-    val contactLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val uri = result.data?.data ?: return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.query(
-                uri,
-                arrayOf(
-                    ContactsContract.CommonDataKinds.Phone.NUMBER,
-                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
-                ),
-                null,
-                null,
-                null
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val numberIndex = cursor.getColumnIndex(
-                        ContactsContract.CommonDataKinds.Phone.NUMBER
-                    )
-                    val nameIndex = cursor.getColumnIndex(
-                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
-                    )
-                    val pickedNumber = if (numberIndex >= 0) {
-                        val digits = cursor.getString(numberIndex).orEmpty()
-                            .filter(Char::isDigit)
-                        when {
-                            digits.startsWith("00964") ->
-                                ("0" + digits.removePrefix("00964")).take(11)
-                            digits.startsWith("964") ->
-                                ("0" + digits.removePrefix("964")).take(11)
-                            digits.length == 10 && digits.startsWith("7") ->
-                                ("0" + digits).take(11)
-                            else -> digits.take(11)
+    fun loadContacts() {
+        if (loadingContacts) return
+        showContactPicker = true
+        contactSearch = ""
+        loadingContacts = true
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val entries = mutableListOf<CustomerPhoneContact>()
+                    context.contentResolver.query(
+                        ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                        arrayOf(
+                            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                            ContactsContract.CommonDataKinds.Phone.NUMBER
+                        ),
+                        "${ContactsContract.CommonDataKinds.Phone.NUMBER} IS NOT NULL AND " +
+                            "${ContactsContract.CommonDataKinds.Phone.NUMBER} != ''",
+                        null,
+                        "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} COLLATE LOCALIZED ASC"
+                    )?.use { cursor ->
+                        val nameIndex = cursor.getColumnIndex(
+                            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
+                        )
+                        val numberIndex = cursor.getColumnIndex(
+                            ContactsContract.CommonDataKinds.Phone.NUMBER
+                        )
+                        while (cursor.moveToNext()) {
+                            val rawNumber = if (numberIndex >= 0) {
+                                cursor.getString(numberIndex).orEmpty()
+                            } else {
+                                ""
+                            }
+                            val normalized = normalizeCustomerPhone(rawNumber)
+                            if (normalized.isNotBlank()) {
+                                entries += CustomerPhoneContact(
+                                    name = if (nameIndex >= 0) cursor.getString(nameIndex).orEmpty() else "",
+                                    displayNumber = rawNumber,
+                                    normalizedNumber = normalized
+                                )
+                            }
                         }
-                    } else {
-                        ""
                     }
-                    val pickedName = if (nameIndex >= 0) {
-                        cursor.getString(nameIndex).orEmpty()
-                    } else {
-                        ""
-                    }
-
-                    if (pickedNumber.isNotBlank()) phone = pickedNumber
-                    if (name.isBlank() && pickedName.isNotBlank()) name = pickedName
-                    errorText = null
+                    entries.distinctBy { it.name + "|" + it.normalizedNumber }
                 }
             }
-        }.onFailure {
-            infoMessage = "تعذر قراءة جهة الاتصال المختارة."
+            result.onSuccess { loaded ->
+                contactEntries = loaded
+                if (loaded.isEmpty()) infoMessage = "لم يتم العثور على أرقام هاتف في جهات الاتصال."
+            }.onFailure {
+                showContactPicker = false
+                infoMessage = "تعذر قراءة جهات الاتصال. تحقق من صلاحية الوصول ثم حاول مجددًا."
+            }
+            loadingContacts = false
         }
     }
 
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) loadContacts()
+        else infoMessage = "اسمح للتطبيق بالوصول إلى جهات الاتصال لاختيار رقم الهاتف."
+    }
+
     fun pickContact() {
-        val intent = Intent(
-            Intent.ACTION_PICK,
-            ContactsContract.CommonDataKinds.Phone.CONTENT_URI
-        )
-        contactLauncher.launch(intent)
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.READ_CONTACTS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            loadContacts()
+        } else {
+            contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+        }
     }
 
     fun requestSave() {
@@ -230,6 +278,83 @@ fun AddCustomerScreenV12(
                 onSaved(customer.id)
             }.onFailure {
                 errorText = com.radwan.raadpharmacy.data.ledgerSaveError(it, "تعذر حفظ الزبون. حاول مرة أخرى.")
+            }
+        }
+    }
+
+    if (showContactPicker) {
+        Dialog(onDismissRequest = { showContactPicker = false }) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("اختيار رقم الهاتف", style = MaterialTheme.typography.titleLarge)
+                    OutlinedTextField(
+                        value = contactSearch,
+                        onValueChange = { contactSearch = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("بحث بالاسم أو الرقم") }
+                    )
+                    when {
+                        loadingContacts -> Box(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                        filteredContacts.isEmpty() -> Text(
+                            if (contactEntries.isEmpty()) "لا توجد أرقام هاتف لعرضها."
+                            else "لا توجد نتائج مطابقة للبحث.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        else -> LazyColumn(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)
+                        ) {
+                            items(
+                                items = filteredContacts,
+                                key = { "${it.name}|${it.normalizedNumber}" }
+                            ) { entry ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            phone = entry.normalizedNumber
+                                            if (name.isBlank() && entry.name.isNotBlank()) {
+                                                name = entry.name
+                                            }
+                                            errorText = null
+                                            showContactPicker = false
+                                            focusManager.clearFocus()
+                                        }
+                                        .padding(vertical = 12.dp, horizontal = 4.dp)
+                                ) {
+                                    Text(
+                                        entry.name.ifBlank { "جهة اتصال بدون اسم" },
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        entry.displayNumber,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    TextButton(
+                        onClick = { showContactPicker = false },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("إلغاء")
+                    }
+                }
             }
         }
     }
