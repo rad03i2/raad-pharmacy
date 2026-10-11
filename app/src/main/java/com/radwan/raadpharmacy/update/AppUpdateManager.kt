@@ -34,9 +34,9 @@ object AppUpdateManager {
     private val SHA = Regex("(?i)^[a-f0-9]{64}$")
     private val CODE_FIELD = Regex("(?m)^VersionCode: ([0-9]+)\\s*$")
     private val CERT_FIELD = Regex("(?m)^SigningCertificateSHA256: ([a-fA-F0-9]{64})\\s*$")
-    private val RELEASE_TAG_IN_PAGE = Regex("""/rad03i2/raad-pharmacy/releases/tag/(v[0-9]+\\.[0-9]+\\.[0-9]+(?:\\.[0-9]+)?)""")
+    private val RELEASE_TAG_IN_PAGE = Regex("""/rad03i2/raad-pharmacy/releases/tag/(v[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)""")
     private val RELEASE_BODY_IN_PAGE = Regex("""(?s)<div[^>]*data-test-selector="body-content"[^>]*>(.*?)</div>""")
-    private val ASSET_SIZE = Regex("""(?i)([0-9]+(?:\\.[0-9]+)?)\\s*(bytes?|b|kb|mb|gb)\\b""")
+    private val ASSET_SIZE = Regex("""(?i)([0-9]+(?:\.[0-9]+)?)\s*(bytes?|b|kb|mb|gb)\b""")
 
     data class Release(val tag: String, val versionCode: Long, val notes: String,
         val size: Long, val apkUrl: String, val signer: String, val sha256: String)
