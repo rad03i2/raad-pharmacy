@@ -24,6 +24,7 @@ data class CloudCustomerRow(
     @SerialName("opening_debt") val openingDebt: Long = 0L,
     val notes: String? = null,
     @SerialName("photo_path") val photoPath: String? = null,
+    @SerialName("created_by_name") val createdByName: String = "",
     @SerialName("created_at") val createdAt: String,
     @SerialName("updated_at") val updatedAt: String,
     @SerialName("deleted_at") val deletedAt: String? = null
@@ -39,6 +40,7 @@ data class CloudCustomerWrite(
     val address: String? = null,
     @SerialName("opening_debt") val openingDebt: Long,
     val notes: String? = null,
+    @SerialName("created_by_name") val createdByName: String = "",
     @SerialName("created_at") val createdAt: String,
     @SerialName("deleted_at") val deletedAt: String? = null
 )
