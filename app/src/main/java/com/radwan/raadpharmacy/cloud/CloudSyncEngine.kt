@@ -439,7 +439,7 @@ class CloudSyncEngine(context: Context) {
         address = address.takeIf { it.isNotBlank() },
         openingDebt = openingDebt,
         notes = notes.takeIf { it.isNotBlank() },
-        createdByName = createdByName.takeIf { it.isNotBlank() },
+        createdByName = createdByName,
         createdAt = toIso(createdAt)
     )
 
