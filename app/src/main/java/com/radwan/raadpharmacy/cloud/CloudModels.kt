@@ -40,7 +40,7 @@ data class CloudCustomerWrite(
     val address: String? = null,
     @SerialName("opening_debt") val openingDebt: Long,
     val notes: String? = null,
-    @SerialName("created_by_name") val createdByName: String? = null,
+    @SerialName("created_by_name") val createdByName: String = "",
     @SerialName("created_at") val createdAt: String,
     @SerialName("deleted_at") val deletedAt: String? = null
 )
