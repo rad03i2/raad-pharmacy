@@ -130,6 +130,14 @@ class OfflineLedgerTest {
         assertTrue(dao.getEntriesForCustomer(c.id).isEmpty())
     }
 
+    @Test fun customerCreatorNameSurvivesBackupRoundTrip() {
+        val customer = Customer("creator-c", "زبون", createdByName = "الصيدلي")
+        val restored = BackupJson.parse(
+            BackupJson.encode(listOf(customer), emptyList(), "3.3.19.6")
+        ).customers.single()
+        assertEquals("الصيدلي", restored.createdByName)
+    }
+
     @Test fun financialRowAndOutboxRollbackTogetherOnStorageFailure() = runTest {
         dao.insertCustomer(customer)
         db.useWriterConnection { connection -> connection.usePrepared("CREATE TRIGGER reject_queue BEFORE INSERT ON cloud_outbox BEGIN SELECT RAISE(ABORT, 'disk failure'); END") { it.step() } }
