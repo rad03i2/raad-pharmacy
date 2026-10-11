@@ -79,9 +79,8 @@ class CloudTeamStore(context: Context) {
                 val profiles = profilesRequest.await()
                 val pharmacyId = profiles.firstOrNull { it.id == userId }?.pharmacyId
                 EntryActorStore.get(appContext).rememberProfiles(profiles.filter { it.pharmacyId == pharmacyId })
-                // All accounts in one pharmacy are peers; no manager role is required
-                // for visibility or avatar updates.
-                val visible = profiles.filter { it.pharmacyId == pharmacyId }
+                // All visible accounts in one pharmacy are peers; no manager role is required.
+                val visible = profiles.filter { it.pharmacyId == pharmacyId && !it.isHidden }
                 val previous = cachedSnapshot().let { listOfNotNull(it.current) + it.others }.associateBy { it.id }
                 fun snapshot(members: List<CloudTeamMember>) = CloudTeamSnapshot(
                     members.firstOrNull { it.isCurrent }, members.filterNot { it.isCurrent }.sortedBy { it.displayName })
