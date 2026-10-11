@@ -4,7 +4,9 @@ import android.content.Context
 import com.radwan.raadpharmacy.BuildConfig
 import com.radwan.raadpharmacy.cloud.CloudSyncJournal
 import com.radwan.raadpharmacy.cloud.CloudSyncRuntime
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -40,8 +42,10 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             .onFailure { android.util.Log.w("AppRepository", "Portable backup startup deferred", it) }
         runCatching { CloudSyncRuntime.start(appContext) }
             .onFailure { android.util.Log.w("AppRepository", "Cloud startup deferred", it) }
-        runCatching { withContext(Dispatchers.IO) { com.radwan.raadpharmacy.cloud.CloudTeamStore(appContext).load() } }
-            .onFailure { android.util.Log.w("AppRepository", "Team profile cache deferred", it) }
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching { com.radwan.raadpharmacy.cloud.CloudTeamStore(appContext).load() }
+                .onFailure { android.util.Log.w("AppRepository", "Team profile cache deferred", it) }
+        }
     }
 
     fun observeCustomers(): Flow<List<Customer>> =
