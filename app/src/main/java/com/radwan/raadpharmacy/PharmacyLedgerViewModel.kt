@@ -152,9 +152,10 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         area: String,
         address: String,
         openingDebt: Long,
-        notes: String
+        notes: String,
+        createdByName: String = ""
     ): Customer = writeMutex.withLock {
-        val customer = repository.addCustomer(name, phone, area, address, openingDebt, notes)
+        val customer = repository.addCustomer(name, phone, area, address, openingDebt, notes, createdByName)
         _customers.value = listOf(customer) + _customers.value.filterNot { it.id == customer.id }
         rebuildIndexes()
         loadAdvancedReport(_advancedReport.value.period)
