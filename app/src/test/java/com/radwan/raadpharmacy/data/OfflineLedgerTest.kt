@@ -101,6 +101,33 @@ class OfflineLedgerTest {
         assertEquals(3, dao.cloudOutbox().size)
         assertEquals(7000L, customerBalance(c, dao.getEntries().map { it.toModel() }))
     }
+
+    @Test fun retryingTheSameDebtDraftDoesNotInsertASecondDebt() = runTest {
+        val c = repository.addCustomer("أحمد", null, "الموصل", "", 0, "")
+        val operationId = java.util.UUID.randomUUID().toString()
+        val first = repository.addDebt(
+            c.id, 5000, null, null, details = "أدوية", operationId = operationId
+        ) as DebtCreateResult.Created
+        val retry = repository.addDebt(
+            c.id, 5000, null, null, details = "أدوية", operationId = operationId
+        ) as DebtCreateResult.Created
+
+        assertEquals(first.entry.id, retry.entry.id)
+        assertEquals(1, dao.getEntriesForCustomer(c.id).count { it.type == "DEBT" })
+        assertEquals(1, dao.cloudOutbox().count { it.kind == "ENTRY" && it.entityId == operationId })
+    }
+
+    @Test fun retryingTheSamePaymentDraftDoesNotCollectTwice() = runTest {
+        val c = repository.addCustomer("أحمد", null, "الموصل", "", 10000, "")
+        val operationId = java.util.UUID.randomUUID().toString()
+        val first = repository.addPayment(c.id, 6000, operationId)
+        val retry = repository.addPayment(c.id, 6000, operationId)
+
+        assertEquals(first.id, retry.id)
+        assertEquals(1, dao.getEntriesForCustomer(c.id).count { it.type == "PAYMENT" })
+        assertEquals(4000L, customerBalance(c, dao.getEntriesForCustomer(c.id).map { it.toModel() }))
+        assertEquals(1, dao.cloudOutbox().count { it.kind == "ENTRY" && it.entityId == operationId })
+    }
     @Test fun concurrentPaymentsCannotExceedTheDurableBalance() = runTest {
         dao.insertCustomer(customer.copy(openingDebt = 10000))
         val attempts = listOf("p1", "p2").map { id -> async(Dispatchers.IO) {
