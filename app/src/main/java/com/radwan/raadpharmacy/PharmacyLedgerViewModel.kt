@@ -217,7 +217,8 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         bottles: Int? = null,
         bottlePrice: Long? = null,
         details: String = "",
-        allowRecentDuplicate: Boolean = false
+        allowRecentDuplicate: Boolean = false,
+        operationId: String? = null
     ): DebtCreateResult = writeMutex.withLock {
         val result = repository.addDebt(
             customerId = customerId,
@@ -225,7 +226,8 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
             bottles = bottles,
             bottlePrice = bottlePrice,
             details = details.trim(),
-            allowRecentDuplicate = allowRecentDuplicate
+            allowRecentDuplicate = allowRecentDuplicate,
+            operationId = operationId
         )
 
         if (result is DebtCreateResult.Created) {
@@ -239,10 +241,31 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         result
     }
 
-    suspend fun addPayment(customerId: String, amount: Long): Boolean = writeMutex.withLock {
+    suspend fun addPayment(
+        customerId: String,
+        amount: Long,
+        operationId: String? = null
+    ): Boolean = writeMutex.withLock {
         val customer = customer(customerId) ?: return@withLock false
+
+        // A restored form can be resubmitted after the database commit but before
+        // the UI received its success callback. Reuse its ID rather than posting twice.
+        if (operationId != null) {
+            val existing = repository.entry(operationId)
+            if (existing != null) {
+                if (existing.customerId != customerId ||
+                    existing.type != EntryType.PAYMENT ||
+                    existing.amount != amount
+                ) return@withLock false
+                _entries.value = listOf(existing) + _entries.value.filterNot { it.id == existing.id }
+                rebuildIndexes()
+                loadAdvancedReport(_advancedReport.value.period)
+                return@withLock true
+            }
+        }
+
         if (amount <= 0 || amount > balance(customer)) return@withLock false
-        val entry = repository.addPayment(customerId, amount)
+        val entry = repository.addPayment(customerId, amount, operationId)
         rememberLocalActor(entry.id)
         _entries.value = listOf(entry) + _entries.value.filterNot { it.id == entry.id }
         rebuildIndexes()
