@@ -45,16 +45,18 @@ class FormDraftStoreTest {
     }
 
     @Test fun financialDraftsAreSeparatedByCustomerAndClearWithTheirRoute() {
-        FormDraftStore.saveDebtDraft(context, "customer-1", DebtFormDraft("5000", "أدوية"))
+        val debtDraft = DebtFormDraft("5000", "أدوية", "11111111-1111-4111-8111-111111111111")
+        FormDraftStore.saveDebtDraft(context, "customer-1", debtDraft)
         FormDraftStore.markActiveRoute(context, "add_debt/customer-1")
-        assertEquals(DebtFormDraft("5000", "أدوية"), FormDraftStore.loadDebtDraft(context, "customer-1"))
+        assertEquals(debtDraft, FormDraftStore.loadDebtDraft(context, "customer-1"))
 
         FormDraftStore.clearActiveDraft(context)
         assertNull(FormDraftStore.loadDebtDraft(context, "customer-1"))
         assertNull(FormDraftStore.activeRoute(context))
 
-        FormDraftStore.savePaymentDraft(context, "customer-2", PaymentFormDraft("1000"))
-        assertEquals(PaymentFormDraft("1000"), FormDraftStore.loadPaymentDraft(context, "customer-2"))
+        val paymentDraft = PaymentFormDraft("1000", "22222222-2222-4222-8222-222222222222")
+        FormDraftStore.savePaymentDraft(context, "customer-2", paymentDraft)
+        assertEquals(paymentDraft, FormDraftStore.loadPaymentDraft(context, "customer-2"))
     }
 
     @Test fun arbitraryRoutesAreNeverRestored() {
