@@ -2,6 +2,7 @@ package com.radwan.raadpharmacy.data
 
 import android.content.Context
 import org.json.JSONObject
+import java.util.UUID
 
 /**
  * Durable, local-only drafts for forms that must survive Android background/process recreation.
@@ -19,11 +20,13 @@ data class CustomerFormDraft(
 
 data class DebtFormDraft(
     val amount: String = "",
-    val details: String = ""
+    val details: String = "",
+    val operationId: String = UUID.randomUUID().toString()
 )
 
 data class PaymentFormDraft(
-    val amount: String = ""
+    val amount: String = "",
+    val operationId: String = UUID.randomUUID().toString()
 )
 
 object FormDraftStore {
@@ -34,6 +37,7 @@ object FormDraftStore {
     private const val KEY_PAYMENT_PREFIX = "draft_add_payment_"
     private val debtRoute = Regex("^add_debt/[A-Za-z0-9_-]{1,100}$")
     private val paymentRoute = Regex("^add_payment/[A-Za-z0-9_-]{1,100}$")
+    private val operationIdPattern = Regex("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -91,6 +95,7 @@ object FormDraftStore {
     fun saveDebtDraft(context: Context, customerId: String, draft: DebtFormDraft) {
         if (!validId(customerId)) return
         val json = JSONObject().put("amount", draft.amount).put("details", draft.details)
+            .put("operationId", draft.operationId)
         prefs(context).edit().putString(KEY_DEBT_PREFIX + customerId, json.toString()).apply()
     }
 
@@ -101,7 +106,8 @@ object FormDraftStore {
                 val json = JSONObject(raw)
                 DebtFormDraft(
                     amount = json.optString("amount", ""),
-                    details = json.optString("details", "")
+                    details = json.optString("details", ""),
+                    operationId = validOperationId(json.optString("operationId", null))
                 )
             }.getOrNull()
         }
@@ -115,7 +121,7 @@ object FormDraftStore {
 
     fun savePaymentDraft(context: Context, customerId: String, draft: PaymentFormDraft) {
         if (!validId(customerId)) return
-        val json = JSONObject().put("amount", draft.amount)
+        val json = JSONObject().put("amount", draft.amount).put("operationId", draft.operationId)
         prefs(context).edit().putString(KEY_PAYMENT_PREFIX + customerId, json.toString()).apply()
     }
 
@@ -123,7 +129,11 @@ object FormDraftStore {
         if (!validId(customerId)) return null
         return prefs(context).getString(KEY_PAYMENT_PREFIX + customerId, null)?.let { raw ->
             runCatching {
-                PaymentFormDraft(amount = JSONObject(raw).optString("amount", ""))
+                val json = JSONObject(raw)
+                PaymentFormDraft(
+                    amount = json.optString("amount", ""),
+                    operationId = validOperationId(json.optString("operationId", null))
+                )
             }.getOrNull()
         }
     }
@@ -163,4 +173,7 @@ object FormDraftStore {
 
     private fun validId(value: String): Boolean =
         value.matches(Regex("[A-Za-z0-9_-]{1,100}"))
+
+    private fun validOperationId(value: String?): String =
+        value?.takeIf(operationIdPattern::matches) ?: UUID.randomUUID().toString()
 }
