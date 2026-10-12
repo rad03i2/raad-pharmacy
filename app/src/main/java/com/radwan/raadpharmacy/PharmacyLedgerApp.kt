@@ -125,7 +125,6 @@ fun PharmacyLedgerApp(
     // reopen the active form from its durable local draft instead of dropping to Home.
     val restoredFormRoute = remember(context) { FormDraftStore.activeRoute(context) }
     var didRestoreFormRoute by remember { mutableStateOf(false) }
-    var wasUnlocked by remember { mutableStateOf(unlocked) }
 
     // Some task restorations bring back a Home-only NavController state even though
     // the active form draft survived in private storage. Restore that form once.
@@ -146,24 +145,18 @@ fun PharmacyLedgerApp(
         }
     }
 
-    // The lock screen temporarily removes NavHost from composition. If Android
-    // recreates its graph after unlock, restore the active draft without clearing it.
+    // Re-check the durable route whenever the app unlocks or the navigation graph
+    // changes. Intentional exits clear the active route before navigation.
     LaunchedEffect(unlocked, currentRoute) {
-        if (!unlocked) {
-            wasUnlocked = false
-        } else if (!wasUnlocked && currentRoute != null) {
-            wasUnlocked = true
-            val active = FormDraftStore.activeRoute(context)
-            if (
-                active != null &&
-                currentRoute != Routes.RESUME_FORM &&
-                currentRoute != Routes.ADD_CUSTOMER &&
-                currentRoute != Routes.ADD_DEBT &&
-                currentRoute != Routes.ADD_PAYMENT
-            ) {
-                navController.navigate(active) { launchSingleTop = true }
-            }
-        }
+        if (!unlocked || currentRoute == null) return@LaunchedEffect
+        if (
+            currentRoute == Routes.RESUME_FORM ||
+            currentRoute == Routes.ADD_CUSTOMER ||
+            currentRoute == Routes.ADD_DEBT ||
+            currentRoute == Routes.ADD_PAYMENT
+        ) return@LaunchedEffect
+        val active = FormDraftStore.activeRoute(context) ?: return@LaunchedEffect
+        navController.navigate(active) { launchSingleTop = true }
     }
 
     LaunchedEffect(notificationCustomerId, notificationOpenSettings, notificationOpenFollowup, unlocked) {
