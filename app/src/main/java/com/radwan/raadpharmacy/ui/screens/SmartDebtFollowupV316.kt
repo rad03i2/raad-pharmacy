@@ -84,7 +84,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private enum class FollowupFilter(val title: String) {
-    ALL("الكل"), DAYS_30("30 يومًا"), DAY_60("60 يومًا"), OLD("ديون قديمة"), REVIEW("مراجعة التاريخ")
+    ALL("الكل"), DAYS_30("30 يومًا"), DAY_60("60 يومًا"), OLD("ديون قديمة"), NO_PHONE("بدون رقم هاتف"), REVIEW("مراجعة التاريخ")
 }
 private enum class FollowupSort(val title: String) {
     OLDEST("الأكثر تأخرًا"), HIGHEST("الأعلى دينًا"), LOWEST("الأقل دينًا"),
@@ -159,6 +159,13 @@ fun SmartDebtFollowupV316(
         }
     }
     val reviews = remember(records) { records.filter { it.bucket == DebtFollowupEngine.Bucket.NEEDS_REVIEW } }
+    // This filter is intentionally limited to accounts already in follow-up, not every customer.
+    val noPhoneFollowup = remember(records) {
+        records.filter {
+            it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE &&
+                it.customer.phone.isNullOrBlank()
+        }
+    }
     val amountOverdue = remember(overdue) { overdue.sumOf { it.overdueAmount } }
     val overdue30 = remember(overdue) { overdue.count { it.bucket == DebtFollowupEngine.Bucket.DAYS_30_TO_59 } }
     val overdue60 = remember(overdue) { overdue.count { it.bucket == DebtFollowupEngine.Bucket.DAY_60 } }
@@ -169,6 +176,7 @@ fun SmartDebtFollowupV316(
             FollowupFilter.DAYS_30 -> overdue.filter { it.bucket == DebtFollowupEngine.Bucket.DAYS_30_TO_59 }
             FollowupFilter.DAY_60 -> overdue.filter { it.bucket == DebtFollowupEngine.Bucket.DAY_60 }
             FollowupFilter.OLD -> overdue.filter { it.bucket == DebtFollowupEngine.Bucket.OVER_60 }
+            FollowupFilter.NO_PHONE -> noPhoneFollowup
             FollowupFilter.REVIEW -> reviews
         }
         val normalizedQuery = query.trim()
@@ -360,7 +368,7 @@ fun SmartDebtFollowupV316(
                         horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         // RTL: put ALL last, so it appears at the far left.
                         listOf(FollowupFilter.DAYS_30, FollowupFilter.DAY_60,
-                            FollowupFilter.OLD, FollowupFilter.REVIEW, FollowupFilter.ALL)
+                            FollowupFilter.OLD, FollowupFilter.NO_PHONE, FollowupFilter.REVIEW, FollowupFilter.ALL)
                             .filter { it != FollowupFilter.REVIEW || reviews.isNotEmpty() }
                             .forEach { option ->
                                 val count = when (option) {
@@ -368,6 +376,7 @@ fun SmartDebtFollowupV316(
                                     FollowupFilter.DAYS_30 -> overdue30
                                     FollowupFilter.DAY_60 -> overdue60
                                     FollowupFilter.OLD -> overdueOld
+                                    FollowupFilter.NO_PHONE -> noPhoneFollowup.size
                                     FollowupFilter.REVIEW -> reviews.size
                                 }
                                 FilterChip(selected = filter == option,
@@ -416,10 +425,18 @@ fun SmartDebtFollowupV316(
                             verticalArrangement = Arrangement.spacedBy(9.dp)) {
                             Icon(Icons.Rounded.CheckCircle, null, modifier = Modifier.size(40.dp),
                                 tint = MaterialTheme.colorScheme.primary)
-                            Text(if (query.isNotBlank()) "لا توجد نتائج تطابق البحث"
-                                else "ممتاز! لا توجد حسابات متأخرة حاليًا",
+                            Text(
+                                when {
+                                    query.isNotBlank() -> "لا توجد نتائج تطابق البحث"
+                                    filter == FollowupFilter.NO_PHONE -> "لا توجد حسابات متأخرة بلا رقم هاتف"
+                                    else -> "ممتاز! لا توجد حسابات متأخرة حاليًا"
+                                },
                                 style = MaterialTheme.typography.titleMedium)
-                            Text("تُحدّث القائمة تلقائيًا مع الحركات والمزامنة. تُعرض آخر بيانات متاحة عند انقطاع الإنترنت.",
+                            Text(
+                                if (filter == FollowupFilter.NO_PHONE)
+                                    "يعرض هذا الفلتر الحسابات الموجودة في المتابعة والتي لم يُسجّل لها رقم هاتف."
+                                else
+                                    "تُحدّث القائمة تلقائيًا مع الحركات والمزامنة. تُعرض آخر بيانات متاحة عند انقطاع الإنترنت.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }

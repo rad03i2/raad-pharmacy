@@ -66,6 +66,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
 
     fun customers(): List<Customer> = customersCache.toList()
     fun entries(): List<LedgerEntry> = entriesCache.toList()
+    suspend fun entry(entryId: String): LedgerEntry? = dao.getEntryById(entryId)?.toModel()
 
     suspend fun addCustomer(
         name: String,
@@ -73,16 +74,43 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         area: String,
         address: String,
         openingDebt: Long,
-        notes: String
+        notes: String,
+        operationId: String? = null
     ): Customer {
+        val normalizedName = name.trim()
+        val normalizedPhone = phone?.trim()?.takeIf { it.isNotBlank() }
+        val normalizedArea = area.trim()
+        val normalizedAddress = address.trim()
+        val normalizedDebt = openingDebt.coerceAtLeast(0L)
+        val normalizedNotes = notes.trim()
+        val stableId = operationId?.also {
+            require(isValidOperationId(it)) { "Invalid operation identifier" }
+        } ?: UUID.randomUUID().toString()
+
+        if (operationId != null) {
+            val existing = dao.getCustomerById(stableId)?.toModel()
+            if (existing != null) {
+                require(
+                    existing.name == normalizedName &&
+                        existing.phone == normalizedPhone &&
+                        existing.area == normalizedArea &&
+                        existing.address == normalizedAddress &&
+                        existing.openingDebt == normalizedDebt &&
+                        existing.notes == normalizedNotes
+                ) { "Operation identifier already belongs to a different customer" }
+                customersCache = listOf(existing) + customersCache.filterNot { it.id == existing.id }
+                return existing
+            }
+        }
+
         val customer = Customer(
-            id = UUID.randomUUID().toString(),
-            name = name.trim(),
-            phone = phone?.trim()?.takeIf { it.isNotBlank() },
-            area = area.trim(),
-            address = address.trim(),
-            openingDebt = openingDebt.coerceAtLeast(0L),
-            notes = notes.trim(),
+            id = stableId,
+            name = normalizedName,
+            phone = normalizedPhone,
+            area = normalizedArea,
+            address = normalizedAddress,
+            openingDebt = normalizedDebt,
+            notes = normalizedNotes,
             createdByName = CustomerCreatorNameStore.get(appContext)
                 .ifBlank { "المستخدم الحالي" }
         )
@@ -178,13 +206,30 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         bottlePrice: Long?,
         details: String = "",
         allowRecentDuplicate: Boolean = false,
-        nowMillis: Long = System.currentTimeMillis()
+        nowMillis: Long = System.currentTimeMillis(),
+        operationId: String? = null
     ): DebtCreateResult {
         require(amount > 0)
         require(dao.getCustomerById(customerId) != null) { "Customer not found" }
 
+        val stableId = operationId?.also { require(isValidOperationId(it)) { "Invalid operation identifier" } }
+            ?: UUID.randomUUID().toString()
+        if (operationId != null) {
+            val existing = dao.getEntryById(stableId)?.toModel()
+            if (existing != null) {
+                require(
+                    existing.customerId == customerId &&
+                        existing.type == EntryType.DEBT &&
+                        existing.amount == amount &&
+                        existing.details == details
+                ) { "Operation identifier already belongs to a different ledger entry" }
+                entriesCache = listOf(existing) + entriesCache.filterNot { it.id == existing.id }
+                return DebtCreateResult.Created(existing)
+            }
+        }
+
         val entry = LedgerEntry(
-            id = UUID.randomUUID().toString(),
+            id = stableId,
             customerId = customerId,
             type = EntryType.DEBT,
             amount = amount,
@@ -213,7 +258,26 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         return DebtCreateResult.Created(entry)
     }
 
-    suspend fun addPayment(customerId: String, amount: Long): LedgerEntry {
+    suspend fun addPayment(
+        customerId: String,
+        amount: Long,
+        operationId: String? = null
+    ): LedgerEntry {
+        require(amount > 0L)
+        if (operationId != null) {
+            require(isValidOperationId(operationId)) { "Invalid operation identifier" }
+            val existing = dao.getEntryById(operationId)?.toModel()
+            if (existing != null) {
+                require(
+                    existing.customerId == customerId &&
+                        existing.type == EntryType.PAYMENT &&
+                        existing.amount == amount
+                ) { "Operation identifier already belongs to a different ledger entry" }
+                entriesCache = listOf(existing) + entriesCache.filterNot { it.id == existing.id }
+                return existing
+            }
+        }
+
         val customer = dao.getCustomerById(customerId)?.toModel()
             ?: error("Customer not found")
         val customerEntries = dao.getEntriesForCustomer(customerId).map(LedgerEntryEntity::toModel)
@@ -221,7 +285,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         require(amount in 1..balance) { "Payment must be within current balance" }
 
         val entry = LedgerEntry(
-            id = UUID.randomUUID().toString(),
+            id = operationId ?: UUID.randomUUID().toString(),
             customerId = customerId,
             type = EntryType.PAYMENT,
             amount = amount
@@ -344,6 +408,9 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             .apply()
         maybeCreateAutomaticBackup(force = interval != AutoBackupInterval.OFF)
     }
+
+    private fun isValidOperationId(value: String): Boolean =
+        value.matches(Regex("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"))
 
     private fun afterLocalCommit() {
         // A scheduler/backup failure cannot turn a committed debt into a failed save.

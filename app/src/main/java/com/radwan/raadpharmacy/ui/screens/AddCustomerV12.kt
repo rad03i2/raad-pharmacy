@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.ContactPhone
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -48,6 +49,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,14 +67,20 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
+import com.radwan.raadpharmacy.data.CustomerDuplicateMatches
+import com.radwan.raadpharmacy.data.CustomerFormDraft
+import com.radwan.raadpharmacy.data.FormDraftStore
+import com.radwan.raadpharmacy.data.findCustomerDuplicates
 import com.radwan.raadpharmacy.customer.CustomerPhotoStore
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
 import com.radwan.raadpharmacy.util.formatMoney
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 private data class CustomerPhoneContact(
     val name: String,
@@ -100,25 +108,50 @@ fun AddCustomerScreenV12(
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val photoStore = remember(context) { CustomerPhotoStore(context) }
+    val customers by vm.customers.collectAsStateWithLifecycle()
+    val restoredDraft = remember(context) { FormDraftStore.loadCustomerDraft(context) }
 
-    var name by rememberSaveable { mutableStateOf("") }
-    var phone by rememberSaveable { mutableStateOf("") }
-    var area by rememberSaveable { mutableStateOf("") }
-    var openingDebt by rememberSaveable { mutableStateOf("") }
-    var notes by rememberSaveable { mutableStateOf("") }
+    var customerOperationId by rememberSaveable { mutableStateOf(restoredDraft?.operationId ?: UUID.randomUUID().toString()) }
+    var name by rememberSaveable { mutableStateOf(restoredDraft?.name.orEmpty()) }
+    var phone by rememberSaveable { mutableStateOf(restoredDraft?.phone.orEmpty()) }
+    var area by rememberSaveable { mutableStateOf(restoredDraft?.area.orEmpty()) }
+    var openingDebt by rememberSaveable { mutableStateOf(restoredDraft?.openingDebt.orEmpty()) }
+    var notes by rememberSaveable { mutableStateOf(restoredDraft?.notes.orEmpty()) }
     var errorText by rememberSaveable { mutableStateOf<String?>(null) }
-    var isSaving by rememberSaveable { mutableStateOf(false) }
+    // Saving state is deliberately transient; a process restart must never leave the form stuck.
+    var isSaving by remember { mutableStateOf(false) }
 
-    var selectedPhotoText by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedPhotoText by rememberSaveable { mutableStateOf(restoredDraft?.selectedPhotoUri) }
     val selectedPhoto = selectedPhotoText?.let(Uri::parse)
-    var cameraUriText by rememberSaveable { mutableStateOf<String?>(null) }
+    var cameraUriText by rememberSaveable { mutableStateOf(restoredDraft?.cameraUri) }
     var showPhotoSources by remember { mutableStateOf(false) }
-    var showContactPicker by rememberSaveable { mutableStateOf(false) }
+    // Contact rows are not persisted; close this transient dialog after process recreation.
+    var showContactPicker by remember { mutableStateOf(false) }
     var contactSearch by rememberSaveable { mutableStateOf("") }
     var contactEntries by remember { mutableStateOf<List<CustomerPhoneContact>>(emptyList()) }
     var loadingContacts by remember { mutableStateOf(false) }
     var showConfirmation by remember { mutableStateOf(false) }
+    var duplicateWarning by remember { mutableStateOf<CustomerDuplicateMatches?>(null) }
     var infoMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        FormDraftStore.markActiveRoute(context, "add_customer")
+    }
+    LaunchedEffect(customerOperationId, name, phone, area, openingDebt, notes, selectedPhotoText, cameraUriText) {
+        FormDraftStore.saveCustomerDraft(
+            context,
+            CustomerFormDraft(
+                operationId = customerOperationId,
+                name = name,
+                phone = phone,
+                area = area,
+                openingDebt = openingDebt,
+                notes = notes,
+                selectedPhotoUri = selectedPhotoText,
+                cameraUri = cameraUriText
+            )
+        )
+    }
     val filteredContacts = remember(contactEntries, contactSearch) {
         val query = contactSearch.trim().lowercase()
         if (query.isBlank()) contactEntries
@@ -133,17 +166,28 @@ fun AddCustomerScreenV12(
         ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            selectedPhotoText = uri.toString()
-            errorText = null
+            runCatching { photoStore.persistDraftUri(uri) }
+                .onSuccess { persistedUri ->
+                    photoStore.deleteTemporaryDraftUri(selectedPhoto)
+                    selectedPhotoText = persistedUri.toString()
+                    errorText = null
+                }
+                .onFailure {
+                    infoMessage = "تعذر حفظ الصورة المختارة مؤقتًا. حاول اختيارها مرة أخرى."
+                }
         }
     }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success) {
-            selectedPhotoText = cameraUriText
+        val cameraUri = cameraUriText?.let(Uri::parse)
+        if (success && cameraUri != null) {
+            photoStore.deleteTemporaryDraftUri(selectedPhoto)
+            selectedPhotoText = cameraUri.toString()
             errorText = null
+        } else {
+            photoStore.deleteTemporaryDraftUri(cameraUri)
         }
         cameraUriText = null
     }
@@ -245,6 +289,11 @@ fun AddCustomerScreenV12(
         }
         focusManager.clearFocus()
         errorText = null
+        val duplicates = findCustomerDuplicates(name, phone, customers, excludeCustomerId = customerOperationId)
+        if (duplicates.hasMatches) {
+            duplicateWarning = duplicates
+            return
+        }
         showConfirmation = true
     }
 
@@ -262,7 +311,8 @@ fun AddCustomerScreenV12(
                         area = area.trim(),
                         address = "",
                         openingDebt = openingDebt.toLongOrNull() ?: 0L,
-                        notes = notes.trim()
+                        notes = notes.trim(),
+                        operationId = customerOperationId
                     )
                     selectedPhoto?.let { uri ->
                         runCatching {
@@ -277,12 +327,46 @@ fun AddCustomerScreenV12(
 
             isSaving = false
             result.onSuccess { customer ->
+                FormDraftStore.clearCustomerDraft(context)
                 vm.playFinancialSuccessSound()
                 onSaved(customer.id)
             }.onFailure {
                 errorText = com.radwan.raadpharmacy.data.ledgerSaveError(it, "تعذر حفظ الزبون. حاول مرة أخرى.")
             }
         }
+    }
+
+    duplicateWarning?.let { warning ->
+        AlertDialog(
+            onDismissRequest = { duplicateWarning = null },
+            title = { Text("تنبيه: احتمال تكرار الزبون") },
+            text = {
+                Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                    if (warning.sameName.isNotEmpty()) {
+                        Text("يوجد اسم مطابق أو متشابه مع زبون محفوظ:")
+                        warning.sameName.take(4).forEach { existing ->
+                            Text("• " + existing.name, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                    if (warning.samePhone.isNotEmpty()) {
+                        Text("رقم الهاتف مستخدم مسبقًا لدى:")
+                        warning.samePhone.take(4).forEach { existing ->
+                            Text("• " + existing.name, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                    Text("راجع الاسم والرقم لتجنب تسجيل الزبون مرتين.")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    duplicateWarning = null
+                    showConfirmation = true
+                }) { Text("متابعة إلى الحفظ") }
+            },
+            dismissButton = {
+                TextButton(onClick = { duplicateWarning = null }) { Text("مراجعة البيانات") }
+            }
+        )
     }
 
     if (showContactPicker) {
@@ -374,6 +458,7 @@ fun AddCustomerScreenV12(
                 galleryLauncher.launch("image/*")
             },
             onRemove = {
+                photoStore.deleteTemporaryDraftUri(selectedPhoto)
                 selectedPhotoText = null
                 showPhotoSources = false
             },
@@ -406,7 +491,13 @@ fun AddCustomerScreenV12(
         topBar = {
             ScreenTopBar(
                 if (isSaving) "جاري الحفظ..." else "زبون جديد",
-                if (isSaving) null else onBack
+                if (isSaving) null else {
+                    {
+                        photoStore.deleteTemporaryDraftUri(selectedPhoto)
+                        FormDraftStore.clearCustomerDraft(context)
+                        onBack()
+                    }
+                }
             )
         },
         bottomBar = {

@@ -49,6 +49,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.radwan.raadpharmacy.cloud.CloudActivityBannerHost
 import com.radwan.raadpharmacy.cloud.CloudSyncRuntime
+import com.radwan.raadpharmacy.data.FormDraftStore
 import com.radwan.raadpharmacy.ui.components.FloatingLedgerNavigation
 import com.radwan.raadpharmacy.ui.components.LedgerNavigationItem
 import com.radwan.raadpharmacy.ui.screens.AddCustomerScreenV12
@@ -92,6 +93,7 @@ object Routes {
     const val REPORTS = "reports"
     const val FOLLOWUP = "followup"
     const val SETTINGS = "settings"
+    const val RESUME_FORM = "resume_form"
 
     fun areaCustomers(name: String) = "area_customers/${android.net.Uri.encode(name)}"
     fun customer(id: String) = "customer/$id"
@@ -118,14 +120,32 @@ fun PharmacyLedgerApp(
     val unlocked by vm.isUnlocked.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
+    // If Android recreates the process without a restorable Navigation back stack,
+    // reopen the active form from its durable local draft instead of dropping to Home.
+    val restoredFormRoute = remember(context) { FormDraftStore.activeRoute(context) }
+    // Re-check the durable route whenever the app unlocks or the navigation graph
+    // changes. Intentional exits clear the active route before navigation.
+    LaunchedEffect(unlocked, currentRoute) {
+        if (!unlocked || currentRoute == null) return@LaunchedEffect
+        if (
+            currentRoute == Routes.RESUME_FORM ||
+            currentRoute == Routes.ADD_CUSTOMER ||
+            currentRoute == Routes.ADD_DEBT ||
+            currentRoute == Routes.ADD_PAYMENT
+        ) return@LaunchedEffect
+        val active = FormDraftStore.activeRoute(context) ?: return@LaunchedEffect
+        navController.navigate(active) { launchSingleTop = true }
+    }
 
     LaunchedEffect(notificationCustomerId, notificationOpenSettings, notificationOpenFollowup, unlocked) {
         if (unlocked && notificationOpenFollowup) {
+            FormDraftStore.clearActiveDraft(context)
             navController.navigate("${Routes.FOLLOWUP}?showAll=true") { launchSingleTop = true }
             onNotificationHandled()
             return@LaunchedEffect
         }
         if (unlocked && notificationOpenSettings) {
+            FormDraftStore.clearActiveDraft(context)
             navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
             onNotificationHandled()
             return@LaunchedEffect
@@ -133,6 +153,7 @@ fun PharmacyLedgerApp(
         val customerId = notificationCustomerId
         if (unlocked && !customerId.isNullOrBlank()) {
             if (vm.customer(customerId) != null) {
+                FormDraftStore.clearActiveDraft(context)
                 navController.navigate(Routes.customer(customerId)) {
                     launchSingleTop = true
                 }
@@ -149,6 +170,7 @@ fun PharmacyLedgerApp(
                     CloudSyncRuntime.onAppForegrounded(context)
                 }
                 Lifecycle.Event.ON_STOP -> {
+                    FormDraftStore.flush(context)
                     vm.onAppBackgrounded()
                     CloudSyncRuntime.onAppBackgrounded(context)
                 }
@@ -188,7 +210,17 @@ fun PharmacyLedgerApp(
         }
     }
 
-    if (currentRoute != null && currentRoute in bottomRoutes && currentRoute != Routes.HOME) {
+    if (unlocked && (
+        currentRoute == Routes.ADD_CUSTOMER ||
+            currentRoute == Routes.ADD_DEBT ||
+            currentRoute == Routes.ADD_PAYMENT
+        )
+    ) {
+        BackHandler {
+            FormDraftStore.clearActiveDraft(context)
+            navController.popBackStack()
+        }
+    } else if (currentRoute != null && currentRoute in bottomRoutes && currentRoute != Routes.HOME) {
         BackHandler {
             navController.navigate(Routes.HOME) {
                 popUpTo(navController.graph.findStartDestination().id) {
@@ -229,7 +261,7 @@ fun PharmacyLedgerApp(
 
                 NavHost(
                     navController = navController,
-                    startDestination = Routes.HOME,
+                    startDestination = if (restoredFormRoute != null) Routes.RESUME_FORM else Routes.HOME,
                     modifier = Modifier
                         .padding(innerPadding)
                         .pointerInput(currentRoute, swipeThresholdPx) {
@@ -289,6 +321,18 @@ fun PharmacyLedgerApp(
                             }
                         }
                 ) {
+                    composable(Routes.RESUME_FORM) {
+                        LaunchedEffect(Unit) {
+                            // Read the live preference: the route captured at app start may
+                            // have been cleared after the user intentionally left the form.
+                            val target = FormDraftStore.activeRoute(context)
+                            navController.navigate(target ?: Routes.HOME) {
+                                popUpTo(Routes.RESUME_FORM) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        }
+                        Text("جارٍ استعادة النموذج السابق...")
+                    }
                     composable(Routes.HOME) {
                         HomeScreenV3(
                             vm = vm,
@@ -321,10 +365,16 @@ fun PharmacyLedgerApp(
                     composable(Routes.ADD_CUSTOMER) {
                         AddCustomerScreenV12(
                             vm = vm,
-                            onBack = navController::popBackStack,
-                            onSaved = { navController.navigate(Routes.customer(it)) {
-                                popUpTo(Routes.ADD_CUSTOMER) { inclusive = true }
-                            } }
+                            onBack = {
+                                FormDraftStore.clearActiveDraft(context)
+                                navController.popBackStack()
+                            },
+                            onSaved = { id ->
+                                FormDraftStore.clearActiveDraft(context)
+                                navController.navigate(Routes.customer(id)) {
+                                    popUpTo(Routes.ADD_CUSTOMER) { inclusive = true }
+                                }
+                            }
                         )
                     }
                     composable(
@@ -361,14 +411,20 @@ fun PharmacyLedgerApp(
                         arguments = listOf(navArgument("customerId") { type = NavType.StringType })
                     ) {
                         val id = it.arguments?.getString("customerId").orEmpty()
-                        AddDebtScreenV12(vm, id, navController::popBackStack)
+                        AddDebtScreenV12(vm, id) {
+                            FormDraftStore.clearActiveDraft(context)
+                            navController.popBackStack()
+                        }
                     }
                     composable(
                         Routes.ADD_PAYMENT,
                         arguments = listOf(navArgument("customerId") { type = NavType.StringType })
                     ) {
                         val id = it.arguments?.getString("customerId").orEmpty()
-                        AddPaymentScreenV12(vm, id, navController::popBackStack)
+                        AddPaymentScreenV12(vm, id) {
+                            FormDraftStore.clearActiveDraft(context)
+                            navController.popBackStack()
+                        }
                     }
                     composable(
                         Routes.TRANSACTIONS,
@@ -455,7 +511,12 @@ fun PharmacyLedgerApp(
                         )
                     }
                     composable(Routes.SETTINGS) {
-                        SettingsScreenV10(vm)
+                        SettingsScreenV10(
+                            vm = vm,
+                            onCustomer = { id ->
+                                navController.navigate(Routes.customer(id)) { launchSingleTop = true }
+                            }
+                        )
                     }
                 }
             }

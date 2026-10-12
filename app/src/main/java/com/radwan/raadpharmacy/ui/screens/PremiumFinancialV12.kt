@@ -86,6 +86,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.data.DebtAnomalyWarning
 import com.radwan.raadpharmacy.data.DebtCreateResult
+import com.radwan.raadpharmacy.data.DebtFormDraft
+import com.radwan.raadpharmacy.data.FormDraftStore
+import com.radwan.raadpharmacy.data.PaymentFormDraft
 import com.radwan.raadpharmacy.notifications.FinancialOperationFeedback
 import com.radwan.raadpharmacy.notifications.FinancialOperationKind
 import com.radwan.raadpharmacy.notifications.FinancialOperationReceipt
@@ -106,6 +109,7 @@ import com.radwan.raadpharmacy.ui.components.CompactBalanceSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 private const val MICROPHONE_PERMISSION_V29 = "android.permission." + "RECORD_AUDIO"
 
@@ -137,11 +141,27 @@ fun AddDebtScreenV12(
     val speechRecognizer = remember(context) { DebtSpeechRecognizer(context) }
     val previousBalance = remember(customer, entries) { com.radwan.raadpharmacy.data.customerBalance(customer, entries) }
 
-    var amountText by rememberSaveable { mutableStateOf("") }
-    var detailsText by rememberSaveable { mutableStateOf("") }
+    val restoredDraft = remember(context, customerId) { FormDraftStore.loadDebtDraft(context, customerId) }
+    var amountText by rememberSaveable { mutableStateOf(restoredDraft?.amount.orEmpty()) }
+    var detailsText by rememberSaveable { mutableStateOf(restoredDraft?.details.orEmpty()) }
+    var operationId by rememberSaveable {
+        mutableStateOf(restoredDraft?.operationId ?: UUID.randomUUID().toString())
+    }
     var errorText by rememberSaveable { mutableStateOf<String?>(null) }
-    var isSaving by rememberSaveable { mutableStateOf(false) }
+    // Never restore an in-flight flag; after process recreation the form must remain usable.
+    var isSaving by remember { mutableStateOf(false) }
     var savedAmount by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(Unit) {
+        if (savedAmount == null) FormDraftStore.markActiveRoute(context, "add_debt/$customerId")
+    }
+    LaunchedEffect(amountText, detailsText, operationId, savedAmount) {
+        if (savedAmount == null) {
+            FormDraftStore.saveDebtDraft(
+                context, customerId, DebtFormDraft(amountText, detailsText, operationId)
+            )
+        }
+    }
 
     var pendingAnomaly by remember { mutableStateOf<DebtAnomalyWarning?>(null) }
     var pendingAnomalyDraft by remember { mutableStateOf<DebtDraftV29?>(null) }
@@ -285,7 +305,8 @@ fun AddDebtScreenV12(
                     customerId = customerId,
                     amount = draft.amount,
                     details = draft.details,
-                    allowRecentDuplicate = allowRecentDuplicate
+                    allowRecentDuplicate = allowRecentDuplicate,
+                    operationId = operationId
                 )
             }
         }
@@ -293,6 +314,7 @@ fun AddDebtScreenV12(
         result.onSuccess { outcome ->
             when (outcome) {
                 is DebtCreateResult.Created -> {
+                    FormDraftStore.clearDebtDraft(context, customerId)
                     savedAmount = draft.amount
                     pendingDuplicate = null
                     pendingDuplicateDraft = null
@@ -474,16 +496,33 @@ fun AddPaymentScreenV12(
         return
     }
 
+    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val financialFeedback = rememberFinancialFeedbackHandler(vm)
     val currentBalance = remember(customer, entries) { com.radwan.raadpharmacy.data.customerBalance(customer, entries) }
-    var amountText by rememberSaveable { mutableStateOf("") }
-    var isSaving by rememberSaveable { mutableStateOf(false) }
+    val restoredDraft = remember(context, customerId) { FormDraftStore.loadPaymentDraft(context, customerId) }
+    var amountText by rememberSaveable { mutableStateOf(restoredDraft?.amount.orEmpty()) }
+    var operationId by rememberSaveable {
+        mutableStateOf(restoredDraft?.operationId ?: UUID.randomUUID().toString())
+    }
+    // Never restore an in-flight flag; after process recreation the form must remain usable.
+    var isSaving by remember { mutableStateOf(false) }
     var errorText by rememberSaveable { mutableStateOf<String?>(null) }
     var savedAmount by rememberSaveable { mutableStateOf<Long?>(null) }
     var savedWasFull by rememberSaveable { mutableStateOf(false) }
     var pendingFull by remember { mutableStateOf<Pair<Long, Boolean>?>(null) }
+
+    LaunchedEffect(Unit) {
+        if (savedAmount == null) FormDraftStore.markActiveRoute(context, "add_payment/$customerId")
+    }
+    LaunchedEffect(amountText, operationId, savedAmount) {
+        if (savedAmount == null) {
+            FormDraftStore.savePaymentDraft(
+                context, customerId, PaymentFormDraft(amountText, operationId)
+            )
+        }
+    }
 
     val amount = amountText.toLongOrNull() ?: 0L
     val tooHigh = amount > currentBalance && amount > 0
@@ -503,12 +542,13 @@ fun AddPaymentScreenV12(
         scope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    vm.addPayment(customerId, amount)
+                    vm.addPayment(customerId, amount, operationId)
                 }
             }
 
             isSaving = false
             if (result.getOrDefault(false)) {
+                FormDraftStore.clearPaymentDraft(context, customerId)
                 savedWasFull = amount == currentBalance
                 savedAmount = amount
                 financialFeedback.onSaved(
