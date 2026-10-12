@@ -74,7 +74,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
-fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
+fun SettingsScreenV10(vm: PharmacyLedgerViewModel, onCustomer: (String) -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val customers by vm.customers.collectAsStateWithLifecycle()
@@ -88,6 +88,8 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
     var showTypography by remember { mutableStateOf(false) }
     var showAppUpdater by rememberSaveable { mutableStateOf(false) }
     var showLocalBackups by rememberSaveable { mutableStateOf(false) }
+    var showAdditionalSettings by rememberSaveable { mutableStateOf(false) }
+    var showMissingPhoneCustomers by rememberSaveable { mutableStateOf(false) }
 
     if (showAbout) {
         AboutDialogV15(onDismiss = { showAbout = false })
@@ -163,6 +165,41 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
         )
     }
 
+    if (showMissingPhoneCustomers) {
+        MissingPhoneCustomersScreen(
+            vm = vm,
+            onBack = { showMissingPhoneCustomers = false },
+            onCustomer = { id ->
+                showMissingPhoneCustomers = false
+                showAdditionalSettings = false
+                onCustomer(id)
+            }
+        )
+        return
+    }
+
+    if (showAdditionalSettings) {
+        Scaffold(topBar = { ScreenTopBar("إعدادات إضافية", onBack = { showAdditionalSettings = false }) }) { padding ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    V8SettingsRow(
+                        Icons.Rounded.Info,
+                        "زبائن ليس لديهم رقم هاتف",
+                        customers.count { it.phone.isNullOrBlank() }.toString() +
+                            " زبون • عرض الحسابات التي تحتاج إلى إضافة رقم هاتف"
+                    ) {
+                        showMissingPhoneCustomers = true
+                    }
+                }
+            }
+        }
+        return
+    }
+
     if (showLocalBackups) {
         StorageBackupScreen(onBack = { showLocalBackups = false })
         return
@@ -235,6 +272,15 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel) {
             }
 
             item { SectionTitle("التطبيق") }
+            item {
+                V8SettingsRow(
+                    Icons.Rounded.Info,
+                    "إعدادات إضافية",
+                    "إدارة بعض بيانات الزبائن والخيارات الإضافية"
+                ) {
+                    showAdditionalSettings = true
+                }
+            }
             item {
                 V8SettingsRow(
                     Icons.Rounded.FormatSize,
