@@ -210,9 +210,11 @@ fun PharmacyLedgerApp(
         }
     }
 
-    if (currentRoute == Routes.ADD_CUSTOMER ||
-        currentRoute == Routes.ADD_DEBT ||
-        currentRoute == Routes.ADD_PAYMENT
+    if (unlocked && (
+        currentRoute == Routes.ADD_CUSTOMER ||
+            currentRoute == Routes.ADD_DEBT ||
+            currentRoute == Routes.ADD_PAYMENT
+        )
     ) {
         BackHandler {
             FormDraftStore.clearActiveDraft(context)
