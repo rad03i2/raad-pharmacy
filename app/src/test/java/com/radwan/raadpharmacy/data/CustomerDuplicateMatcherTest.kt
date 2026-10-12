@@ -28,6 +28,12 @@ class CustomerDuplicateMatcherTest {
         assertEquals(listOf("1"), matches.samePhone.map { it.id })
     }
 
+    @Test fun matchesArabicNumeralsToWesternPhoneDigits() {
+        val existing = customer("1", "سالم", "07701234567")
+        val matches = findCustomerDuplicates("شخص آخر", "٠٧٧٠١٢٣٤٥٦٧", listOf(existing))
+        assertEquals(listOf("1"), matches.samePhone.map { it.id })
+    }
+
     @Test fun emptyPhoneDoesNotMarkAllCustomersAsDuplicates() {
         val matches = findCustomerDuplicates("شخص جديد", "", listOf(customer("1", "سالم", null)))
         assertFalse(matches.hasMatches)
