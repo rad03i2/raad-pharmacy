@@ -162,17 +162,28 @@ fun AddCustomerScreenV12(
         ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            selectedPhotoText = uri.toString()
-            errorText = null
+            runCatching { photoStore.persistDraftUri(uri) }
+                .onSuccess { persistedUri ->
+                    photoStore.deleteTemporaryDraftUri(selectedPhoto)
+                    selectedPhotoText = persistedUri.toString()
+                    errorText = null
+                }
+                .onFailure {
+                    infoMessage = "تعذر حفظ الصورة المختارة مؤقتًا. حاول اختيارها مرة أخرى."
+                }
         }
     }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success) {
-            selectedPhotoText = cameraUriText
+        val cameraUri = cameraUriText?.let(Uri::parse)
+        if (success && cameraUri != null) {
+            photoStore.deleteTemporaryDraftUri(selectedPhoto)
+            selectedPhotoText = cameraUri.toString()
             errorText = null
+        } else {
+            photoStore.deleteTemporaryDraftUri(cameraUri)
         }
         cameraUriText = null
     }
@@ -442,6 +453,7 @@ fun AddCustomerScreenV12(
                 galleryLauncher.launch("image/*")
             },
             onRemove = {
+                photoStore.deleteTemporaryDraftUri(selectedPhoto)
                 selectedPhotoText = null
                 showPhotoSources = false
             },
@@ -474,7 +486,13 @@ fun AddCustomerScreenV12(
         topBar = {
             ScreenTopBar(
                 if (isSaving) "جاري الحفظ..." else "زبون جديد",
-                if (isSaving) null else onBack
+                if (isSaving) null else {
+                    {
+                        photoStore.deleteTemporaryDraftUri(selectedPhoto)
+                        FormDraftStore.clearCustomerDraft(context)
+                        onBack()
+                    }
+                }
             )
         },
         bottomBar = {
