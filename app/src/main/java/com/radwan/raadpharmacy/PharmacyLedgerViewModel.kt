@@ -220,6 +220,7 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         allowRecentDuplicate: Boolean = false,
         operationId: String? = null
     ): DebtCreateResult = writeMutex.withLock {
+        val existingBeforeRetry = operationId?.let { repository.entry(it) }
         val result = repository.addDebt(
             customerId = customerId,
             amount = amount,
@@ -232,7 +233,7 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
 
         if (result is DebtCreateResult.Created) {
             val entry = result.entry
-            rememberLocalActor(entry.id)
+            if (existingBeforeRetry == null) rememberLocalActor(entry.id)
             _entries.value = listOf(entry) + _entries.value.filterNot { it.id == entry.id }
             rebuildIndexes()
             loadAdvancedReport(_advancedReport.value.period)
