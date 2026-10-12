@@ -74,16 +74,42 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         area: String,
         address: String,
         openingDebt: Long,
-        notes: String
+        notes: String,
+        operationId: String? = null
     ): Customer {
+        val normalizedName = name.trim()
+        val normalizedPhone = phone?.trim()?.takeIf { it.isNotBlank() }
+        val normalizedArea = area.trim()
+        val normalizedAddress = address.trim()
+        val normalizedDebt = openingDebt.coerceAtLeast(0L)
+        val normalizedNotes = notes.trim()
+        val stableId = operationId?.also {
+            require(isValidOperationId(it)) { "Invalid operation identifier" }
+        } ?: UUID.randomUUID().toString()
+
+        if (operationId != null) {
+            val existing = dao.getCustomerById(stableId)?.toModel()
+            if (existing != null) {
+                require(
+                    existing.name == normalizedName &&
+                        existing.phone == normalizedPhone &&
+                        existing.area == normalizedArea &&
+                        existing.address == normalizedAddress &&
+                        existing.openingDebt == normalizedDebt &&
+                        existing.notes == normalizedNotes
+                ) { "Operation identifier already belongs to a different customer" }
+                return existing
+            }
+        }
+
         val customer = Customer(
-            id = UUID.randomUUID().toString(),
-            name = name.trim(),
-            phone = phone?.trim()?.takeIf { it.isNotBlank() },
-            area = area.trim(),
-            address = address.trim(),
-            openingDebt = openingDebt.coerceAtLeast(0L),
-            notes = notes.trim(),
+            id = stableId,
+            name = normalizedName,
+            phone = normalizedPhone,
+            area = normalizedArea,
+            address = normalizedAddress,
+            openingDebt = normalizedDebt,
+            notes = normalizedNotes,
             createdByName = CustomerCreatorNameStore.get(appContext)
                 .ifBlank { "المستخدم الحالي" }
         )
