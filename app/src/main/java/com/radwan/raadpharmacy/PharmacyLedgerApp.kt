@@ -322,8 +322,10 @@ fun PharmacyLedgerApp(
                         }
                 ) {
                     composable(Routes.RESUME_FORM) {
-                        LaunchedEffect(restoredFormRoute) {
-                            val target = restoredFormRoute
+                        LaunchedEffect(Unit) {
+                            // Read the live preference: the route captured at app start may
+                            // have been cleared after the user intentionally left the form.
+                            val target = FormDraftStore.activeRoute(context)
                             navController.navigate(target ?: Routes.HOME) {
                                 popUpTo(Routes.RESUME_FORM) { inclusive = true }
                                 launchSingleTop = true
