@@ -174,8 +174,8 @@ fun PharmacyLedgerApp(
         }
         val customerId = notificationCustomerId
         if (unlocked && !customerId.isNullOrBlank()) {
-            FormDraftStore.clearActiveDraft(context)
             if (vm.customer(customerId) != null) {
+                FormDraftStore.clearActiveDraft(context)
                 navController.navigate(Routes.customer(customerId)) {
                     launchSingleTop = true
                 }
