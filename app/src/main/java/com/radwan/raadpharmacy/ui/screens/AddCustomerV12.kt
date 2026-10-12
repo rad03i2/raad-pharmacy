@@ -80,6 +80,7 @@ import com.radwan.raadpharmacy.util.formatMoney
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 private data class CustomerPhoneContact(
     val name: String,
@@ -110,6 +111,7 @@ fun AddCustomerScreenV12(
     val customers by vm.customers.collectAsStateWithLifecycle()
     val restoredDraft = remember(context) { FormDraftStore.loadCustomerDraft(context) }
 
+    var customerOperationId by rememberSaveable { mutableStateOf(restoredDraft?.operationId ?: UUID.randomUUID().toString()) }
     var name by rememberSaveable { mutableStateOf(restoredDraft?.name.orEmpty()) }
     var phone by rememberSaveable { mutableStateOf(restoredDraft?.phone.orEmpty()) }
     var area by rememberSaveable { mutableStateOf(restoredDraft?.area.orEmpty()) }
@@ -134,10 +136,11 @@ fun AddCustomerScreenV12(
     LaunchedEffect(Unit) {
         FormDraftStore.markActiveRoute(context, "add_customer")
     }
-    LaunchedEffect(name, phone, area, openingDebt, notes, selectedPhotoText, cameraUriText) {
+    LaunchedEffect(customerOperationId, name, phone, area, openingDebt, notes, selectedPhotoText, cameraUriText) {
         FormDraftStore.saveCustomerDraft(
             context,
             CustomerFormDraft(
+                operationId = customerOperationId,
                 name = name,
                 phone = phone,
                 area = area,
@@ -285,7 +288,7 @@ fun AddCustomerScreenV12(
         }
         focusManager.clearFocus()
         errorText = null
-        val duplicates = findCustomerDuplicates(name, phone, customers)
+        val duplicates = findCustomerDuplicates(name, phone, customers, excludeCustomerId = customerOperationId)
         if (duplicates.hasMatches) {
             duplicateWarning = duplicates
             return
@@ -307,7 +310,8 @@ fun AddCustomerScreenV12(
                         area = area.trim(),
                         address = "",
                         openingDebt = openingDebt.toLongOrNull() ?: 0L,
-                        notes = notes.trim()
+                        notes = notes.trim(),
+                        operationId = customerOperationId
                     )
                     selectedPhoto?.let { uri ->
                         runCatching {
