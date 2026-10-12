@@ -14,16 +14,18 @@ data class CustomerDuplicateMatches(
 fun findCustomerDuplicates(
     name: String,
     phone: String,
-    customers: List<Customer>
+    customers: List<Customer>,
+    excludeCustomerId: String? = null
 ): CustomerDuplicateMatches {
+    val candidates = customers.filterNot { it.id == excludeCustomerId }
     val normalizedName = normalizeCustomerName(name)
     val normalizedPhone = normalizeCustomerPhoneForDuplicate(phone)
 
-    val sameName = if (normalizedName.isBlank()) emptyList() else customers.filter { existing ->
+    val sameName = if (normalizedName.isBlank()) emptyList() else candidates.filter { existing ->
         val candidate = normalizeCustomerName(existing.name)
         candidate.isNotBlank() && namesLikelyMatch(normalizedName, candidate)
     }
-    val samePhone = if (normalizedPhone.isBlank()) emptyList() else customers.filter { existing ->
+    val samePhone = if (normalizedPhone.isBlank()) emptyList() else candidates.filter { existing ->
         normalizeCustomerPhoneForDuplicate(existing.phone.orEmpty()) == normalizedPhone
     }
     return CustomerDuplicateMatches(
