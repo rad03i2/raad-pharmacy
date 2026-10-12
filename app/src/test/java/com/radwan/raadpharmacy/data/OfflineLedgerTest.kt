@@ -102,6 +102,21 @@ class OfflineLedgerTest {
         assertEquals(7000L, customerBalance(c, dao.getEntries().map { it.toModel() }))
     }
 
+    @Test fun retryingTheSameCustomerDraftDoesNotInsertASecondCustomer() = runTest {
+        val operationId = java.util.UUID.randomUUID().toString()
+        val first = repository.addCustomer(
+            "أحمد", "07701234567", "الموصل", "", 0, "", operationId
+        )
+        val retry = repository.addCustomer(
+            "أحمد", "07701234567", "الموصل", "", 0, "", operationId
+        )
+
+        assertEquals(first.id, retry.id)
+        assertEquals(operationId, retry.id)
+        assertEquals(1, dao.customerCount())
+        assertEquals(1, dao.cloudOutbox().count { it.kind == "CUSTOMER" && it.entityId == operationId })
+    }
+
     @Test fun retryingTheSameDebtDraftDoesNotInsertASecondDebt() = runTest {
         val c = repository.addCustomer("أحمد", null, "الموصل", "", 0, "")
         val operationId = java.util.UUID.randomUUID().toString()
