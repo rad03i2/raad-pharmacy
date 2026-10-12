@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
+import java.util.UUID
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.radwan.raadpharmacy.backup.readBackupBytes
@@ -41,6 +42,36 @@ class CustomerPhotoStore(context: Context) {
         )
     }
 
+    /** Copies gallery content into app-owned cache so the photo survives temporary URI grants. */
+    fun persistDraftUri(source: Uri): Uri {
+        val bytes = appContext.contentResolver.openInputStream(source)?.use { portablePhoto(it.readBackupBytes()) }
+            ?: error("تعذر فتح الصورة المختارة.")
+        val dir = File(appContext.cacheDir, "customer_photos_tmp").apply { mkdirs() }
+        val destination = File(dir, "draft-" + UUID.randomUUID() + ".jpg")
+        destination.writeBytes(bytes)
+        return FileProvider.getUriForFile(
+            appContext,
+            appContext.packageName + ".fileprovider",
+            destination
+        )
+    }
+
+    /** Deletes only files owned by this app's temporary customer-photo directory. */
+    fun deleteTemporaryDraftUri(source: Uri?) {
+        if (source == null) return
+        val dir = File(appContext.cacheDir, "customer_photos_tmp")
+        val file = dir.listFiles()?.firstOrNull { candidate ->
+            runCatching {
+                FileProvider.getUriForFile(
+                    appContext,
+                    appContext.packageName + ".fileprovider",
+                    candidate
+                ) == source
+            }.getOrDefault(false)
+        }
+        file?.delete()
+    }
+
     fun save(customerId: String, source: Uri): File {
         val bytes = appContext.contentResolver.openInputStream(source)?.use { portablePhoto(it.readBackupBytes()) }
             ?: error("تعذر فتح الصورة.")
@@ -48,6 +79,7 @@ class CustomerPhotoStore(context: Context) {
         val destination = destination(customerId)
         destination.writeBytes(bytes)
         prefs.edit().putString(customerId, destination.absolutePath).remove(remotePathKey(customerId)).apply()
+        deleteTemporaryDraftUri(source)
         CustomerPhotoUpdates.bump(customerId)
         return destination
     }
