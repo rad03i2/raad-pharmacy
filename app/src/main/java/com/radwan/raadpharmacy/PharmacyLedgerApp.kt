@@ -124,8 +124,8 @@ fun PharmacyLedgerApp(
     // If Android recreates the process without a restorable Navigation back stack,
     // reopen the active form from its durable local draft instead of dropping to Home.
     val restoredFormRoute = remember(context) { FormDraftStore.activeRoute(context) }
-    var previousRoute by remember { mutableStateOf<String?>(null) }
     var didRestoreFormRoute by remember { mutableStateOf(false) }
+    var wasUnlocked by remember { mutableStateOf(unlocked) }
 
     // Some task restorations bring back a Home-only NavController state even though
     // the active form draft survived in private storage. Restore that form once.
@@ -144,31 +144,44 @@ fun PharmacyLedgerApp(
                 }
             }
         }
+    }
 
-        val previous = previousRoute
-        if (
-            previous != null &&
-            (previous == Routes.ADD_CUSTOMER || previous == Routes.ADD_DEBT || previous == Routes.ADD_PAYMENT) &&
-            currentRoute != null && currentRoute != previous
-        ) {
-            FormDraftStore.clearActiveDraft(context)
+    // The lock screen temporarily removes NavHost from composition. If Android
+    // recreates its graph after unlock, restore the active draft without clearing it.
+    LaunchedEffect(unlocked, currentRoute) {
+        if (!unlocked) {
+            wasUnlocked = false
+        } else if (!wasUnlocked && currentRoute != null) {
+            wasUnlocked = true
+            val active = FormDraftStore.activeRoute(context)
+            if (
+                active != null &&
+                currentRoute != Routes.RESUME_FORM &&
+                currentRoute != Routes.ADD_CUSTOMER &&
+                currentRoute != Routes.ADD_DEBT &&
+                currentRoute != Routes.ADD_PAYMENT
+            ) {
+                navController.navigate(active) { launchSingleTop = true }
+            }
         }
-        if (currentRoute != null) previousRoute = currentRoute
     }
 
     LaunchedEffect(notificationCustomerId, notificationOpenSettings, notificationOpenFollowup, unlocked) {
         if (unlocked && notificationOpenFollowup) {
+            FormDraftStore.clearActiveDraft(context)
             navController.navigate("${Routes.FOLLOWUP}?showAll=true") { launchSingleTop = true }
             onNotificationHandled()
             return@LaunchedEffect
         }
         if (unlocked && notificationOpenSettings) {
+            FormDraftStore.clearActiveDraft(context)
             navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
             onNotificationHandled()
             return@LaunchedEffect
         }
         val customerId = notificationCustomerId
         if (unlocked && !customerId.isNullOrBlank()) {
+            FormDraftStore.clearActiveDraft(context)
             if (vm.customer(customerId) != null) {
                 navController.navigate(Routes.customer(customerId)) {
                     launchSingleTop = true
@@ -226,7 +239,15 @@ fun PharmacyLedgerApp(
         }
     }
 
-    if (currentRoute != null && currentRoute in bottomRoutes && currentRoute != Routes.HOME) {
+    if (currentRoute == Routes.ADD_CUSTOMER ||
+        currentRoute == Routes.ADD_DEBT ||
+        currentRoute == Routes.ADD_PAYMENT
+    ) {
+        BackHandler {
+            FormDraftStore.clearActiveDraft(context)
+            navController.popBackStack()
+        }
+    } else if (currentRoute != null && currentRoute in bottomRoutes && currentRoute != Routes.HOME) {
         BackHandler {
             navController.navigate(Routes.HOME) {
                 popUpTo(navController.graph.findStartDestination().id) {
