@@ -124,7 +124,26 @@ fun PharmacyLedgerApp(
     // reopen the active form from its durable local draft instead of dropping to Home.
     val restoredFormRoute = remember(context) { FormDraftStore.activeRoute(context) }
     var previousRoute by remember { mutableStateOf<String?>(null) }
+    var didRestoreFormRoute by remember { mutableStateOf(false) }
+
+    // Some task restorations bring back a Home-only NavController state even though
+    // the active form draft survived in private storage. Restore that form once.
     LaunchedEffect(currentRoute) {
+        if (!didRestoreFormRoute) {
+            when {
+                restoredFormRoute == null -> didRestoreFormRoute = true
+                currentRoute == null -> Unit
+                currentRoute == Routes.RESUME_FORM ||
+                    currentRoute == Routes.ADD_CUSTOMER ||
+                    currentRoute == Routes.ADD_DEBT ||
+                    currentRoute == Routes.ADD_PAYMENT -> didRestoreFormRoute = true
+                else -> {
+                    didRestoreFormRoute = true
+                    navController.navigate(restoredFormRoute) { launchSingleTop = true }
+                }
+            }
+        }
+
         val previous = previousRoute
         if (
             previous != null &&
