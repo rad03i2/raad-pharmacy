@@ -125,7 +125,8 @@ fun AddCustomerScreenV12(
     val selectedPhoto = selectedPhotoText?.let(Uri::parse)
     var cameraUriText by rememberSaveable { mutableStateOf(restoredDraft?.cameraUri) }
     var showPhotoSources by remember { mutableStateOf(false) }
-    var showContactPicker by rememberSaveable { mutableStateOf(false) }
+    // Contact rows are not persisted; close this transient dialog after process recreation.
+    var showContactPicker by remember { mutableStateOf(false) }
     var contactSearch by rememberSaveable { mutableStateOf("") }
     var contactEntries by remember { mutableStateOf<List<CustomerPhoneContact>>(emptyList()) }
     var loadingContacts by remember { mutableStateOf(false) }
