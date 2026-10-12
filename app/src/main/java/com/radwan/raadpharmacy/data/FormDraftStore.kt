@@ -9,6 +9,7 @@ import java.util.UUID
  * Drafts contain only unsaved form input; they never create or modify ledger records.
  */
 data class CustomerFormDraft(
+    val operationId: String = UUID.randomUUID().toString(),
     val name: String = "",
     val phone: String = "",
     val area: String = "",
@@ -59,6 +60,7 @@ object FormDraftStore {
 
     fun saveCustomerDraft(context: Context, draft: CustomerFormDraft) {
         val json = JSONObject()
+            .put("operationId", draft.operationId)
             .put("name", draft.name)
             .put("phone", draft.phone)
             .put("area", draft.area)
@@ -74,6 +76,7 @@ object FormDraftStore {
             runCatching {
                 val json = JSONObject(raw)
                 CustomerFormDraft(
+                    operationId = validOperationId(json.optString("operationId", null)),
                     name = json.optString("name", ""),
                     phone = json.optString("phone", ""),
                     area = json.optString("area", ""),
