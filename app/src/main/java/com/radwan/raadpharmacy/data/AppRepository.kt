@@ -98,6 +98,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
                         existing.openingDebt == normalizedDebt &&
                         existing.notes == normalizedNotes
                 ) { "Operation identifier already belongs to a different customer" }
+                customersCache = listOf(existing) + customersCache.filterNot { it.id == existing.id }
                 return existing
             }
         }
@@ -222,6 +223,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
                         existing.amount == amount &&
                         existing.details == details
                 ) { "Operation identifier already belongs to a different ledger entry" }
+                entriesCache = listOf(existing) + entriesCache.filterNot { it.id == existing.id }
                 return DebtCreateResult.Created(existing)
             }
         }
@@ -271,6 +273,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
                         existing.type == EntryType.PAYMENT &&
                         existing.amount == amount
                 ) { "Operation identifier already belongs to a different ledger entry" }
+                entriesCache = listOf(existing) + entriesCache.filterNot { it.id == existing.id }
                 return existing
             }
         }
