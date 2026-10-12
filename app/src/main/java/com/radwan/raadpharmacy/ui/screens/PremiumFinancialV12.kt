@@ -109,6 +109,7 @@ import com.radwan.raadpharmacy.ui.components.CompactBalanceSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 private const val MICROPHONE_PERMISSION_V29 = "android.permission." + "RECORD_AUDIO"
 
@@ -143,6 +144,9 @@ fun AddDebtScreenV12(
     val restoredDraft = remember(context, customerId) { FormDraftStore.loadDebtDraft(context, customerId) }
     var amountText by rememberSaveable { mutableStateOf(restoredDraft?.amount.orEmpty()) }
     var detailsText by rememberSaveable { mutableStateOf(restoredDraft?.details.orEmpty()) }
+    var operationId by rememberSaveable {
+        mutableStateOf(restoredDraft?.operationId ?: UUID.randomUUID().toString())
+    }
     var errorText by rememberSaveable { mutableStateOf<String?>(null) }
     // Never restore an in-flight flag; after process recreation the form must remain usable.
     var isSaving by remember { mutableStateOf(false) }
@@ -151,9 +155,11 @@ fun AddDebtScreenV12(
     LaunchedEffect(Unit) {
         if (savedAmount == null) FormDraftStore.markActiveRoute(context, "add_debt/$customerId")
     }
-    LaunchedEffect(amountText, detailsText, savedAmount) {
+    LaunchedEffect(amountText, detailsText, operationId, savedAmount) {
         if (savedAmount == null) {
-            FormDraftStore.saveDebtDraft(context, customerId, DebtFormDraft(amountText, detailsText))
+            FormDraftStore.saveDebtDraft(
+                context, customerId, DebtFormDraft(amountText, detailsText, operationId)
+            )
         }
     }
 
@@ -299,7 +305,8 @@ fun AddDebtScreenV12(
                     customerId = customerId,
                     amount = draft.amount,
                     details = draft.details,
-                    allowRecentDuplicate = allowRecentDuplicate
+                    allowRecentDuplicate = allowRecentDuplicate,
+                    operationId = operationId
                 )
             }
         }
@@ -496,6 +503,9 @@ fun AddPaymentScreenV12(
     val currentBalance = remember(customer, entries) { com.radwan.raadpharmacy.data.customerBalance(customer, entries) }
     val restoredDraft = remember(context, customerId) { FormDraftStore.loadPaymentDraft(context, customerId) }
     var amountText by rememberSaveable { mutableStateOf(restoredDraft?.amount.orEmpty()) }
+    var operationId by rememberSaveable {
+        mutableStateOf(restoredDraft?.operationId ?: UUID.randomUUID().toString())
+    }
     // Never restore an in-flight flag; after process recreation the form must remain usable.
     var isSaving by remember { mutableStateOf(false) }
     var errorText by rememberSaveable { mutableStateOf<String?>(null) }
@@ -506,9 +516,11 @@ fun AddPaymentScreenV12(
     LaunchedEffect(Unit) {
         if (savedAmount == null) FormDraftStore.markActiveRoute(context, "add_payment/$customerId")
     }
-    LaunchedEffect(amountText, savedAmount) {
+    LaunchedEffect(amountText, operationId, savedAmount) {
         if (savedAmount == null) {
-            FormDraftStore.savePaymentDraft(context, customerId, PaymentFormDraft(amountText))
+            FormDraftStore.savePaymentDraft(
+                context, customerId, PaymentFormDraft(amountText, operationId)
+            )
         }
     }
 
@@ -530,7 +542,7 @@ fun AddPaymentScreenV12(
         scope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    vm.addPayment(customerId, amount)
+                    vm.addPayment(customerId, amount, operationId)
                 }
             }
 
