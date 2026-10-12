@@ -45,7 +45,16 @@ internal fun normalizeCustomerName(value: String): String {
 }
 
 internal fun normalizeCustomerPhoneForDuplicate(value: String): String {
-    val digits = value.filter(Char::isDigit)
+    // Normalize Western, Arabic-Indic and Eastern Arabic numerals before comparing.
+    val digits = buildString {
+        value.forEach { char ->
+            when (char) {
+                in '0'..'9' -> append(char)
+                in '٠'..'٩' -> append(('0'.code + (char.code - '٠'.code)).toChar())
+                in '۰'..'۹' -> append(('0'.code + (char.code - '۰'.code)).toChar())
+            }
+        }
+    }
     return when {
         digits.startsWith("00964") -> digits.removePrefix("00964").removePrefix("0")
         digits.startsWith("964") -> digits.removePrefix("964").removePrefix("0")
