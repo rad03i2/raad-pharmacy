@@ -18,7 +18,7 @@ class CustomerDuplicateMatcherTest {
 
     @Test fun warnsAboutSmallNameTyposWithoutMatchingVeryShortNamesFuzzily() {
         val existing = listOf(customer("1", "عبدالرحمن"), customer("2", "حسن"))
-        assertEquals(listOf("1"), findCustomerDuplicates("عبدالرحمن", "", existing).sameName.map { it.id })
+        assertEquals(listOf("1"), findCustomerDuplicates("عبدالرحمان", "", existing).sameName.map { it.id })
         assertTrue(findCustomerDuplicates("حسين", "", existing).sameName.isEmpty())
     }
 
