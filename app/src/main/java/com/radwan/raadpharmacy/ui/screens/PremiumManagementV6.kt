@@ -318,18 +318,6 @@ private fun EditCustomerDialog(
             keyboard?.show()
         }
     }
-    if (showContactPicker) {
-        ContactPhonePickerV3211(
-            onSelected = { number ->
-                phone = number
-                showContactPicker = false
-                phoneFocus.requestFocus()
-                keyboard?.show()
-            },
-            onDismiss = { showContactPicker = false }
-        )
-    }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("تعديل بيانات الزبون") },
@@ -412,6 +400,19 @@ private fun EditCustomerDialog(
             TextButton(onClick = onDismiss) { Text("إلغاء") }
         }
     )
+    // Render the chooser *after* the edit dialog so it is the topmost window.
+    if (showContactPicker) {
+        ContactPhonePickerV3211(
+            onSelected = { number ->
+                phone = number
+                showContactPicker = false
+                phoneFocus.requestFocus()
+                keyboard?.show()
+            },
+            onDismiss = { showContactPicker = false }
+        )
+    }
+
 }
 
 private enum class MovementFilterV6(val label: String) {
