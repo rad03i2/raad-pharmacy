@@ -74,7 +74,11 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
-fun SettingsScreenV10(vm: PharmacyLedgerViewModel, onCustomer: (String) -> Unit = {}) {
+fun SettingsScreenV10(
+    vm: PharmacyLedgerViewModel,
+    onCustomer: (String) -> Unit = {},
+    onAddPhone: (String) -> Unit = onCustomer
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val customers by vm.customers.collectAsStateWithLifecycle()
@@ -174,6 +178,11 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel, onCustomer: (String) -> Unit 
                 showMissingPhoneCustomers = false
                 showAdditionalSettings = false
                 onCustomer(id)
+            },
+            onAddPhone = { id ->
+                showMissingPhoneCustomers = false
+                showAdditionalSettings = false
+                onAddPhone(id)
             }
         )
         return
