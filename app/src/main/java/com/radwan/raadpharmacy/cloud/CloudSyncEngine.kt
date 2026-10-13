@@ -196,6 +196,12 @@ class CloudSyncEngine(context: Context) {
                 row.kind == "CUSTOMER" && row.action == "UPSERT" -> {
                     val local = BackupJson.parse(row.payload).customers.single().toEntity()
                     client.from("customers").upsert(local.toCloud(profile.pharmacyId)) { onConflict = "id" }
+                    // The server trigger uses the new customer's UUID as its idempotent
+                    // notification event ID. Fast FCM dispatch is a best effort; the
+                    // server's durable due-event worker remains the offline fallback.
+                    if (local.createdAt >= System.currentTimeMillis() - 86_400_000L) {
+                        CloudPushDispatcher.requestEvent(appContext, local.id)
+                    }
                 }
                 row.kind == "ENTRY" && row.action == "UPSERT" -> {
                     val local = BackupJson.parse(row.payload).entries.single().toEntity()
