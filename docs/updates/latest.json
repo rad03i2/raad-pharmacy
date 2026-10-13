@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.22",
+  "tag_name": "v3.3.22.1",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 68\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22: تحسين مشاركة كشف واتساب إلى رقم الزبون، وإشعارات إنشاء زبون جديد، وتسريع المزامنة والبحث، وحساب عرض إعلامي وهمي معزول عن بيانات الصيدلية.\nإمكانية تخصيص النصوص من الإعدادات الإضافية مع المبلغ بالأرقام والكتابة.\nإضافة موعد تسديد اختياري لكل دين وربطه بمسودة الحفظ والمزامنة والنسخ الاحتياطية دون مسح السجلات السابقة.\nفلتر موعد خاص في شاشة المتابعة مع مراعاة التسديد الجزئي حسب الأقدم أولاً؛ وتبقى المتابعة الاعتيادية للديون دون موعد خاص بعد 30 يومًا.\nيستمر التحقق من بصمة SHA-256 وشهادة التوقيع قبل تثبيت أي تحديث.",
+  "body": "VersionCode: 69\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.1: إزالة حساب العرض الإعلامي نهائيًا، وإصلاح مشاركة صورة كشف الحساب والنص الجاهز المناسب لمدة الدين عبر واتساب دون فتح محادثة فارغة.\nإمكانية تخصيص النصوص من الإعدادات الإضافية مع المبلغ بالأرقام والكتابة.\nإضافة موعد تسديد اختياري لكل دين وربطه بمسودة الحفظ والمزامنة والنسخ الاحتياطية دون مسح السجلات السابقة.\nفلتر موعد خاص في شاشة المتابعة مع مراعاة التسديد الجزئي حسب الأقدم أولاً؛ وتبقى المتابعة الاعتيادية للديون دون موعد خاص بعد 30 يومًا.\nيستمر التحقق من بصمة SHA-256 وشهادة التوقيع قبل تثبيت أي تحديث.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.22.apk",
-      "size": 5499458,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22/Raad-Pharmacy-v3.3.22.apk"
+      "name": "Raad-Pharmacy-v3.3.22.1.apk",
+      "size": 5483038,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.1/Raad-Pharmacy-v3.3.22.1.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.22.apk.sha256",
-      "size": 92,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22/Raad-Pharmacy-v3.3.22.apk.sha256"
+      "name": "Raad-Pharmacy-v3.3.22.1.apk.sha256",
+      "size": 94,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.1/Raad-Pharmacy-v3.3.22.1.apk.sha256"
     }
   ]
 }
