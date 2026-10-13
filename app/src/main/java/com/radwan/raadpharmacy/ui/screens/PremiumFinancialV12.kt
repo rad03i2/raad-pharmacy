@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.radwan.raadpharmacy.data.RepaymentTerms
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -116,7 +118,8 @@ private const val MICROPHONE_PERMISSION_V29 = "android.permission." + "RECORD_AU
 private data class DebtDraftV29(
     val amount: Long,
     val details: String,
-    val balanceBefore: Long
+    val balanceBefore: Long,
+    val repaymentDays: Int?
 )
 
 @Composable
@@ -144,6 +147,7 @@ fun AddDebtScreenV12(
     val restoredDraft = remember(context, customerId) { FormDraftStore.loadDebtDraft(context, customerId) }
     var amountText by rememberSaveable { mutableStateOf(restoredDraft?.amount.orEmpty()) }
     var detailsText by rememberSaveable { mutableStateOf(restoredDraft?.details.orEmpty()) }
+    var repaymentDays by rememberSaveable { mutableStateOf(restoredDraft?.repaymentDays) }
     var operationId by rememberSaveable {
         mutableStateOf(restoredDraft?.operationId ?: UUID.randomUUID().toString())
     }
@@ -155,10 +159,10 @@ fun AddDebtScreenV12(
     LaunchedEffect(Unit) {
         if (savedAmount == null) FormDraftStore.markActiveRoute(context, "add_debt/$customerId")
     }
-    LaunchedEffect(amountText, detailsText, operationId, savedAmount) {
+    LaunchedEffect(amountText, detailsText, repaymentDays, operationId, savedAmount) {
         if (savedAmount == null) {
             FormDraftStore.saveDebtDraft(
-                context, customerId, DebtFormDraft(amountText, detailsText, operationId)
+                context, customerId, DebtFormDraft(amount = amountText, details = detailsText, repaymentDays = repaymentDays, operationId = operationId)
             )
         }
     }
@@ -305,6 +309,7 @@ fun AddDebtScreenV12(
                     customerId = customerId,
                     amount = draft.amount,
                     details = draft.details,
+                    repaymentDays = draft.repaymentDays,
                     allowRecentDuplicate = allowRecentDuplicate,
                     operationId = operationId
                 )
@@ -347,7 +352,8 @@ fun AddDebtScreenV12(
         val draft = DebtDraftV29(
             amount = amount,
             details = detailsText.trim(),
-            balanceBefore = previousBalance
+            balanceBefore = previousBalance,
+            repaymentDays = repaymentDays
         )
         focusManager.clearFocus()
         isSaving = true
@@ -448,7 +454,7 @@ fun AddDebtScreenV12(
     ) { padding ->
         val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding).padding(14.dp, 6.dp)) {
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(if (maxHeight < 430.dp) 6.dp else 10.dp)) {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(if (maxHeight < 430.dp) 6.dp else 10.dp)) {
                 if (!keyboardVisible) CompactFinanceHeader(customer.id, customer.name, previousBalance)
                 V12AmountInput(value = amountText, onValueChange = {
                     amountText = it.filter(Char::isDigit).take(12)
@@ -476,6 +482,22 @@ fun AddDebtScreenV12(
                     singleLine = true, shape = MaterialTheme.shapes.large,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }))
+                if (!keyboardVisible) {
+                    Text("تذكير بالتسديد (اختياري)", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(null, 1, 2, 7, 14).forEach { days ->
+                            FilterChip(
+                                selected = repaymentDays == days,
+                                onClick = { repaymentDays = days },
+                                enabled = !isSaving,
+                                label = { Text(if (days == null) "30 يومًا (اعتيادي)" else RepaymentTerms.label(days)) }
+                            )
+                        }
+                    }
+                }
                 if (!keyboardVisible) CompactBalanceSummary(previousBalance, amount, previousBalance + amount, false)
             }
         }

@@ -35,7 +35,8 @@ class BackupCompatibilityTest {
                 bottles = 2,
                 bottlePrice = 25_000L,
                 details = "أدوية",
-                createdAt = 2_000L
+                createdAt = 2_000L,
+                repaymentDays = 7
             ),
             LedgerEntry(
                 id = "p-1",

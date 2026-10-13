@@ -22,7 +22,8 @@ data class CustomerFormDraft(
 data class DebtFormDraft(
     val amount: String = "",
     val details: String = "",
-    val operationId: String = UUID.randomUUID().toString()
+    val operationId: String = UUID.randomUUID().toString(),
+    val repaymentDays: Int? = null
 )
 
 data class PaymentFormDraft(
@@ -99,6 +100,7 @@ object FormDraftStore {
         if (!validId(customerId)) return
         val json = JSONObject().put("amount", draft.amount).put("details", draft.details)
             .put("operationId", draft.operationId)
+            .put("repaymentDays", draft.repaymentDays ?: JSONObject.NULL)
         prefs(context).edit().putString(KEY_DEBT_PREFIX + customerId, json.toString()).apply()
     }
 
@@ -110,6 +112,7 @@ object FormDraftStore {
                 DebtFormDraft(
                     amount = json.optString("amount", ""),
                     details = json.optString("details", ""),
+                    repaymentDays = json.optInt("repaymentDays", 0).takeIf { it in RepaymentTerms.choices },
                     operationId = validOperationId(json.optString("operationId", null))
                 )
             }.getOrNull()

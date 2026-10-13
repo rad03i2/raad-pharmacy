@@ -575,7 +575,7 @@ fun LedgerEntry.toEntity(): LedgerEntryEntity = LedgerEntryEntity(
     amount = amount,
     bottles = bottles,
     bottlePrice = bottlePrice,
-    details = details,
+    details = RepaymentTerms.pack(details, repaymentDays),
     createdAt = createdAt
 )
 
@@ -586,6 +586,7 @@ fun LedgerEntryEntity.toModel(): LedgerEntry = LedgerEntry(
     amount = amount,
     bottles = bottles,
     bottlePrice = bottlePrice,
-    details = details,
-    createdAt = createdAt
+    details = RepaymentTerms.unpack(details).first,
+    createdAt = createdAt,
+    repaymentDays = RepaymentTerms.unpack(details).second
 )

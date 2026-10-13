@@ -56,6 +56,7 @@ import com.radwan.raadpharmacy.ui.theme.DebtRed
 import com.radwan.raadpharmacy.ui.theme.PaidGreen
 import com.radwan.raadpharmacy.util.StatementDocumentRenderer
 import com.radwan.raadpharmacy.util.StatementShare
+import com.radwan.raadpharmacy.data.ReadyMessages
 import com.radwan.raadpharmacy.util.StatementSnapshot
 import com.radwan.raadpharmacy.util.formatDate
 import com.radwan.raadpharmacy.util.formatMoney
@@ -126,14 +127,14 @@ fun StatementScreenV7(
                     StatementShare.shareImageToWhatsappContact(
                         context = context,
                         file = file,
-                        message = StatementDocumentRenderer.message(snapshot),
+                        message = ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.kindFor(com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries))), snapshot.customer.name, snapshot.currentBalance),
                         phone = customer.phone.orEmpty()
                     )
                 } else {
                     StatementShare.shareImage(
                         context,
                         file,
-                        StatementDocumentRenderer.message(snapshot),
+                        ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.kindFor(com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries))), snapshot.customer.name, snapshot.currentBalance),
                         false
                     )
                 }
@@ -159,7 +160,7 @@ fun StatementScreenV7(
                 StatementShare.shareImageToMessages(
                     context = context,
                     file = file,
-                    message = StatementDocumentRenderer.message(snapshot),
+                    message = ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.kindFor(com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries))), snapshot.customer.name, snapshot.currentBalance),
                     phone = customer.phone.orEmpty()
                 )
             }

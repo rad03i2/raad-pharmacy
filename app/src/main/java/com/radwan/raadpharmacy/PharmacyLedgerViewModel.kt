@@ -221,7 +221,8 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         bottlePrice: Long? = null,
         details: String = "",
         allowRecentDuplicate: Boolean = false,
-        operationId: String? = null
+        operationId: String? = null,
+        repaymentDays: Int? = null
     ): DebtCreateResult = writeMutex.withLock {
         val existingBeforeRetry = operationId?.let { repository.entry(it) }
         val result = repository.addDebt(
@@ -230,6 +231,7 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
             bottles = bottles,
             bottlePrice = bottlePrice,
             details = details.trim(),
+            repaymentDays = repaymentDays,
             allowRecentDuplicate = allowRecentDuplicate,
             operationId = operationId
         )

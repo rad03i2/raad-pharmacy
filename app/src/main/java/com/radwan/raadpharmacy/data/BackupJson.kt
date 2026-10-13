@@ -51,6 +51,7 @@ object BackupJson {
                         put("bottles", entry.bottles ?: JSONObject.NULL)
                         put("bottlePrice", entry.bottlePrice ?: JSONObject.NULL)
                         put("details", entry.details)
+                        put("repaymentDays", entry.repaymentDays ?: JSONObject.NULL)
                         put("createdAt", entry.createdAt)
                     })
                 }
@@ -114,6 +115,7 @@ object BackupJson {
                     bottles = if (item.isNull("bottles")) null else item.getInt("bottles"),
                     bottlePrice = if (item.isNull("bottlePrice")) null else item.getLong("bottlePrice"),
                     details = item.optString("details"),
+                    repaymentDays = item.optInt("repaymentDays", 0).takeIf { it in RepaymentTerms.choices },
                     createdAt = item.getLong("createdAt")
                 ))
             }

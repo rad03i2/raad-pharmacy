@@ -64,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.data.DebtFollowupEngine
 import com.radwan.raadpharmacy.data.EntryType
+import com.radwan.raadpharmacy.data.ReadyMessages
 import com.radwan.raadpharmacy.ui.components.CustomerAvatar
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
 import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
@@ -84,7 +85,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private enum class FollowupFilter(val title: String) {
-    ALL("الكل"), DAYS_30("30 يومًا"), DAY_60("60 يومًا"), OLD("ديون قديمة"), NO_PHONE("بدون رقم هاتف"), REVIEW("مراجعة التاريخ")
+    ALL("الكل"), SPECIAL("موعد خاص"), DAYS_30("30 يومًا"), DAY_60("60 يومًا"), OLD("ديون قديمة"), NO_PHONE("بدون رقم هاتف"), REVIEW("مراجعة التاريخ")
 }
 private enum class FollowupSort(val title: String) {
     OLDEST("الأكثر تأخرًا"), HIGHEST("الأعلى دينًا"), LOWEST("الأقل دينًا"),
@@ -154,15 +155,16 @@ fun SmartDebtFollowupV316(
 
     val overdue = remember(records) {
         records.filter {
-            it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE &&
-                it.bucket != DebtFollowupEngine.Bucket.NEEDS_REVIEW
+            (it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE &&
+                it.bucket != DebtFollowupEngine.Bucket.NEEDS_REVIEW) || it.specialOverdueAmount > 0L
         }
     }
+    val specialOverdue = remember(records) { records.filter { it.specialOverdueAmount > 0L } }
     val reviews = remember(records) { records.filter { it.bucket == DebtFollowupEngine.Bucket.NEEDS_REVIEW } }
     // This filter is intentionally limited to accounts already in follow-up, not every customer.
     val noPhoneFollowup = remember(records) {
         records.filter {
-            it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE &&
+            (it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE || it.specialOverdueAmount > 0L) &&
                 it.customer.phone.isNullOrBlank()
         }
     }
@@ -172,7 +174,8 @@ fun SmartDebtFollowupV316(
     val overdueOld = remember(overdue) { overdue.count { it.bucket == DebtFollowupEngine.Bucket.OVER_60 } }
     val shown = remember(records, filter, sort, query) {
         val source = when (filter) {
-            FollowupFilter.ALL -> records.filter { it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE }
+            FollowupFilter.ALL -> records.filter { it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE || it.specialOverdueAmount > 0L }
+            FollowupFilter.SPECIAL -> specialOverdue
             FollowupFilter.DAYS_30 -> overdue.filter { it.bucket == DebtFollowupEngine.Bucket.DAYS_30_TO_59 }
             FollowupFilter.DAY_60 -> overdue.filter { it.bucket == DebtFollowupEngine.Bucket.DAY_60 }
             FollowupFilter.OLD -> overdue.filter { it.bucket == DebtFollowupEngine.Bucket.OVER_60 }
@@ -227,20 +230,16 @@ fun SmartDebtFollowupV316(
                 StatementShare.shareImageToWhatsappContact(
                     context = context,
                     file = file,
-                    message = buildString {
-                        appendLine("السلام عليكم")
-                        appendLine("كشف حساب الدين")
-                        appendLine("الزبون: " + snapshot.customer.name)
-                        val days = record.ageDays
-                        if (days != null && days >= 30L) {
-                            appendLine("نود تذكيركم بأنه مرّ $days يومًا على أقدم دين لم يُسدد بالكامل.")
-                        } else {
-                            appendLine("نود تذكيركم بوجود رصيد مستحق في حسابكم.")
-                        }
-                        appendLine("الدين الحالي: " + formatMoney(snapshot.currentBalance))
-                        append("شكرًا لحسن تعاملكم 🌹")
-                    },
-                    phone = digits
+                    message = ReadyMessages.render(
+                        ReadyMessages.load(
+                            context,
+                            ReadyMessages.kindFor(record)
+                        ),
+                        snapshot.customer.name,
+                        snapshot.currentBalance,
+                        record.ageDays
+                    ),
+                                        phone = digits
                 )
             }
             sharing = null
@@ -367,12 +366,13 @@ fun SmartDebtFollowupV316(
                     Row(modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         // RTL: put ALL last, so it appears at the far left.
-                        listOf(FollowupFilter.DAYS_30, FollowupFilter.DAY_60,
+                        listOf(FollowupFilter.SPECIAL, FollowupFilter.DAYS_30, FollowupFilter.DAY_60,
                             FollowupFilter.OLD, FollowupFilter.NO_PHONE, FollowupFilter.REVIEW, FollowupFilter.ALL)
                             .filter { it != FollowupFilter.REVIEW || reviews.isNotEmpty() }
                             .forEach { option ->
                                 val count = when (option) {
-                                    FollowupFilter.ALL -> overdue.size + reviews.size
+                                    FollowupFilter.ALL -> records.count { it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE || it.specialOverdueAmount > 0L }
+                                    FollowupFilter.SPECIAL -> specialOverdue.size
                                     FollowupFilter.DAYS_30 -> overdue30
                                     FollowupFilter.DAY_60 -> overdue60
                                     FollowupFilter.OLD -> overdueOld
@@ -495,9 +495,11 @@ private fun FollowupAccountCard(
         DebtFollowupEngine.Bucket.DAY_60 -> mediumRed
         DebtFollowupEngine.Bucket.OVER_60 -> deepRed
         DebtFollowupEngine.Bucket.NEEDS_REVIEW -> orange
-        DebtFollowupEngine.Bucket.NOT_OVERDUE -> MaterialTheme.colorScheme.primary
+        DebtFollowupEngine.Bucket.NOT_OVERDUE -> if (record.specialOverdueAmount > 0L) orange else MaterialTheme.colorScheme.primary
     }
-    val stateText = when (record.bucket) {
+    val stateText = if (record.specialOverdueAmount > 0L && record.specialReminderDays != null) {
+        "تجاوز موعد التسديد المتفق عليه (${com.radwan.raadpharmacy.data.RepaymentTerms.label(record.specialReminderDays)})"
+    } else when (record.bucket) {
         DebtFollowupEngine.Bucket.OVER_60 -> "دين قديم — ${record.ageDays} يومًا"
         DebtFollowupEngine.Bucket.NEEDS_REVIEW -> "التاريخ يحتاج مراجعة"
         else -> "متأخر ${record.ageDays} يومًا"
@@ -549,10 +551,15 @@ private fun FollowupAccountCard(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("المبلغ المتأخر", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if (record.hasUnknownDates) "يحتاج مراجعة"
+                    Text(if (record.hasUnknownDates && record.specialOverdueAmount == 0L) "يحتاج مراجعة"
                         else if (hideAmounts) "•••• د.ع" else formatMoney(record.overdueAmount),
                         style = MaterialTheme.typography.titleMedium, color = shade)
                 }
+            }
+            if (record.specialDueAt != null) {
+                val overdueDays = java.time.temporal.ChronoUnit.DAYS.between(record.specialDueAt, LocalDate.now(DebtFollowupEngine.IRAQ_ZONE))
+                Text("موعد التسديد المتفق عليه: ${record.specialDueAt.format(clockFormat)} • تجاوز الموعد بـ $overdueDays يوم",
+                    style = MaterialTheme.typography.bodySmall, color = shade)
             }
             Text("أقدم دين غير مسدد: $dateText   •   آخر تحصيل: $lastPaymentText",
                 style = MaterialTheme.typography.bodySmall,

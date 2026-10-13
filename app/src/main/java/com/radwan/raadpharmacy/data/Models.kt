@@ -25,7 +25,8 @@ data class LedgerEntry(
     val bottles: Int? = null,
     val bottlePrice: Long? = null,
     val details: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val repaymentDays: Int? = null
 )
 
 fun customerBalance(
