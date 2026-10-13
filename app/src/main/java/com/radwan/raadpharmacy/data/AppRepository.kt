@@ -205,10 +205,10 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         bottles: Int?,
         bottlePrice: Long?,
         details: String = "",
-        repaymentDays: Int? = null,
         allowRecentDuplicate: Boolean = false,
         nowMillis: Long = System.currentTimeMillis(),
-        operationId: String? = null
+        operationId: String? = null,
+        repaymentDays: Int? = null
     ): DebtCreateResult {
         require(amount > 0)
         require(repaymentDays == null || repaymentDays in RepaymentTerms.choices)
