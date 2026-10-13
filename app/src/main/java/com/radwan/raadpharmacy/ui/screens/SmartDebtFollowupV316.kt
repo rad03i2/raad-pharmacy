@@ -64,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.data.DebtFollowupEngine
 import com.radwan.raadpharmacy.data.EntryType
+import com.radwan.raadpharmacy.data.ReadyMessages
 import com.radwan.raadpharmacy.ui.components.CustomerAvatar
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
 import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
@@ -227,20 +228,18 @@ fun SmartDebtFollowupV316(
                 StatementShare.shareImageToWhatsappContact(
                     context = context,
                     file = file,
-                    message = buildString {
-                        appendLine("السلام عليكم")
-                        appendLine("كشف حساب الدين")
-                        appendLine("الزبون: " + snapshot.customer.name)
-                        val days = record.ageDays
-                        if (days != null && days >= 30L) {
-                            appendLine("نود تذكيركم بأنه مرّ $days يومًا على أقدم دين لم يُسدد بالكامل.")
-                        } else {
-                            appendLine("نود تذكيركم بوجود رصيد مستحق في حسابكم.")
-                        }
-                        appendLine("الدين الحالي: " + formatMoney(snapshot.currentBalance))
-                        append("شكرًا لحسن تعاملكم 🌹")
-                    },
-                    phone = digits
+                    message = ReadyMessages.render(
+                        ReadyMessages.load(
+                            context,
+                            if ((record.ageDays ?: 0L) >= 60L) ReadyMessages.Kind.SIXTY_DAYS
+                            else if ((record.ageDays ?: 0L) >= 30L) ReadyMessages.Kind.THIRTY_DAYS
+                            else ReadyMessages.Kind.NORMAL
+                        ),
+                        snapshot.customer.name,
+                        snapshot.currentBalance,
+                        record.ageDays
+                    ),
+                                        phone = digits
                 )
             }
             sharing = null
