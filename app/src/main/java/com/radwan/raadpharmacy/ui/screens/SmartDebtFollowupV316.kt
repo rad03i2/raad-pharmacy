@@ -560,10 +560,15 @@ private fun FollowupAccountCard(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("المبلغ المتأخر", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if (record.hasUnknownDates) "يحتاج مراجعة"
+                    Text(if (record.hasUnknownDates && record.specialOverdueAmount == 0L) "يحتاج مراجعة"
                         else if (hideAmounts) "•••• د.ع" else formatMoney(record.overdueAmount),
                         style = MaterialTheme.typography.titleMedium, color = shade)
                 }
+            }
+            if (record.specialDueAt != null) {
+                val overdueDays = java.time.temporal.ChronoUnit.DAYS.between(record.specialDueAt, LocalDate.now(DebtFollowupEngine.IRAQ_ZONE))
+                Text("موعد التسديد المتفق عليه: ${record.specialDueAt.format(clockFormat)} • تجاوز الموعد بـ $overdueDays يوم",
+                    style = MaterialTheme.typography.bodySmall, color = shade)
             }
             Text("أقدم دين غير مسدد: $dateText   •   آخر تحصيل: $lastPaymentText",
                 style = MaterialTheme.typography.bodySmall,
