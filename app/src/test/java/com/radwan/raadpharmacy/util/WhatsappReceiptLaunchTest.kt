@@ -47,7 +47,7 @@ class WhatsappReceiptLaunchTest {
             }
         }
         try {
-            val phones = listOf("07701111111", "+9647702222222", "9647703333333")
+            val phones = listOf("07701111111", "+٩٦٤٧٧٠٢٢٢٢٢٢٢", "009647703333333")
             phones.forEachIndexed { i, phone ->
                 StatementShare.shareImageToWhatsappContact(context, files[i], "وصل الزبون ${i + 1}", phone)
             }
