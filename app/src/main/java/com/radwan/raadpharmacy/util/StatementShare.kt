@@ -2,6 +2,8 @@ package com.radwan.raadpharmacy.util
 
 import android.content.ClipData
 import android.content.Context
+import android.app.Activity
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.provider.Telephony
@@ -45,9 +47,14 @@ object StatementShare {
         val packages = listOf("com.whatsapp", "com.whatsapp.w4b")
         for (pkg in packages) {
             val intent = targetedWhatsappIntent(uri, message, normalized, pkg)
+            // The share button lives in an Activity. Avoid NEW_TASK here: on
+            // repeat shares Android may simply bring WhatsApp's earlier task
+            // to the foreground, showing the previous chooser/chat state.
+            // Only non-Activity callers need this flag to start an Activity.
+            if (!hasActivityContext(context)) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             if (runCatching {
-                // Explicit read grant, including Android variants that do not
-                // forward a FileProvider grant using only ClipData.
                 context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 context.startActivity(intent)
             }.isSuccess) return
@@ -63,8 +70,18 @@ object StatementShare {
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_TEXT, text)
             clipData = ClipData.newRawUri("statement", uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+
+    internal fun hasActivityContext(context: Context): Boolean {
+        var current: Context = context
+        val visited = mutableSetOf<Context>()
+        while (visited.add(current)) {
+            if (current is Activity) return true
+            current = (current as? ContextWrapper)?.baseContext ?: return false
+        }
+        return false
+    }
 
     fun shareImageToMessages(
         context: Context,
