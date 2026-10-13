@@ -205,11 +205,13 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         bottles: Int?,
         bottlePrice: Long?,
         details: String = "",
+        repaymentDays: Int? = null,
         allowRecentDuplicate: Boolean = false,
         nowMillis: Long = System.currentTimeMillis(),
         operationId: String? = null
     ): DebtCreateResult {
         require(amount > 0)
+        require(repaymentDays == null || repaymentDays in RepaymentTerms.choices)
         require(dao.getCustomerById(customerId) != null) { "Customer not found" }
 
         val stableId = operationId?.also { require(isValidOperationId(it)) { "Invalid operation identifier" } }
@@ -221,7 +223,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
                     existing.customerId == customerId &&
                         existing.type == EntryType.DEBT &&
                         existing.amount == amount &&
-                        existing.details == details
+                        existing.details == details && existing.repaymentDays == repaymentDays
                 ) { "Operation identifier already belongs to a different ledger entry" }
                 entriesCache = listOf(existing) + entriesCache.filterNot { it.id == existing.id }
                 return DebtCreateResult.Created(existing)
@@ -236,7 +238,8 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             bottles = bottles,
             bottlePrice = bottlePrice,
             details = details,
-            createdAt = nowMillis
+            createdAt = nowMillis,
+            repaymentDays = repaymentDays
         )
 
         val previousDuplicate = dao.insertDebtProtected(
@@ -541,6 +544,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
                 put("bottles", entry.bottles ?: JSONObject.NULL)
                 put("bottlePrice", entry.bottlePrice ?: JSONObject.NULL)
                 put("details", entry.details)
+                put("repaymentDays", entry.repaymentDays ?: JSONObject.NULL)
                 put("createdAt", entry.createdAt)
             })
         }
@@ -586,6 +590,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
                             bottles = if (item.isNull("bottles")) null else item.getInt("bottles"),
                             bottlePrice = if (item.isNull("bottlePrice")) null else item.getLong("bottlePrice"),
                             details = item.optString("details"),
+                            repaymentDays = item.optInt("repaymentDays", 0).takeIf { it in RepaymentTerms.choices },
                             createdAt = item.getLong("createdAt")
                         )
                     )
