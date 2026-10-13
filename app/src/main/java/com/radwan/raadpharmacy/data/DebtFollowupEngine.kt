@@ -23,10 +23,13 @@ object DebtFollowupEngine {
         val oldestUnpaidAt: Long?,
         val lastPaymentAt: Long?,
         val bucket: Bucket,
-        val hasUnknownDates: Boolean
+        val hasUnknownDates: Boolean,
+        val specialOverdueAmount: Long = 0L,
+        val specialReminderDays: Int? = null,
+        val specialDueAt: LocalDate? = null
     )
 
-    private data class Tranche(val createdAt: Long, var remaining: Long)
+    private data class Tranche(val createdAt: Long, var remaining: Long, val repaymentDays: Int? = null)
 
     fun build(
         customers: List<Customer>,
@@ -63,7 +66,7 @@ object DebtFollowupEngine {
                     val consumed = minOf(credit, entry.amount)
                     credit -= consumed
                     val owing = entry.amount - consumed
-                    if (owing > 0L) tranches += Tranche(entry.createdAt, owing)
+                    if (owing > 0L) tranches += Tranche(entry.createdAt, owing, entry.repaymentDays)
                 }
                 EntryType.PAYMENT -> {
                     lastPaymentAt = maxOf(lastPaymentAt ?: entry.createdAt, entry.createdAt)
@@ -106,8 +109,19 @@ object DebtFollowupEngine {
         val hasUnknownDates = ages.any { it.second == null }
         val oldest = unpaid.minByOrNull { it.createdAt }?.createdAt
         val oldestAge = if (hasUnknownDates) null else ages.maxOfOrNull { it.second ?: 0L }
-        val overdue = ages.filter { (lot, age) -> lot.remaining > 0L && age != null && age >= 30L }
-            .sumOf { it.first.remaining }
+        val specialDue = ages.mapNotNull { (lot, _) ->
+            val days = lot.repaymentDays ?: return@mapNotNull null
+            if (lot.remaining <= 0L || lot.createdAt <= 0L) return@mapNotNull null
+            val date = runCatching { Instant.ofEpochMilli(lot.createdAt).atZone(IRAQ_ZONE).toLocalDate() }.getOrNull()
+                ?: return@mapNotNull null
+            val due = date.plusDays(days.toLong())
+            if (today.isAfter(due)) lot to due else null
+        }
+        val specialOverdueAmount = specialDue.sumOf { it.first.remaining }
+        val earliestSpecial = specialDue.minByOrNull { it.second }
+        val overdue = ages.filter { (lot, age) ->
+            lot.remaining > 0L && ((age != null && age >= 30L) || specialDue.any { it.first === lot })
+        }.sumOf { it.first.remaining }
 
         val bucket = when {
             hasUnknownDates -> Bucket.NEEDS_REVIEW
@@ -117,6 +131,9 @@ object DebtFollowupEngine {
             else -> Bucket.DAYS_30_TO_59
         }
         return Account(customer, balance, overdue, oldestAge,
-            if (hasUnknownDates) null else oldest, lastPaymentAt, bucket, hasUnknownDates)
+            if (hasUnknownDates) null else oldest, lastPaymentAt, bucket, hasUnknownDates,
+            specialOverdueAmount = specialOverdueAmount,
+            specialReminderDays = earliestSpecial?.first?.repaymentDays,
+            specialDueAt = earliestSpecial?.second)
     }
 }
