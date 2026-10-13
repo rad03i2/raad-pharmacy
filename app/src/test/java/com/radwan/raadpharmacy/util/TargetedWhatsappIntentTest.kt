@@ -79,8 +79,8 @@ class TargetedWhatsappIntentTest {
         assertEquals("com.whatsapp.w4b", intent.`package`)
         assertEquals("المبلغ المتبقي: 50000", intent.getStringExtra(Intent.EXTRA_TEXT))
         assertEquals(uri, intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
-        assertTrue(intent.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT != 0)
-        assertTrue(intent.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK != 0)
+        assertEquals(0, intent.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+        assertEquals(0, intent.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
     }
 
     @Test fun androidFallbackPreservesImageAndCaptionWithoutUndocumentedJid() {
