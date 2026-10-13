@@ -72,6 +72,8 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import android.content.Intent
+import com.radwan.raadpharmacy.demo.DemoMarketingActivity
 
 @Composable
 fun SettingsScreenV10(
@@ -95,6 +97,7 @@ fun SettingsScreenV10(
     var showAdditionalSettings by rememberSaveable { mutableStateOf(false) }
     var showMissingPhoneCustomers by rememberSaveable { mutableStateOf(false) }
     var showReadyMessages by rememberSaveable { mutableStateOf(false) }
+
 
     if (showAbout) {
         AboutDialogV15(onDismiss = { showAbout = false })
@@ -200,6 +203,15 @@ fun SettingsScreenV10(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                item {
+                    V8SettingsRow(
+                        Icons.Rounded.Info,
+                        "حساب العرض الإعلامي",
+                        "عشرة زبائن وهميين وفريق بصور توضيحية؛ لا يصل للبيانات الحقيقية"
+                    ) {
+                        context.startActivity(Intent(context, DemoMarketingActivity::class.java))
+                    }
+                }
                 item {
                     V8SettingsRow(
                         Icons.Rounded.Info,
