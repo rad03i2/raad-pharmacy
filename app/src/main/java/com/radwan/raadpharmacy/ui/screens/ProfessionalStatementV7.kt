@@ -167,8 +167,8 @@ fun StatementScreenV7(
             }
             working = false
             statusMessage = if (result.isSuccess)
-                "هذه المشاركة تحفظ الصورة والنص، لكن عليك اختيار الزبون المقصود داخل واتساب والتأكد من رقمه قبل الإرسال."
-            else "تعذر فتح واتساب للمشاركة البديلة."
+                "أُرسلت صورة الكشف والنص إلى واجهة مشاركة أندرويد. اختر واتساب ثم الزبون المعني وتأكد من الرقم قبل إرسال الرسالة."
+            else "تعذر فتح واجهة مشاركة الصورة والنص. تأكد من وجود تطبيق يدعم مشاركة الصور."
         }
     }
 
@@ -224,7 +224,7 @@ fun StatementScreenV7(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                 Button(
-                    onClick = { shareImage(true) },
+                    onClick = ::shareWhatsappFallback,
                     enabled = !working,
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = MaterialTheme.shapes.large
@@ -240,22 +240,24 @@ fun StatementScreenV7(
                     } else {
                         Icon(Icons.Rounded.Share, contentDescription = null)
                         Spacer(Modifier.size(8.dp))
-                        Text(
-                            if (customer.phone.isNullOrBlank()) {
-                                "مشاركة عبر WhatsApp"
-                            } else {
-                                "إرسال الكشف إلى " + customer.name
-                            }
-                        )
+                        Text("مشاركة صورة الكشف والنص عبر واتساب")
                     }
                 }
-                TextButton(
-                    onClick = ::shareWhatsappFallback,
-                    enabled = !working,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("مشاركة بديلة بالصورة والنص (اختيار المستلم)")
+                if (!customer.phone.isNullOrBlank()) {
+                    TextButton(
+                        onClick = { shareImage(true) },
+                        enabled = !working,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("محاولة فتح محادثة " + customer.name + " مباشرة")
+                    }
                 }
+                Text(
+                    "المستلم المقصود: " + customer.name + " • " +
+                        customer.phone.orEmpty() + " — تأكد من الرقم داخل واتساب.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 }
             }
         }
