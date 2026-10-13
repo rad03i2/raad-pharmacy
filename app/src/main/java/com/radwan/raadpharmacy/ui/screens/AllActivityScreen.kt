@@ -110,13 +110,6 @@ fun AllActivityScreen(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustome
             item {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ActivityPeriod.entries.forEach { item ->
-                        FilterChip(selected = selectedDay == null && period == item, onClick = {
-                            periodName = item.name
-                            selectedDayText = null
-                        },
-                            label = { Text(item.title) })
-                    }
                     FilterChip(
                         selected = selectedDay != null,
                         onClick = { showDatePicker = true },
@@ -125,6 +118,13 @@ fun AllActivityScreen(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustome
                                 ?.let { "تاريخ محدد: $it" } ?: "اختيار يوم")
                         }
                     )
+                    ActivityPeriod.entries.forEach { item ->
+                        FilterChip(selected = selectedDay == null && period == item, onClick = {
+                            periodName = item.name
+                            selectedDayText = null
+                        },
+                            label = { Text(item.title) })
+                    }
                 }
             }
             item {
