@@ -54,6 +54,35 @@ class TargetedWhatsappIntentTest {
         assertFalse(StatementShare.hasActivityContext(activity.applicationContext))
     }
 
+    @Test fun everyWhatsappShareIsANewAndroidDocumentWithCurrentPayload() {
+        val contacts = listOf(
+            Triple("9647701111111", "تذكير بعد يوم", "first.png"),
+            Triple("9647702222222", "تذكير بعد أسبوع", "second.png"),
+            Triple("9647703333333", "تذكير بعد شهر", "third.png")
+        )
+        contacts.forEach { (phone, caption, fileName) ->
+            val uri = Uri.parse("content://com.radwan.raadpharmacy.fileprovider/$fileName")
+            val intent = StatementShare.freshTargetedWhatsappIntent(uri, caption, phone, "com.whatsapp")
+            assertEquals("$phone@s.whatsapp.net", intent.getStringExtra("jid"))
+            assertEquals(caption, intent.getStringExtra(Intent.EXTRA_TEXT))
+            assertEquals(uri, intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
+            assertTrue(intent.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT != 0)
+            assertTrue(intent.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK != 0)
+            assertTrue(intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+        }
+    }
+
+    @Test fun fallbackAlwaysPreservesImageAndTextButNeedsManualRecipientConfirmation() {
+        val uri = Uri.parse("content://com.radwan.raadpharmacy.fileprovider/statement.png")
+        val intent = StatementShare.pickerWhatsappIntent(uri, "المبلغ المتبقي: 50000", "com.whatsapp.w4b")
+        assertNull(intent.getStringExtra("jid"))
+        assertEquals("com.whatsapp.w4b", intent.`package`)
+        assertEquals("المبلغ المتبقي: 50000", intent.getStringExtra(Intent.EXTRA_TEXT))
+        assertEquals(uri, intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
+        assertTrue(intent.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT != 0)
+        assertTrue(intent.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK != 0)
+    }
+
     private fun assertPrepared(packageName: String) {
         val uri = Uri.parse("content://com.radwan.raadpharmacy.fileprovider/receipt.png")
         val caption = "تذكير بعد أسبوع — رصيد الحساب 25,000"
