@@ -25,6 +25,7 @@ import com.radwan.raadpharmacy.ui.theme.AppFontPreset
 import com.radwan.raadpharmacy.ui.theme.TypographyPreferences
 import java.io.File
 import java.io.FileOutputStream
+import java.util.UUID
 
 data class StatementSnapshot(
     val customer: Customer,
@@ -564,20 +565,11 @@ object StatementDocumentRenderer {
     private fun shareDir(context: Context): File =
         File(context.cacheDir, "shared").apply { mkdirs() }
 
-    private fun fileName(
+    // A fresh URI for every press matters: WhatsApp may retain the prior
+    // grant/media thumbnail if the same FileProvider URI is reused. Opaque
+    // names also prevent leaking customer names into shared URI paths.
+    internal fun fileName(
         snapshot: StatementSnapshot,
         extension: String
-    ): String =
-        "statement-" +
-            safeName(snapshot.customer.name) +
-            "-" +
-            snapshot.generatedAt +
-            "." +
-            extension
-
-    private fun safeName(value: String): String =
-        value.trim()
-            .replace(Regex("[^\\p{L}\\p{N}._-]+"), "-")
-            .trim('-')
-            .ifBlank { "customer" }
+    ): String = "statement-" + snapshot.generatedAt + "-" + UUID.randomUUID() + "." + extension
 }
