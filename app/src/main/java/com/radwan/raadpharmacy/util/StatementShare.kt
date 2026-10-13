@@ -70,13 +70,7 @@ object StatementShare {
         // The platform sharesheet is the supported path for repeated shares.
         // Omitting the undocumented "jid" allows the recipient to be selected
         // explicitly while keeping both the image and editable caption intact.
-        val media = Intent(Intent.ACTION_SEND).apply {
-            type = "image/png"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_TEXT, message)
-            clipData = ClipData.newRawUri("statement", uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
+        val media = platformMediaIntent(uri, message)
         val chooser = Intent.createChooser(media, "اختر واتساب، ثم الزبون").apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             clipData = ClipData.newRawUri("statement", uri)
@@ -88,6 +82,15 @@ object StatementShare {
     // New-document/multiple-task broke the *first* share on real devices.
     // Keep Android's normal ACTION_SEND task lifecycle. WhatsApp's JID
     // is unofficial and the app may still ignore the intended recipient.
+    internal fun platformMediaIntent(uri: Uri, text: String): Intent =
+        Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_TEXT, text)
+            clipData = ClipData.newRawUri("statement", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
     internal fun freshTargetedWhatsappIntent(
         uri: Uri, text: String, phone: String, pkg: String
     ): Intent = targetedWhatsappIntent(uri, text, phone, pkg)
