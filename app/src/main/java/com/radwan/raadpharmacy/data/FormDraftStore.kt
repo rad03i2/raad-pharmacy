@@ -22,8 +22,8 @@ data class CustomerFormDraft(
 data class DebtFormDraft(
     val amount: String = "",
     val details: String = "",
-    val repaymentDays: Int? = null,
-    val operationId: String = UUID.randomUUID().toString()
+    val operationId: String = UUID.randomUUID().toString(),
+    val repaymentDays: Int? = null
 )
 
 data class PaymentFormDraft(
