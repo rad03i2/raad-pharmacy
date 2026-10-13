@@ -1,6 +1,17 @@
 -- 3.3.22: customer creation announcement for the other pharmacy devices.
 -- Deployment required on the production Supabase project; this file is not executed by Android CI.
 -- One event per customer ID. Historical/legacy bulk import never emits a new-customer alert.
+-- Extend the financial event allowlist; otherwise the trigger would reject customer INSERTs.
+ALTER TABLE public.notification_events
+    DROP CONSTRAINT IF EXISTS notification_events_event_type_check;
+ALTER TABLE public.notification_events
+    ADD CONSTRAINT notification_events_event_type_check CHECK (
+        event_type IN (
+            'DEBT_CREATED','PAYMENT_CREATED','TRANSACTION_UPDATED',
+            'TRANSACTION_DELETED','TEAM_ALERT','TEAM_MESSAGE','CUSTOMER_CREATED'
+        )
+    );
+
 CREATE OR REPLACE FUNCTION raad_private.publish_new_customer_notice()
 RETURNS trigger
 LANGUAGE plpgsql
