@@ -220,6 +220,7 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         bottles: Int? = null,
         bottlePrice: Long? = null,
         details: String = "",
+        repaymentDays: Int? = null,
         allowRecentDuplicate: Boolean = false,
         operationId: String? = null
     ): DebtCreateResult = writeMutex.withLock {
@@ -230,6 +231,7 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
             bottles = bottles,
             bottlePrice = bottlePrice,
             details = details.trim(),
+            repaymentDays = repaymentDays,
             allowRecentDuplicate = allowRecentDuplicate,
             operationId = operationId
         )
