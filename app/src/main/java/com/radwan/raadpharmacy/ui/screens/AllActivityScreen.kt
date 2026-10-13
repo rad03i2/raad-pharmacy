@@ -15,6 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -38,18 +43,25 @@ import com.radwan.raadpharmacy.ui.theme.DebtRed
 import com.radwan.raadpharmacy.ui.theme.PaidGreen
 import com.radwan.raadpharmacy.util.ActivityPeriod
 import com.radwan.raadpharmacy.util.filterActivity
+import com.radwan.raadpharmacy.util.filterActivityOnDate
 import com.radwan.raadpharmacy.util.formatDate
 import com.radwan.raadpharmacy.util.formatMoney
 import com.radwan.raadpharmacy.util.formatTime
 import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AllActivityScreen(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustomer: (String) -> Unit) {
     val entries by vm.entries.collectAsStateWithLifecycle()
     val customers by vm.customers.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
     var periodName by rememberSaveable { mutableStateOf(ActivityPeriod.DAY.name) }
+    var selectedDayText by rememberSaveable { mutableStateOf<String?>(null) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var today by remember { mutableStateOf(LocalDate.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -58,7 +70,30 @@ fun AllActivityScreen(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustome
         }
     }
     val period = ActivityPeriod.valueOf(periodName)
-    val movements = remember(entries, period, today) { filterActivity(entries, period, today) }
+    val selectedDay = selectedDayText?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    val movements = remember(entries, period, today, selectedDay) {
+        if (selectedDay != null) filterActivityOnDate(entries, selectedDay)
+        else filterActivity(entries, period, today)
+    }
+    if (showDatePicker) {
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = (selectedDay ?: today)
+                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        selectedDayText = java.time.Instant.ofEpochMilli(millis)
+                            .atZone(ZoneOffset.UTC).toLocalDate().toString()
+                    }
+                    showDatePicker = false
+                }) { Text("عرض الحركات") }
+            },
+            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("إلغاء") } }
+        ) { DatePicker(state = pickerState) }
+    }
     val byId = remember(customers) { customers.associateBy { it.id } }
     val debt = movements.filter { it.type == EntryType.DEBT }.sumOf { it.amount }
     val paid = movements.filter { it.type == EntryType.PAYMENT }.sumOf { it.amount }
@@ -75,8 +110,19 @@ fun AllActivityScreen(vm: PharmacyLedgerViewModel, onBack: () -> Unit, onCustome
             item {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = selectedDay != null,
+                        onClick = { showDatePicker = true },
+                        label = {
+                            Text(selectedDay?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.US))
+                                ?.let { "تاريخ محدد: $it" } ?: "اختيار يوم")
+                        }
+                    )
                     ActivityPeriod.entries.forEach { item ->
-                        FilterChip(selected = period == item, onClick = { periodName = item.name },
+                        FilterChip(selected = selectedDay == null && period == item, onClick = {
+                            periodName = item.name
+                            selectedDayText = null
+                        },
                             label = { Text(item.title) })
                     }
                 }

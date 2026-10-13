@@ -288,15 +288,12 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
     ): MutationResult = writeMutex.withLock {
         val result = repository.updateEntry(entryId, amount, bottles, bottlePrice, details)
         if (result.success) {
-            _entries.value = _entries.value.map { entry ->
-                if (entry.id == entryId) {
-                    entry.copy(
-                        amount = amount,
-                        bottles = if (entry.type == EntryType.DEBT) bottles?.takeIf { it > 0 } else null,
-                        bottlePrice = if (entry.type == EntryType.DEBT) bottlePrice?.takeIf { it > 0L } else null,
-                        details = if (entry.type == EntryType.DEBT) details.trim() else entry.details
-                    )
-                } else entry
+            // Read the committed row; never guess movement metadata from editable UI fields.
+            val saved = repository.entry(entryId)
+            if (saved != null) {
+                _entries.value = _entries.value.map { entry ->
+                    if (entry.id == entryId) saved else entry
+                }
             }
             rebuildIndexes()
             loadAdvancedReport(_advancedReport.value.period)

@@ -79,7 +79,7 @@ object Routes {
     const val ACTIVITY = "activity"
     const val CUSTOMERS = "customers"
     const val ADD_CUSTOMER = "add_customer"
-    const val CUSTOMER = "customer/{customerId}"
+    const val CUSTOMER = "customer/{customerId}?editPhone={editPhone}"
     const val ADD_DEBT = "add_debt/{customerId}"
     const val ADD_PAYMENT = "add_payment/{customerId}"
     const val TRANSACTIONS = "transactions/{customerId}"
@@ -96,7 +96,8 @@ object Routes {
     const val RESUME_FORM = "resume_form"
 
     fun areaCustomers(name: String) = "area_customers/${android.net.Uri.encode(name)}"
-    fun customer(id: String) = "customer/$id"
+    fun customer(id: String, editPhone: Boolean = false) =
+        "customer/$id" + if (editPhone) "?editPhone=true" else ""
     fun addDebt(id: String) = "add_debt/$id"
     fun addPayment(id: String) = "add_payment/$id"
     fun transactions(id: String) = "transactions/$id"
@@ -201,6 +202,19 @@ fun PharmacyLedgerApp(
     val bottomRoutes = bottomItems.map { it.route }.toSet()
     var lastNavigationAt by remember { mutableLongStateOf(0L) }
 
+    fun navigateHome() {
+        // Re-establish HOME even when a deletion or a restored form removed the
+        // start destination from the back stack. Never rely on popBackStack() alone.
+        navController.navigate(Routes.HOME) {
+            popUpTo(navController.graph.id) { inclusive = false }
+            launchSingleTop = true
+        }
+    }
+
+    fun backOrHome() {
+        if (!navController.popBackStack()) navigateHome()
+    }
+
     fun safeNavigate(route: String) {
         val now = SystemClock.elapsedRealtime()
         if (now - lastNavigationAt < 280L) return
@@ -218,18 +232,14 @@ fun PharmacyLedgerApp(
     ) {
         BackHandler {
             FormDraftStore.clearActiveDraft(context)
-            navController.popBackStack()
+            backOrHome()
         }
     } else if (currentRoute != null && currentRoute in bottomRoutes && currentRoute != Routes.HOME) {
-        BackHandler {
-            navController.navigate(Routes.HOME) {
-                popUpTo(navController.graph.findStartDestination().id) {
-                    inclusive = false
-                }
-                launchSingleTop = true
-                restoreState = true
-            }
-        }
+        BackHandler { navigateHome() }
+    } else if (unlocked && currentRoute != null && currentRoute != Routes.HOME) {
+        // Secondary screens can be opened from search, notifications or restored drafts.
+        // Fall back to HOME rather than leaving a dead-end screen.
+        BackHandler { backOrHome() }
     }
 
     PharmacyLedgerTheme(
@@ -248,9 +258,8 @@ fun PharmacyLedgerApp(
                             if (now - lastNavigationAt >= 280L) {
                                 lastNavigationAt = now
                                 navController.navigate(route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    popUpTo(navController.graph.id) { inclusive = false }
                                     launchSingleTop = true
-                                    restoreState = true
                                 }
                             }
                         })
@@ -305,14 +314,8 @@ fun PharmacyLedgerApp(
                                             if (now - lastNavigationAt >= 280L) {
                                                 lastNavigationAt = now
                                                 navController.navigate(route) {
-                                                    popUpTo(
-                                                        navController.graph
-                                                            .findStartDestination().id
-                                                    ) {
-                                                        saveState = true
-                                                    }
+                                                    popUpTo(navController.graph.id) { inclusive = false }
                                                     launchSingleTop = true
-                                                    restoreState = true
                                                 }
                                             }
                                         }
@@ -379,18 +382,25 @@ fun PharmacyLedgerApp(
                     }
                     composable(
                         Routes.CUSTOMER,
-                        arguments = listOf(navArgument("customerId") { type = NavType.StringType })
+                        arguments = listOf(
+                            navArgument("customerId") { type = NavType.StringType },
+                            navArgument("editPhone") {
+                                type = NavType.BoolType
+                                defaultValue = false
+                            }
+                        )
                     ) {
                         val id = it.arguments?.getString("customerId").orEmpty()
                         CustomerProfileScreenV6(
                             vm = vm,
                             customerId = id,
-                            onBack = navController::popBackStack,
+                            openPhoneEditor = it.arguments?.getBoolean("editPhone") == true,
+                            onBack = ::backOrHome,
                             onDeleted = {
-                                navController.navigate(Routes.CUSTOMERS) {
-                                    popUpTo(Routes.CUSTOMERS) { inclusive = false }
-                                    launchSingleTop = true
-                                }
+                                // The customer list might not exist below this profile (e.g. search).
+                                // Build a fresh HOME → CUSTOMERS stack after successful deletion.
+                                navigateHome()
+                                navController.navigate(Routes.CUSTOMERS) { launchSingleTop = true }
                             },
                             onAddDebt = {
                                 navController.navigate(Routes.addDebt(id)) { launchSingleTop = true }
@@ -515,6 +525,9 @@ fun PharmacyLedgerApp(
                             vm = vm,
                             onCustomer = { id ->
                                 navController.navigate(Routes.customer(id)) { launchSingleTop = true }
+                            },
+                            onAddPhone = { id ->
+                                navController.navigate(Routes.customer(id, editPhone = true))
                             }
                         )
                     }

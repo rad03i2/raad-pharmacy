@@ -26,3 +26,15 @@ fun filterActivity(
         start == null || (!day.isBefore(start) && !day.isAfter(today))
     }.sortedWith(compareByDescending<LedgerEntry> { it.createdAt }.thenBy { it.id })
 }
+
+/** Inclusive local calendar day, using a half-open range so midnight boundaries are correct. */
+fun filterActivityOnDate(
+    entries: List<LedgerEntry>,
+    date: LocalDate,
+    zone: ZoneId = ZoneId.of("Asia/Baghdad")
+): List<LedgerEntry> {
+    val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
+    val until = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    return entries.filter { it.createdAt >= from && it.createdAt < until }
+        .sortedWith(compareByDescending<LedgerEntry> { it.createdAt }.thenBy { it.id })
+}

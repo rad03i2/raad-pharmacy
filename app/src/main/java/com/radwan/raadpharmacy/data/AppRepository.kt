@@ -144,7 +144,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         )
 
         val customerEntries = dao.getEntriesForCustomer(customerId).map(LedgerEntryEntity::toModel)
-        if (!LedgerRules.isChronologicallyValid(updated, customerEntries)) {
+        if (updated.openingDebt != current.openingDebt && !LedgerRules.isOpeningDebtEditSafe(current, updated, customerEntries)) {
             return MutationResult(
                 false,
                 "هذا التعديل يجعل أحد التحصيلات القديمة أكبر من الرصيد المتاح وقتها."
@@ -315,16 +315,16 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
 
         val updated = current.copy(
             amount = amount,
-            bottles = if (current.type == EntryType.DEBT) bottles?.takeIf { it > 0 } else null,
-            bottlePrice = if (current.type == EntryType.DEBT) bottlePrice?.takeIf { it > 0L } else null,
+            bottles = if (current.type == EntryType.DEBT) (bottles?.takeIf { it > 0 } ?: current.bottles) else null,
+            bottlePrice = if (current.type == EntryType.DEBT) (bottlePrice?.takeIf { it > 0L } ?: current.bottlePrice) else null,
             details = if (current.type == EntryType.DEBT) details.trim() else current.details
         )
 
-        val candidateEntries = dao.getEntriesForCustomer(current.customerId)
+        val originalEntries = dao.getEntriesForCustomer(current.customerId)
             .map(LedgerEntryEntity::toModel)
-            .map { if (it.id == entryId) updated else it }
+        val candidateEntries = originalEntries.map { if (it.id == entryId) updated else it }
 
-        if (!LedgerRules.isChronologicallyValid(customer, candidateEntries)) {
+        if (!LedgerRules.isEditChronologicallySafe(customer, originalEntries, candidateEntries)) {
             return MutationResult(
                 false,
                 "لا يمكن حفظ التعديل لأنه يجعل تحصيلًا لاحقًا أكبر من الرصيد المتاح."

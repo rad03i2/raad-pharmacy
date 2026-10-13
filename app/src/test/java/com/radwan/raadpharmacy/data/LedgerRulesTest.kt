@@ -145,4 +145,21 @@ class LedgerRulesTest {
         assertTrue(LedgerRules.isChronologicallyValid(noOpeningDebt, validOrder))
         assertFalse(LedgerRules.isChronologicallyValid(noOpeningDebt, invalidOrder))
     }
+    @Test
+    fun deletingDebtNeverCreatesCompensatingDebitAndLaterEditsRemainPossible() {
+        val c = customer.copy(openingDebt = 0L)
+        val removed = LedgerEntry("debt", c.id, EntryType.DEBT, 5000, createdAt = 2000)
+        val paid = LedgerEntry("paid", c.id, EntryType.PAYMENT, 2000, createdAt = 3000)
+        val remaining = listOf(paid)
+        assertEquals(0L, customerBalance(c, remaining))
+        assertFalse(LedgerRules.isChronologicallyValid(c, remaining))
+        val laterDebt = LedgerEntry("new", c.id, EntryType.DEBT, 6000, createdAt = 4000)
+        val revised = laterDebt.copy(amount = 4500)
+        assertTrue(LedgerRules.isEditChronologicallySafe(c,
+            remaining + laterDebt, remaining + revised))
+        assertFalse(LedgerRules.isEditChronologicallySafe(c,
+            listOf(removed, paid), listOf(removed.copy(amount = 1000), paid)))
+        assertEquals(2500L, customerBalance(c, remaining + revised))
+    }
+
 }

@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -45,6 +47,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,8 +55,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -85,7 +91,8 @@ fun CustomerProfileScreenV6(
     onAddDebt: () -> Unit,
     onPayment: () -> Unit,
     onTransactions: () -> Unit,
-    onStatement: () -> Unit
+    onStatement: () -> Unit,
+    openPhoneEditor: Boolean = false
 ) {
     val customers by vm.customers.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
@@ -103,10 +110,15 @@ fun CustomerProfileScreenV6(
         return
     }
 
+    LaunchedEffect(customerId, openPhoneEditor) {
+        if (openPhoneEditor) showEdit = true
+    }
+
     if (showEdit) {
         EditCustomerDialog(
             customer = customer,
             hasMovements = entries.any { it.customerId == customer.id },
+            autoFocusPhone = openPhoneEditor,
             onDismiss = { showEdit = false },
             onSave = { name, phone, area, address, openingDebt, notes ->
                 scope.launch {
@@ -287,6 +299,7 @@ fun CustomerProfileScreenV6(
 private fun EditCustomerDialog(
     customer: Customer,
     hasMovements: Boolean,
+    autoFocusPhone: Boolean = false,
     onDismiss: () -> Unit,
     onSave: (String, String?, String, String, Long, String) -> Unit
 ) {
@@ -296,13 +309,21 @@ private fun EditCustomerDialog(
     var address by remember(customer.id, customer.address) { mutableStateOf(customer.address) }
     var openingDebt by remember(customer.id, customer.openingDebt) { mutableStateOf(customer.openingDebt.toString()) }
     var notes by remember(customer.id, customer.notes) { mutableStateOf(customer.notes) }
-
+    var showContactPicker by remember(customer.id) { mutableStateOf(false) }
+    val phoneFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(autoFocusPhone) {
+        if (autoFocusPhone) {
+            phoneFocus.requestFocus()
+            keyboard?.show()
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("تعديل بيانات الزبون") },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 OutlinedTextField(
@@ -315,11 +336,14 @@ private fun EditCustomerDialog(
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { phone = it.filter(Char::isDigit).take(11) },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().focusRequester(phoneFocus),
                     label = { Text("رقم الهاتف") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
                 )
+                OutlinedButton(onClick = { showContactPicker = true }) {
+                    Text("جلب الرقم من جهات الاتصال")
+                }
                 OutlinedTextField(
                     value = area,
                     onValueChange = { area = it },
@@ -376,6 +400,19 @@ private fun EditCustomerDialog(
             TextButton(onClick = onDismiss) { Text("إلغاء") }
         }
     )
+    // Render the chooser *after* the edit dialog so it is the topmost window.
+    if (showContactPicker) {
+        ContactPhonePickerV3211(
+            onSelected = { number ->
+                phone = number
+                showContactPicker = false
+                phoneFocus.requestFocus()
+                keyboard?.show()
+            },
+            onDismiss = { showContactPicker = false }
+        )
+    }
+
 }
 
 private enum class MovementFilterV6(val label: String) {

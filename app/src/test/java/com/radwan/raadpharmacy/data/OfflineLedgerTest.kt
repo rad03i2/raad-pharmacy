@@ -162,6 +162,42 @@ class OfflineLedgerTest {
         assertTrue(dao.cloudOutbox().all { it.action == "DELETE" })
     }
 
+    @Test fun deletingMovementRemovesItFromLedgerBalanceAndQueuedSyncEvenWithStaleCloudSnapshot() = runTest {
+        val c = repository.addCustomer("عميل", null, "", "", 0, "")
+        val d = (repository.addDebt(c.id, 5000L, 2, 2500L) as DebtCreateResult.Created).entry
+        val p = repository.addPayment(c.id, 2000L)
+        assertEquals(3000L, customerBalance(c, dao.getEntriesForCustomer(c.id).map { it.toModel() }))
+
+        assertTrue(repository.deleteEntry(d.id).success)
+        assertNull(dao.getEntryById(d.id))
+        assertEquals(0L, customerBalance(c, dao.getEntriesForCustomer(c.id).map { it.toModel() }))
+        assertEquals(listOf(p.id), dao.getEntriesForCustomer(c.id).map { it.id })
+        assertEquals("DELETE", dao.cloudOutbox().single { it.kind == "ENTRY" && it.entityId == d.id }.action)
+
+        // A stale remote snapshot cannot resurrect a locally deleted financial row.
+        dao.applyCloudSnapshot(listOf(c.toEntity()), listOf(d.toEntity(), p.toEntity()))
+        assertNull(dao.getEntryById(d.id))
+        assertEquals(0L, customerBalance(c, dao.getEntriesForCustomer(c.id).map { it.toModel() }))
+        assertTrue(repository.updateCustomer(c.id, "عميل", "07701234567", "", "", 0, "").success)
+
+        // The payment stays intact and is credited toward any later debit; never invent debt.
+        val newDebt = (repository.addDebt(c.id, 6000L, null, null) as DebtCreateResult.Created).entry
+        assertTrue(repository.updateEntry(newDebt.id, 4000L, null, null, "").success)
+        assertEquals(2000L, customerBalance(c, dao.getEntriesForCustomer(c.id).map { it.toModel() }))
+    }
+
+    @Test fun editingDebtDoesNotEraseBottleMetadataOrAgreedReminder() = runTest {
+        val c = repository.addCustomer("مريض", null, "", "", 0, "")
+        val d = (repository.addDebt(c.id, 5000L, 2, 2500L,
+            details = "صيدلية", repaymentDays = 7) as DebtCreateResult.Created).entry
+        assertTrue(repository.updateEntry(d.id, 6000L, null, null, "تعديل المشتريات").success)
+        val actual = dao.getEntryById(d.id)!!.toModel()
+        assertEquals(2, actual.bottles)
+        assertEquals(2500L, actual.bottlePrice)
+        assertEquals(7, actual.repaymentDays)
+        assertEquals("تعديل المشتريات", actual.details)
+    }
+
     @Test fun settledCustomerWithHistoricalDebtAndPaymentCanBeDeleted() = runTest {
         val c = repository.addCustomer("حساب مسدد", null, "", "", 0, "")
         repository.addDebt(c.id, 5000, null, null)
