@@ -24,6 +24,14 @@ import java.util.Locale
 
 /** Entirely offline presentation: no Room/Supabase/real customers or editable production data. */
 class DemoMarketingActivity : FragmentActivity() {
+    override fun onStart() {
+        super.onStart()
+        DemoPrivacySession.setActive(true)
+    }
+    override fun onStop() {
+        DemoPrivacySession.setActive(false)
+        super.onStop()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { PharmacyLedgerTheme { DemoDisplay { finish() } } }
