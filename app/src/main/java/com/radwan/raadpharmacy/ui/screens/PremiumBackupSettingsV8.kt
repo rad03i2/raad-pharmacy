@@ -90,6 +90,7 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel, onCustomer: (String) -> Unit 
     var showLocalBackups by rememberSaveable { mutableStateOf(false) }
     var showAdditionalSettings by rememberSaveable { mutableStateOf(false) }
     var showMissingPhoneCustomers by rememberSaveable { mutableStateOf(false) }
+    var showReadyMessages by rememberSaveable { mutableStateOf(false) }
 
     if (showAbout) {
         AboutDialogV15(onDismiss = { showAbout = false })
@@ -178,6 +179,11 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel, onCustomer: (String) -> Unit 
         return
     }
 
+    if (showReadyMessages) {
+        ReadyMessagesSettingsScreen(onBack = { showReadyMessages = false })
+        return
+    }
+
     if (showAdditionalSettings) {
         Scaffold(topBar = { ScreenTopBar("إعدادات إضافية", onBack = { showAdditionalSettings = false }) }) { padding ->
             LazyColumn(
@@ -185,6 +191,13 @@ fun SettingsScreenV10(vm: PharmacyLedgerViewModel, onCustomer: (String) -> Unit 
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                item {
+                    V8SettingsRow(
+                        Icons.Rounded.Info,
+                        "الرسائل الجاهزة",
+                        "تعديل رسائل كشف الحساب حسب موعد التسديد"
+                    ) { showReadyMessages = true }
+                }
                 item {
                     V8SettingsRow(
                         Icons.Rounded.Info,
