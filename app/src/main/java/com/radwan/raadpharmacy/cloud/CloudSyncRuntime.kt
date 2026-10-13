@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.withLock
 import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicInteger
 
 object CloudSyncRuntime {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -31,6 +32,8 @@ object CloudSyncRuntime {
     private val connectivityObserverStarted = AtomicBoolean(false)
     private val fastSyncRunning = AtomicBoolean(false)
     private val fastSyncRequested = AtomicBoolean(false)
+    private val realtimeRecoveryRunning = AtomicBoolean(false)
+    private val consecutiveRealtimeFailures = AtomicInteger(0)
     private val lastBackgroundAt = AtomicLong(0L)
     private val runtimeStarted = AtomicBoolean(false)
     private val catchUpRunning = Mutex()
@@ -171,6 +174,31 @@ object CloudSyncRuntime {
         runCatching { SupabaseProvider.client.realtime.removeAllChannels() }
         dataRealtimeStarted.set(false)
         notificationRealtimeStarted.set(false)
+    }
+
+    /** Recover a lost ledger subscription instead of leaving dataRealtimeStarted stuck true.
+     * Bounded retry delay avoids draining the battery when the internet is unavailable.
+     */
+    internal fun recoverLedgerRealtime(context: Context) {
+        if (!realtimeRecoveryRunning.compareAndSet(false, true)) return
+        scope.launch {
+            try {
+                val exponent = consecutiveRealtimeFailures.getAndIncrement().coerceAtMost(5)
+                delay((2_000L * (1L shl exponent)).coerceAtMost(60_000L))
+                if (CloudSyncScheduler.isEnabled(context)) {
+                    resetRealtime()
+                    runCatching { CloudSyncEngine(context).pullRemoteNow() }
+                        .onFailure { reportFailure(it) }
+                    startRealtimeIfPossible(context)
+                }
+            } finally {
+                realtimeRecoveryRunning.set(false)
+            }
+        }
+    }
+
+    internal fun ledgerRealtimeConnected() {
+        consecutiveRealtimeFailures.set(0)
     }
 
     /** Keep the alert subscription healthy; do not turn continuous monitoring into bulk sync. */
