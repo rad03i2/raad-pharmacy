@@ -5,7 +5,12 @@ import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class TargetedWhatsappIntentTest {
     @Test fun attachmentAndTextCarrySpecifiedWhatsAppRecipient() {
         val uri = Uri.parse("content://com.radwan.raadpharmacy.fileprovider/mock.png")
