@@ -35,6 +35,28 @@ class ReadyMessagesTest {
         assertEquals(ReadyMessages.Kind.NORMAL, ReadyMessages.kindFor(normal))
     }
 
+    @Test fun normalAndThirtyAndSixtyDayReadyMessagesUseRealElapsedDays() {
+        val start = java.time.LocalDate.of(2026, 8, 1)
+        val stamp = start.atStartOfDay(DebtFollowupEngine.IRAQ_ZONE).toInstant().toEpochMilli()
+        val customer = Customer("customer", "زبون تجريبي", createdAt = stamp)
+        val entries = listOf(
+            LedgerEntry("debt", customer.id, EntryType.DEBT, 50_000L, createdAt = stamp)
+        )
+        val normal = DebtFollowupEngine.calculate(customer, entries, start.plusDays(6))
+        val thirty = DebtFollowupEngine.calculate(customer, entries, start.plusDays(31))
+        val sixty = DebtFollowupEngine.calculate(customer, entries, start.plusDays(65))
+        assertEquals(ReadyMessages.Kind.NORMAL, ReadyMessages.kindFor(normal))
+        assertEquals(ReadyMessages.Kind.THIRTY_DAYS, ReadyMessages.kindFor(thirty))
+        assertEquals(ReadyMessages.Kind.SIXTY_DAYS, ReadyMessages.kindFor(sixty))
+        val message = ReadyMessages.render(
+            ReadyMessages.Kind.SIXTY_DAYS.defaultText,
+            customer.name, sixty.balance, sixty.ageDays
+        )
+        assertTrue(message.contains("65"))
+        assertTrue(message.contains("50,000 دينار عراقي"))
+        assertTrue(!message.contains("{الأيام}"))
+    }
+
     @Test fun durationSpecificDefaultsNeverMentionThirtyDays() {
         val early = listOf(ReadyMessages.Kind.ONE_DAY, ReadyMessages.Kind.TWO_DAYS,
             ReadyMessages.Kind.ONE_WEEK, ReadyMessages.Kind.TWO_WEEKS)
