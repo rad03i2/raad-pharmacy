@@ -155,8 +155,8 @@ fun SmartDebtFollowupV316(
 
     val overdue = remember(records) {
         records.filter {
-            it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE &&
-                it.bucket != DebtFollowupEngine.Bucket.NEEDS_REVIEW
+            (it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE &&
+                it.bucket != DebtFollowupEngine.Bucket.NEEDS_REVIEW) || it.specialOverdueAmount > 0L
         }
     }
     val specialOverdue = remember(records) { records.filter { it.specialOverdueAmount > 0L } }
@@ -168,7 +168,7 @@ fun SmartDebtFollowupV316(
                 it.customer.phone.isNullOrBlank()
         }
     }
-    val amountOverdue = remember(records) { records.filter { it.bucket != DebtFollowupEngine.Bucket.NEEDS_REVIEW || it.specialOverdueAmount > 0L }.sumOf { it.overdueAmount } }
+    val amountOverdue = remember(overdue) { overdue.sumOf { it.overdueAmount } }
     val overdue30 = remember(overdue) { overdue.count { it.bucket == DebtFollowupEngine.Bucket.DAYS_30_TO_59 } }
     val overdue60 = remember(overdue) { overdue.count { it.bucket == DebtFollowupEngine.Bucket.DAY_60 } }
     val overdueOld = remember(overdue) { overdue.count { it.bucket == DebtFollowupEngine.Bucket.OVER_60 } }
