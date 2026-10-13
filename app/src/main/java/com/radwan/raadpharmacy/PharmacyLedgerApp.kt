@@ -232,10 +232,14 @@ fun PharmacyLedgerApp(
     ) {
         BackHandler {
             FormDraftStore.clearActiveDraft(context)
-            navController.popBackStack()
+            backOrHome()
         }
     } else if (currentRoute != null && currentRoute in bottomRoutes && currentRoute != Routes.HOME) {
         BackHandler { navigateHome() }
+    } else if (unlocked && currentRoute != null && currentRoute != Routes.HOME) {
+        // Secondary screens can be opened from search, notifications or restored drafts.
+        // Fall back to HOME rather than leaving a dead-end screen.
+        BackHandler { backOrHome() }
     }
 
     PharmacyLedgerTheme(
