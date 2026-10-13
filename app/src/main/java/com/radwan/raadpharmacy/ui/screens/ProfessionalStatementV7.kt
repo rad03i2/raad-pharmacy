@@ -155,6 +155,23 @@ fun StatementScreenV7(
         }
     }
 
+    fun shareWhatsappFallback() {
+        if (working) return
+        scope.launch {
+            working = true
+            val result = runCatching {
+                val file = withContext(Dispatchers.IO) {
+                    StatementDocumentRenderer.createPng(context, snapshot)
+                }
+                StatementShare.shareImageToWhatsappPicker(context, file, statementMessage())
+            }
+            working = false
+            statusMessage = if (result.isSuccess)
+                "هذه المشاركة تحفظ الصورة والنص، لكن عليك اختيار الزبون المقصود داخل واتساب والتأكد من رقمه قبل الإرسال."
+            else "تعذر فتح واتساب للمشاركة البديلة."
+        }
+    }
+
     fun shareMessages() {
         if (working) return
         if (customer.phone.isNullOrBlank()) {
@@ -202,10 +219,14 @@ fun StatementScreenV7(
                 color = MaterialTheme.colorScheme.background,
                 tonalElevation = 0.dp
             ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                 Button(
                     onClick = { shareImage(true) },
                     enabled = !working,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp).height(56.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
                     shape = MaterialTheme.shapes.large
                 ) {
                     if (working) {
@@ -227,6 +248,14 @@ fun StatementScreenV7(
                             }
                         )
                     }
+                }
+                TextButton(
+                    onClick = ::shareWhatsappFallback,
+                    enabled = !working,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("مشاركة بديلة بالصورة والنص (اختيار المستلم)")
+                }
                 }
             }
         }

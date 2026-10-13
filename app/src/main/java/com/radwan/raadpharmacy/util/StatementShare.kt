@@ -46,14 +46,7 @@ object StatementShare {
 
         val packages = listOf("com.whatsapp", "com.whatsapp.w4b")
         for (pkg in packages) {
-            val intent = targetedWhatsappIntent(uri, message, normalized, pkg)
-            // The share button lives in an Activity. Avoid NEW_TASK here: on
-            // repeat shares Android may simply bring WhatsApp's earlier task
-            // to the foreground, showing the previous chooser/chat state.
-            // Only non-Activity callers need this flag to start an Activity.
-            if (!hasActivityContext(context)) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
+            val intent = freshTargetedWhatsappIntent(uri, message, normalized, pkg)
             if (runCatching {
                 context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 context.startActivity(intent)
@@ -61,6 +54,40 @@ object StatementShare {
         }
         throw IllegalStateException("تعذر فتح مشاركة واتساب بصورة الكشف والنص. تأكد من تثبيت واتساب.")
     }
+
+    /**
+     * Reliable media fallback: WhatsApp's documented Android sharing API lets
+     * WhatsApp pick the recipient. This intentionally omits the unsupported JID.
+     * The caller must check the recipient within WhatsApp before tapping send.
+     */
+    fun shareImageToWhatsappPicker(
+        context: Context, file: File, message: String
+    ) {
+        require(file.isFile && file.length() > 0L) { "صورة الكشف غير موجودة." }
+        require(message.isNotBlank()) { "رسالة كشف الحساب فارغة." }
+        val uri = contentUri(context, file)
+        for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
+            val intent = pickerWhatsappIntent(uri, message, pkg)
+            val launched = runCatching {
+                context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                context.startActivity(intent)
+            }.isSuccess
+            if (launched) return
+        }
+        throw IllegalStateException("لا يمكن فتح واتساب لمشاركة صورة الكشف.")
+    }
+
+    internal fun freshTargetedWhatsappIntent(
+        uri: Uri, text: String, phone: String, pkg: String
+    ): Intent = targetedWhatsappIntent(uri, text, phone, pkg).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+    }
+
+    internal fun pickerWhatsappIntent(uri: Uri, text: String, pkg: String): Intent =
+        targetedWhatsappIntent(uri, text, "", pkg).apply {
+            removeExtra("jid")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+        }
 
     internal fun targetedWhatsappIntent(uri: Uri, text: String, phone: String, pkg: String): Intent =
         Intent(Intent.ACTION_SEND).apply {
