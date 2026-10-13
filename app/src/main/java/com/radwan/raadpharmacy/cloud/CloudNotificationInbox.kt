@@ -230,7 +230,7 @@ class CloudNotificationInbox(context: Context) {
             }
             "CUSTOMER_CREATED" -> {
                 title = "حساب زبون جديد — صيدلية رعد"
-                body = actor + " أنشأ حساب " + name + ".\\nالرصيد الافتتاحي: " + amountText
+                body = actor + " أنشأ حساب " + name + ".\nالرصيد الافتتاحي: " + amountText
             }
             "PAYMENT_CREATED" -> {
                 if (balanceAfter == 0.0) {
