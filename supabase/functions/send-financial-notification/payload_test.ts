@@ -105,3 +105,16 @@ Deno.test("older and unknown devices retain safe native fallbacks", () => {
     check(!serial.includes("محمود العواد"), "old-device private details leaked");
   }
 });
+
+Deno.test("3.3.22 new customer alert includes author, customer and opening debt with privacy redaction", () => {
+  const created = {...event, event_type:'CUSTOMER_CREATED', amount: 42000};
+  const text = notificationText(created);
+  check(text.title.includes('حساب زبون جديد'), 'missing customer-created type');
+  check(text.body.includes('رعد') && text.body.includes('محمود العواد'), 'missing actor or customer');
+  check(text.body.includes('42,000'), 'missing opening debt');
+  const hidden = buildFcmMessage(created, 'token', {
+    app_version_code: 68, hide_notification_details: true
+  });
+  const raw = JSON.stringify(hidden);
+  check(!raw.includes('محمود') && !raw.includes('42,000'), 'customer data leaked into hidden push');
+});

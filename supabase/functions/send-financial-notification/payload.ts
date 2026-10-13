@@ -9,6 +9,7 @@ export function notificationText(event: Record<string, unknown>) {
   const suffix = balanceText == null ? '' : '\nالرصيد الحالي: '+balanceText;
   const kind = event.transaction_type === 'PAYMENT' ? 'تحصيل' : 'دين';
   switch (event.event_type) {
+    case 'CUSTOMER_CREATED': return {title:'حساب زبون جديد — صيدلية رعد', body:`${actor} أنشأ حساب ${customer}.\nالرصيد الافتتاحي: ${amount || '0 د.ع'}`};
     case 'DEBT_CREATED': return {title: 'دين جديد — صيدلية رعد', body: `سجّل ${actor} ديناً بقيمة ${amount} على حساب ${customer}.${suffix}`};
     case 'PAYMENT_CREATED': if (balance === 0) return {title:'تم تسديد الحساب بالكامل',body:`سجّل ${actor} تسديداً كاملاً لحساب ${customer}.\nالمبلغ المسدد: ${amount}${suffix}`}; return {title: 'تحصيل جديد — صيدلية رعد', body: `سجّل ${actor} تحصيلاً بقيمة ${amount} من حساب ${customer}.${suffix}`};
     case 'TRANSACTION_UPDATED': return {title: 'تم تعديل حركة مالية', body: `عدّل ${actor} حركة ${kind} في حساب ${customer}.\nالمبلغ الجديد: ${amount}${suffix}`};

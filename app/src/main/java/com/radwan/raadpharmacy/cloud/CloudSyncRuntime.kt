@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.withLock
 import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicInteger
 
 object CloudSyncRuntime {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -29,8 +30,11 @@ object CloudSyncRuntime {
     private val authObserverStarted = AtomicBoolean(false)
     private val presenceLoopStarted = AtomicBoolean(false)
     private val connectivityObserverStarted = AtomicBoolean(false)
+    private val foregroundDeltaLoopStarted = AtomicBoolean(false)
     private val fastSyncRunning = AtomicBoolean(false)
     private val fastSyncRequested = AtomicBoolean(false)
+    private val realtimeRecoveryRunning = AtomicBoolean(false)
+    private val consecutiveRealtimeFailures = AtomicInteger(0)
     private val lastBackgroundAt = AtomicLong(0L)
     private val runtimeStarted = AtomicBoolean(false)
     private val catchUpRunning = Mutex()
@@ -47,6 +51,7 @@ object CloudSyncRuntime {
         PixabaySoundAssets.prefetch(app)
         startPresenceLoop(app)
         startConnectivityObserver(app)
+        startForegroundDeltaLoop(app)
         scope.launch { runCatching { CloudTeamMessageStore(app).refresh() }.onFailure { reportFailure(it) } }
         // Warm saved accounts independently of financial sync and the settings screen.
         scope.launch { runCatching { CloudTeamStore(app).load() }.onFailure { reportFailure(it) } }
@@ -173,6 +178,31 @@ object CloudSyncRuntime {
         notificationRealtimeStarted.set(false)
     }
 
+    /** Recover a lost ledger subscription instead of leaving dataRealtimeStarted stuck true.
+     * Bounded retry delay avoids draining the battery when the internet is unavailable.
+     */
+    internal fun recoverLedgerRealtime(context: Context) {
+        if (!realtimeRecoveryRunning.compareAndSet(false, true)) return
+        scope.launch {
+            try {
+                val exponent = consecutiveRealtimeFailures.getAndIncrement().coerceAtMost(5)
+                delay((2_000L * (1L shl exponent)).coerceAtMost(60_000L))
+                if (CloudSyncScheduler.isEnabled(context)) {
+                    resetRealtime()
+                    runCatching { CloudSyncEngine(context).pullRemoteNow() }
+                        .onFailure { reportFailure(it) }
+                    startRealtimeIfPossible(context)
+                }
+            } finally {
+                realtimeRecoveryRunning.set(false)
+            }
+        }
+    }
+
+    internal fun ledgerRealtimeConnected() {
+        consecutiveRealtimeFailures.set(0)
+    }
+
     /** Keep the alert subscription healthy; do not turn continuous monitoring into bulk sync. */
     internal suspend fun maintainNotificationListening(context: Context) {
         if (!CloudSyncScheduler.isEnabled(context)) return
@@ -212,6 +242,23 @@ object CloudSyncRuntime {
                 }
             }
         )
+    }
+
+    /** Safety net for devices with degraded Realtime delivery: background-safe,
+     * foreground-only delta refresh. It never replaces the normal push subscription.
+     */
+    private fun startForegroundDeltaLoop(context: Context) {
+        if (!foregroundDeltaLoopStarted.compareAndSet(false, true)) return
+        scope.launch {
+            while (true) {
+                delay(15_000L)
+                if (CloudUiEvents.isAppForeground() && CloudSyncScheduler.isEnabled(context)
+                    && !fastSyncRunning.get() && !catchUpRunning.isLocked) {
+                    runCatching { CloudSyncEngine(context).pullRemoteNow() }
+                        .onFailure { reportFailure(it) }
+                }
+            }
+        }
     }
 
     private fun startPresenceLoop(context: Context) {

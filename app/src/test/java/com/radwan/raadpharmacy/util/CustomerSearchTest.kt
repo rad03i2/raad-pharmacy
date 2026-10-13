@@ -77,4 +77,24 @@ class CustomerSearchTest {
 
         assertEquals("3", result.first().id)
     }
+    @Test
+    fun phoneFormatsFindSameCustomerWithoutFalseTextMatches() {
+        for (query in listOf("07701234567", "+964 770 123 4567", "009647701234567", "7701234567", "٠٧٧٠١٢٣٤٥٦٧")) {
+            val result = CustomerSearch.rank(customers, query, { 0L }, { it.createdAt })
+            assertEquals("1", result.first().id)
+        }
+        assertEquals(emptyList<Customer>(),
+            CustomerSearch.rank(customers, "0999999", { 0L }, { it.createdAt }))
+    }
+
+    @Test
+    fun indexedSearchAgreesWithUnindexedSearchAndStableRanking() {
+        val index = CustomerSearch.buildIndex(customers)
+        for (query in listOf("", "أحمد", "احمد", "الجامعة", "0770", "محمد", "فؤاد")) {
+            val direct = CustomerSearch.rank(customers, query, { 0L }, { it.createdAt })
+            val indexed = CustomerSearch.rankIndexed(index, query, { 0L }, { it.createdAt })
+            assertEquals(direct.map { it.id }, indexed.map { it.id })
+        }
+    }
+
 }

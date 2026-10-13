@@ -70,9 +70,10 @@ fun SmartSearchScreenV4(
     val entries by vm.entries.collectAsStateWithLifecycle()
     var query by remember { mutableStateOf("") }
 
-    val results = remember(customers, entries, query) {
-        CustomerSearch.rank(
-            customers = customers,
+    val searchIndex = remember(customers) { CustomerSearch.buildIndex(customers) }
+    val results = remember(searchIndex, entries, query) {
+        CustomerSearch.rankIndexed(
+            index = searchIndex,
             query = query,
             balance = vm::balance,
             recentAt = { customer ->
