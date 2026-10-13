@@ -150,7 +150,11 @@ class CloudSyncEngine(context: Context) {
                 }
             }
             runCatching { channel.subscribe() }
-                .onFailure { Log.w(TAG, "Realtime channel subscription failed", it) }
+                .onSuccess { CloudSyncRuntime.ledgerRealtimeConnected() }
+                .onFailure {
+                    Log.w(TAG, "Realtime channel subscription failed; scheduling recovery", it)
+                    CloudSyncRuntime.recoverLedgerRealtime(appContext)
+                }
         }
 
         scope.launch {
