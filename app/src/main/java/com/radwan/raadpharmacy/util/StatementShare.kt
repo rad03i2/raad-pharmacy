@@ -46,12 +46,7 @@ object StatementShare {
 
         val packages = listOf("com.whatsapp", "com.whatsapp.w4b")
         for (pkg in packages) {
-            val intent = targetedWhatsappIntent(uri, message, normalized, pkg)
-            // Create a separate short-lived document task for every share.
-            // Android then cannot simply foreground an earlier WhatsApp share
-            // task when the user returns for a second or third customer.
-            // This is different from NEW_TASK alone, which reuses older tasks.
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+            val intent = freshTargetedWhatsappIntent(uri, message, normalized, pkg)
             if (runCatching {
                 context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 context.startActivity(intent)
@@ -80,6 +75,12 @@ object StatementShare {
             if (launched) return
         }
         throw IllegalStateException("لا يمكن فتح واتساب لمشاركة صورة الكشف.")
+    }
+
+    internal fun freshTargetedWhatsappIntent(
+        uri: Uri, text: String, phone: String, pkg: String
+    ): Intent = targetedWhatsappIntent(uri, text, phone, pkg).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
     }
 
     internal fun pickerWhatsappIntent(uri: Uri, text: String, pkg: String): Intent =
