@@ -78,16 +78,16 @@ fun SmartSearchScreenV12(
 
     var query by rememberSaveable { mutableStateOf("") }
 
-    val results = remember(customers, entries, query, intent) {
+    // Build the search index only when actual customers change. Typing is now
+    // O(n) with cached normalized fields instead of repeated name/phone parsing.
+    val indexedCustomers = remember(customers) { CustomerSearch.buildIndex(customers) }
+    val results = remember(indexedCustomers, entries, query, intent) {
         val source = if (intent == SearchIntentV12.PAYMENT) {
-            customers.filter { vm.balance(it) > 0L }
-        } else {
-            customers
-        }
-
-        CustomerSearch.rank(
-            customers = source,
-            query = query,
+            indexedCustomers.filter { vm.balance(it.customer) > 0L }
+        } else indexedCustomers
+        CustomerSearch.rankIndexed(
+            index = source,
+            query = query.trim(),
             balance = vm::balance,
             recentAt = { customer ->
                 vm.lastEntryFor(customer.id)?.createdAt ?: customer.createdAt
