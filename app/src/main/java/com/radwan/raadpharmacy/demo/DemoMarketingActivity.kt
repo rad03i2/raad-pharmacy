@@ -68,11 +68,25 @@ private fun DemoDisplay(exit: () -> Unit) {
     var page by remember { mutableStateOf("الرئيسية") }
     var selected by remember { mutableStateOf<DemoCustomer?>(null) }
     var search by remember { mutableStateOf("") }
+    var confirmExit by remember { mutableStateOf(false) }
     BackHandler {
         if (selected != null) selected = null
         else if (page != "الرئيسية") page = "الرئيسية"
+        else if (loggedIn) confirmExit = true
         else exit()
     }
+
+    if (confirmExit) AlertDialog(
+        onDismissRequest = { confirmExit = false },
+        title = { Text("إنهاء حساب العرض؟") },
+        text = { Text("عند الخروج ستعود إلى التطبيق الحقيقي. أوقف تسجيل الفيديو قبل المتابعة.") },
+        confirmButton = {
+            TextButton(onClick = exit) { Text("إنهاء العرض") }
+        },
+        dismissButton = {
+            TextButton(onClick = { confirmExit = false }) { Text("إلغاء") }
+        }
+    )
 
     if (!loggedIn) {
         Surface(Modifier.fillMaxSize()) {
@@ -108,7 +122,7 @@ private fun DemoDisplay(exit: () -> Unit) {
                         Text("دفتر صيدلية رعد", style = MaterialTheme.typography.titleLarge,
                             modifier = Modifier.weight(1f))
                         TextButton(onClick = {
-                            if (selected != null) selected = null else exit()
+                            if (selected != null) selected = null else confirmExit = true
                         }) { Text("رجوع") }
                     }
                     Text("وضع العرض • كل المعلومات والأرصدة والصور افتراضية",
