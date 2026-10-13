@@ -144,7 +144,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         )
 
         val customerEntries = dao.getEntriesForCustomer(customerId).map(LedgerEntryEntity::toModel)
-        if (updated.openingDebt != current.openingDebt && !LedgerRules.isChronologicallyValid(updated, customerEntries)) {
+        if (updated.openingDebt != current.openingDebt && !LedgerRules.isOpeningDebtEditSafe(current, updated, customerEntries)) {
             return MutationResult(
                 false,
                 "هذا التعديل يجعل أحد التحصيلات القديمة أكبر من الرصيد المتاح وقتها."
