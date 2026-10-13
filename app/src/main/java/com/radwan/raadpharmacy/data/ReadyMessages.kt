@@ -24,6 +24,23 @@ object ReadyMessages {
             "السلام عليكم\nنرجو مراجعة حسابكم المتأخر منذ {الأيام} يومًا.\nالزبون: {الزبون}\nالمبلغ المتبقي: {المبلغ} ({المبلغ_كتابة}).\nمرفق كشف الحساب.")
     }
 
+    fun kindFor(account: DebtFollowupEngine.Account): Kind {
+        if (account.specialOverdueAmount > 0L) {
+            return when (account.specialReminderDays) {
+                1 -> Kind.ONE_DAY
+                2 -> Kind.TWO_DAYS
+                7 -> Kind.ONE_WEEK
+                14 -> Kind.TWO_WEEKS
+                else -> Kind.NORMAL
+            }
+        }
+        return when {
+            (account.ageDays ?: 0L) >= 60L -> Kind.SIXTY_DAYS
+            (account.ageDays ?: 0L) >= 30L -> Kind.THIRTY_DAYS
+            else -> Kind.NORMAL
+        }
+    }
+
     private const val PREFS = "raad_ready_messages_v1"
     fun load(context: Context, kind: Kind): String =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
