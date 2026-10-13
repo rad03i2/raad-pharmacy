@@ -34,7 +34,6 @@ object CloudNotificationCenter {
         forceHidden: Boolean = false
     ): Boolean {
         val app = context.applicationContext
-        if (com.radwan.raadpharmacy.demo.DemoPrivacySession.isActive()) return false
         if (!canPost(app)) return false
         ensureChannels(app)
         if (eventId != null && hasActiveEvent(app, eventId)) return true
