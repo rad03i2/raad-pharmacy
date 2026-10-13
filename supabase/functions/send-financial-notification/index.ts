@@ -162,6 +162,10 @@ async function dispatch(event: Event, admin: SupabaseClient) {
       .in('user_id',memberIds).order('updated_at',{ascending:false});
     // An empty string is not a PostgreSQL UUID. Older events can have no actor device.
     if (event.actor_device_id) tokenQuery = tokenQuery.neq('device_id',event.actor_device_id);
+    // Server-side customer INSERT events cannot know the origin device ID.
+    // Exclude the creator's user to notify only the other pharmacy accounts.
+    if (event.event_type === 'CUSTOMER_CREATED' && event.actor_user_id)
+      tokenQuery = tokenQuery.neq('user_id', event.actor_user_id);
     if (event.event_type === 'TEAM_ALERT' || event.event_type === 'TEAM_MESSAGE') {
       if (!event.recipient_user_id) throw new Error('invalid_alert_recipient');
       if (event.event_type === 'TEAM_MESSAGE' && event.message_read_at) return await finish(true);
