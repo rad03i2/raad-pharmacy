@@ -23,6 +23,18 @@ class ReadyMessagesTest {
         assertTrue(rendered.contains("30 يومًا"))
     }
 
+    @Test fun templateMatchesAgreedOverduePeriod() {
+        val start = java.time.LocalDate.of(2026, 10, 1)
+        val created = start.atStartOfDay(DebtFollowupEngine.IRAQ_ZONE).toInstant().toEpochMilli()
+        val customer = Customer("customer", "أحمد", createdAt = created)
+        val entries = listOf(LedgerEntry("entry", "customer", EntryType.DEBT, 50000L,
+            createdAt = created, repaymentDays = 2))
+        val account = DebtFollowupEngine.calculate(customer, entries, start.plusDays(3))
+        assertEquals(ReadyMessages.Kind.TWO_DAYS, ReadyMessages.kindFor(account))
+        val normal = DebtFollowupEngine.calculate(customer, entries, start.plusDays(2))
+        assertEquals(ReadyMessages.Kind.NORMAL, ReadyMessages.kindFor(normal))
+    }
+
     @Test fun durationSpecificDefaultsNeverMentionThirtyDays() {
         val early = listOf(ReadyMessages.Kind.ONE_DAY, ReadyMessages.Kind.TWO_DAYS,
             ReadyMessages.Kind.ONE_WEEK, ReadyMessages.Kind.TWO_WEEKS)
