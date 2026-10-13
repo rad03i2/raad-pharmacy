@@ -127,14 +127,14 @@ fun StatementScreenV7(
                     StatementShare.shareImageToWhatsappContact(
                         context = context,
                         file = file,
-                        message = ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.Kind.NORMAL), snapshot.customer.name, snapshot.currentBalance),
+                        message = ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.kindFor(com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries))), snapshot.customer.name, snapshot.currentBalance),
                         phone = customer.phone.orEmpty()
                     )
                 } else {
                     StatementShare.shareImage(
                         context,
                         file,
-                        ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.Kind.NORMAL), snapshot.customer.name, snapshot.currentBalance),
+                        ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.kindFor(com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries))), snapshot.customer.name, snapshot.currentBalance),
                         false
                     )
                 }
@@ -160,7 +160,7 @@ fun StatementScreenV7(
                 StatementShare.shareImageToMessages(
                     context = context,
                     file = file,
-                    message = ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.Kind.NORMAL), snapshot.customer.name, snapshot.currentBalance),
+                    message = ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.kindFor(com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries))), snapshot.customer.name, snapshot.currentBalance),
                     phone = customer.phone.orEmpty()
                 )
             }
