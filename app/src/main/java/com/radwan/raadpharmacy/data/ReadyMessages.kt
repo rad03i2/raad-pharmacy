@@ -42,11 +42,16 @@ object ReadyMessages {
         ageDays: Long? = null
     ): String {
         val displayAmount = "%,d دينار عراقي".format(java.util.Locale.US, amount.coerceAtLeast(0L))
-        return template
+        val hasAmount = "{المبلغ}" in template
+        val hasAmountWords = "{المبلغ_كتابة}" in template
+        val rendered = template
             .replace("{الزبون}", customerName)
             .replace("{المبلغ}", displayAmount)
             .replace("{المبلغ_كتابة}", IraqiAmountWords.format(amount))
             .replace("{الأيام}", ageDays?.toString() ?: "—")
+        // The financial amount remains present even if the editor removes its placeholders.
+        return if (hasAmount && hasAmountWords) rendered else rendered.trimEnd() +
+            "\nالمبلغ المتبقي: $displayAmount (" + IraqiAmountWords.format(amount) + ")."
     }
 }
 
