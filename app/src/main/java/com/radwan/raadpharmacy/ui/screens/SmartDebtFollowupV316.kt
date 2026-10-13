@@ -233,16 +233,7 @@ fun SmartDebtFollowupV316(
                     message = ReadyMessages.render(
                         ReadyMessages.load(
                             context,
-                            if (record.specialOverdueAmount > 0L && record.specialReminderDays != null) when (record.specialReminderDays) {
-                                1 -> ReadyMessages.Kind.ONE_DAY
-                                2 -> ReadyMessages.Kind.TWO_DAYS
-                                7 -> ReadyMessages.Kind.ONE_WEEK
-                                14 -> ReadyMessages.Kind.TWO_WEEKS
-                                else -> ReadyMessages.Kind.NORMAL
-                            }
-                            else if ((record.ageDays ?: 0L) >= 60L) ReadyMessages.Kind.SIXTY_DAYS
-                            else if ((record.ageDays ?: 0L) >= 30L) ReadyMessages.Kind.THIRTY_DAYS
-                            else ReadyMessages.Kind.NORMAL
+                            ReadyMessages.kindFor(record)
                         ),
                         snapshot.customer.name,
                         snapshot.currentBalance,
