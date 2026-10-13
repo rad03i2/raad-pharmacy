@@ -20,7 +20,7 @@ object RepaymentTerms {
     fun pack(details: String, days: Int?): String {
         require(days == null || days in choices) { "Unsupported repayment reminder" }
         val cleaned = unpack(details).first
-        return if (days == null) cleaned else "$cleaned\\n[[RAAD_REPAY_V1:$days]]"
+        return if (days == null) cleaned else cleaned + 10.toChar() + "[[RAAD_REPAY_V1:$days]]"
     }
 
     fun label(days: Int): String = when (days) {
