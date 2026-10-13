@@ -30,6 +30,7 @@ object CloudSyncRuntime {
     private val authObserverStarted = AtomicBoolean(false)
     private val presenceLoopStarted = AtomicBoolean(false)
     private val connectivityObserverStarted = AtomicBoolean(false)
+    private val foregroundDeltaLoopStarted = AtomicBoolean(false)
     private val fastSyncRunning = AtomicBoolean(false)
     private val fastSyncRequested = AtomicBoolean(false)
     private val realtimeRecoveryRunning = AtomicBoolean(false)
@@ -50,6 +51,7 @@ object CloudSyncRuntime {
         PixabaySoundAssets.prefetch(app)
         startPresenceLoop(app)
         startConnectivityObserver(app)
+        startForegroundDeltaLoop(app)
         scope.launch { runCatching { CloudTeamMessageStore(app).refresh() }.onFailure { reportFailure(it) } }
         // Warm saved accounts independently of financial sync and the settings screen.
         scope.launch { runCatching { CloudTeamStore(app).load() }.onFailure { reportFailure(it) } }
@@ -240,6 +242,23 @@ object CloudSyncRuntime {
                 }
             }
         )
+    }
+
+    /** Safety net for devices with degraded Realtime delivery: background-safe,
+     * foreground-only delta refresh. It never replaces the normal push subscription.
+     */
+    private fun startForegroundDeltaLoop(context: Context) {
+        if (!foregroundDeltaLoopStarted.compareAndSet(false, true)) return
+        scope.launch {
+            while (true) {
+                delay(15_000L)
+                if (CloudUiEvents.isAppForeground() && CloudSyncScheduler.isEnabled(context)
+                    && !fastSyncRunning.get() && !catchUpRunning.isLocked) {
+                    runCatching { CloudSyncEngine(context).pullRemoteNow() }
+                        .onFailure { reportFailure(it) }
+                }
+            }
+        }
     }
 
     private fun startPresenceLoop(context: Context) {
