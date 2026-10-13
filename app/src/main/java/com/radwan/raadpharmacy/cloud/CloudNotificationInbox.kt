@@ -228,6 +228,10 @@ class CloudNotificationInbox(context: Context) {
                 title = "تنبيه من " + actor
                 body = actor + " يطلب انتباهك. افتح التطبيق للتواصل."
             }
+            "CUSTOMER_CREATED" -> {
+                title = "حساب زبون جديد — صيدلية رعد"
+                body = actor + " أنشأ حساب " + name + ".\\nالرصيد الافتتاحي: " + amountText
+            }
             "PAYMENT_CREATED" -> {
                 if (balanceAfter == 0.0) {
                     title = "تم تسديد الحساب بالكامل"
@@ -265,6 +269,7 @@ class CloudNotificationInbox(context: Context) {
     private fun CloudNotificationEventRow.uiTitle(): String = when (eventType) {
         "TEAM_MESSAGE" -> "رسالة جديدة"
         "TEAM_ALERT" -> "تنبيه من مستخدم"
+        "CUSTOMER_CREATED" -> "زبون جديد"
         "PAYMENT_CREATED" -> "تحصيل جديد"
         "DEBT_CREATED" -> "دين جديد"
         "TRANSACTION_UPDATED" -> "تم تعديل حركة"
