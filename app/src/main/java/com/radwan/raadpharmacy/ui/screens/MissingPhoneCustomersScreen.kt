@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -43,7 +44,8 @@ import com.radwan.raadpharmacy.util.formatMoney
 fun MissingPhoneCustomersScreen(
     vm: PharmacyLedgerViewModel,
     onBack: () -> Unit,
-    onCustomer: (String) -> Unit
+    onCustomer: (String) -> Unit,
+    onAddPhone: (String) -> Unit = onCustomer
 ) {
     val customers by vm.customers.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
@@ -129,6 +131,9 @@ fun MissingPhoneCustomersScreen(
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.error
                                 )
+                                OutlinedButton(onClick = { onAddPhone(customer.id) }) {
+                                    Text("إضافة رقم هاتف")
+                                }
                             }
                             Spacer(Modifier.size(2.dp))
                             Column(horizontalAlignment = Alignment.End) {
