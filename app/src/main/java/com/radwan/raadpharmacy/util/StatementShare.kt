@@ -96,7 +96,7 @@ object StatementShare {
     ): Intent = targetedWhatsappIntent(uri, text, phone, pkg)
 
     internal fun pickerWhatsappIntent(uri: Uri, text: String, pkg: String): Intent =
-        targetedWhatsappIntent(uri, text, "", pkg).apply { removeExtra("jid") }
+        platformMediaIntent(uri, text).apply { setPackage(pkg) }
 
     internal fun targetedWhatsappIntent(uri: Uri, text: String, phone: String, pkg: String): Intent =
         Intent(Intent.ACTION_SEND).apply {
@@ -107,6 +107,11 @@ object StatementShare {
             putExtra(Intent.EXTRA_TEXT, text)
             clipData = ClipData.newRawUri("statement", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // Replace a retained standard share receiver (and its old preview)
+            // before delivering the next customer's payload. Do not add SINGLE_TOP:
+            // it would reuse that receiver instead of recreating it. This does not
+            // create document tasks or force WhatsApp's internal Conversation class.
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
 
     internal fun hasActivityContext(context: Context): Boolean {

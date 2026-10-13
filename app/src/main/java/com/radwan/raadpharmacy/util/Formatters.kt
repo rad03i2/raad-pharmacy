@@ -44,6 +44,15 @@ fun normalizeIraqPhone(phone: String): String {
  * A malformed or missing number must never open an arbitrary contact.
  */
 fun validatedIraqiWhatsappPhone(raw: String): String? {
-    val normalized = normalizeIraqPhone(raw).filter { it in '0'..'9' }
+    // Saved/contact numbers may use 00964, Arabic or Persian digits. Normalize
+    // the routing value only; never rewrite the customer's stored phone number.
+    val digits = raw.mapNotNull { char -> Character.digit(char, 10).takeIf { it >= 0 } }
+        .joinToString("")
+    val normalized = when {
+        digits.startsWith("00") -> digits.drop(2)
+        digits.startsWith("964") -> digits
+        digits.startsWith("0") -> "964" + digits.drop(1)
+        else -> "964$digits"
+    }
     return normalized.takeIf { Regex("^9647[0-9]{9}$").matches(it) }
 }

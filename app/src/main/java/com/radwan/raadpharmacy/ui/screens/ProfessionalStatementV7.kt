@@ -61,8 +61,47 @@ import com.radwan.raadpharmacy.util.StatementSnapshot
 import com.radwan.raadpharmacy.util.formatDate
 import com.radwan.raadpharmacy.util.formatMoney
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+@Composable
+internal fun StatementWhatsappActions(
+    working: Boolean,
+    hasPhone: Boolean,
+    onDirectShare: () -> Unit,
+    onChooseRecipient: () -> Unit
+) {
+    Button(
+        onClick = if (hasPhone) onDirectShare else onChooseRecipient,
+        enabled = !working,
+        modifier = Modifier.fillMaxWidth().height(56.dp),
+        shape = MaterialTheme.shapes.large
+    ) {
+        if (working) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onPrimary
+            )
+            Spacer(Modifier.size(8.dp))
+            Text("جاري تجهيز الكشف...")
+        } else {
+            Icon(Icons.Rounded.Share, contentDescription = null)
+            Spacer(Modifier.size(8.dp))
+            Text("مشاركة صورة الكشف والنص عبر واتساب")
+        }
+    }
+    if (hasPhone) {
+        TextButton(
+            onClick = onChooseRecipient,
+            enabled = !working,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("مشاركة بديلة واختيار الزبون")
+        }
+    }
+}
 
 @Composable
 fun StatementScreenV7(
@@ -107,8 +146,8 @@ fun StatementScreenV7(
         )
     }
 
-    var working by remember { mutableStateOf(false) }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var working by remember(customerId) { mutableStateOf(false) }
+    var statusMessage by remember(customerId) { mutableStateOf<String?>(null) }
 
     fun statementMessage(): String {
         val account = com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries)
@@ -128,47 +167,60 @@ fun StatementScreenV7(
             return
         }
 
+        // Capture the entire receipt before rendering: a recomposition/navigation
+        // must not mix one customer's image with another customer's recipient/text.
+        val receipt = snapshot
+        val caption = statementMessage()
+        val recipient = customer.phone.orEmpty()
+        working = true
         scope.launch {
-            working = true
-            val result = runCatching {
+            try {
                 val file = withContext(Dispatchers.IO) {
-                    StatementDocumentRenderer.createPng(context, snapshot)
+                    StatementDocumentRenderer.createPng(context, receipt)
                 }
                 if (whatsappOnly) {
                     StatementShare.shareImageToWhatsappContact(
                         context = context,
                         file = file,
-                        message = statementMessage(),
-                        phone = customer.phone.orEmpty()
+                        message = caption,
+                        phone = recipient
                     )
                 } else {
                     StatementShare.shareImage(
                         context,
                         file,
-                        statementMessage(),
+                        caption,
                         false
                     )
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                statusMessage = error.message ?: "تعذر فتح WhatsApp أو تجهيز صورة كشف الحساب."
+            } finally {
+                working = false
             }
-            working = false
-            if (result.isFailure) statusMessage = "تعذر فتح WhatsApp أو تجهيز صورة كشف الحساب."
         }
     }
 
     fun shareWhatsappFallback() {
         if (working) return
+        val receipt = snapshot
+        val caption = statementMessage()
+        working = true
         scope.launch {
-            working = true
-            val result = runCatching {
+            try {
                 val file = withContext(Dispatchers.IO) {
-                    StatementDocumentRenderer.createPng(context, snapshot)
+                    StatementDocumentRenderer.createPng(context, receipt)
                 }
-                StatementShare.shareImageToWhatsappPicker(context, file, statementMessage())
+                StatementShare.shareImageToWhatsappPicker(context, file, caption)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                statusMessage = error.message ?: "تعذر فتح واجهة مشاركة الصورة والنص."
+            } finally {
+                working = false
             }
-            working = false
-            statusMessage = if (result.isSuccess)
-                "أُرسلت صورة الكشف والنص إلى واجهة مشاركة أندرويد. اختر واتساب ثم الزبون المعني وتأكد من الرقم قبل إرسال الرسالة."
-            else "تعذر فتح واجهة مشاركة الصورة والنص. تأكد من وجود تطبيق يدعم مشاركة الصور."
         }
     }
 
@@ -223,35 +275,12 @@ fun StatementScreenV7(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                Button(
-                    onClick = ::shareWhatsappFallback,
-                    enabled = !working,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = MaterialTheme.shapes.large
-                ) {
-                    if (working) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(Modifier.size(8.dp))
-                        Text("جاري تجهيز الكشف...")
-                    } else {
-                        Icon(Icons.Rounded.Share, contentDescription = null)
-                        Spacer(Modifier.size(8.dp))
-                        Text("مشاركة صورة الكشف والنص عبر واتساب")
-                    }
-                }
-                if (!customer.phone.isNullOrBlank()) {
-                    TextButton(
-                        onClick = { shareImage(true) },
-                        enabled = !working,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("محاولة فتح محادثة " + customer.name + " مباشرة")
-                    }
-                }
+                StatementWhatsappActions(
+                    working = working,
+                    hasPhone = !customer.phone.isNullOrBlank(),
+                    onDirectShare = { shareImage(true) },
+                    onChooseRecipient = ::shareWhatsappFallback
+                )
                 Text(
                     "المستلم المقصود: " + customer.name + " • " +
                         customer.phone.orEmpty() + " — تأكد من الرقم داخل واتساب.",
