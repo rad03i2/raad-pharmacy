@@ -151,13 +151,7 @@ fun StatementScreenV7(
 
     fun statementMessage(): String {
         val account = com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries)
-        val kind = ReadyMessages.kindFor(account)
-        return ReadyMessages.render(
-            ReadyMessages.load(context, kind),
-            snapshot.customer.name,
-            snapshot.currentBalance,
-            account.ageDays
-        )
+        return ReadyMessages.messageFor(context, account, snapshot.currentBalance)
     }
 
     fun shareImage(whatsappOnly: Boolean) {
@@ -280,12 +274,6 @@ fun StatementScreenV7(
                     hasPhone = !customer.phone.isNullOrBlank(),
                     onDirectShare = { shareImage(true) },
                     onChooseRecipient = ::shareWhatsappFallback
-                )
-                Text(
-                    "المستلم المقصود: " + customer.name + " • " +
-                        customer.phone.orEmpty() + " — تأكد من الرقم داخل واتساب.",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth()
                 )
                 }
             }
