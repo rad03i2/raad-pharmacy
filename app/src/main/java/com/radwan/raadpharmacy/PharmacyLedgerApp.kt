@@ -258,9 +258,8 @@ fun PharmacyLedgerApp(
                             if (now - lastNavigationAt >= 280L) {
                                 lastNavigationAt = now
                                 navController.navigate(route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    popUpTo(navController.graph.id) { inclusive = false }
                                     launchSingleTop = true
-                                    restoreState = true
                                 }
                             }
                         })
@@ -315,14 +314,8 @@ fun PharmacyLedgerApp(
                                             if (now - lastNavigationAt >= 280L) {
                                                 lastNavigationAt = now
                                                 navController.navigate(route) {
-                                                    popUpTo(
-                                                        navController.graph
-                                                            .findStartDestination().id
-                                                    ) {
-                                                        saveState = true
-                                                    }
+                                                    popUpTo(navController.graph.id) { inclusive = false }
                                                     launchSingleTop = true
-                                                    restoreState = true
                                                 }
                                             }
                                         }
