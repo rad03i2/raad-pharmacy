@@ -47,6 +47,7 @@ object StatementShare {
         val packages = listOf("com.whatsapp", "com.whatsapp.w4b")
         for (pkg in packages) {
             val intent = freshTargetedWhatsappIntent(uri, message, normalized, pkg)
+            if (!hasActivityContext(context)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (runCatching {
                 context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 context.startActivity(intent)
@@ -66,28 +67,33 @@ object StatementShare {
         require(file.isFile && file.length() > 0L) { "صورة الكشف غير موجودة." }
         require(message.isNotBlank()) { "رسالة كشف الحساب فارغة." }
         val uri = contentUri(context, file)
-        for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
-            val intent = pickerWhatsappIntent(uri, message, pkg)
-            val launched = runCatching {
-                context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                context.startActivity(intent)
-            }.isSuccess
-            if (launched) return
+        // The platform sharesheet is the supported path for repeated shares.
+        // Omitting the undocumented "jid" allows the recipient to be selected
+        // explicitly while keeping both the image and editable caption intact.
+        val media = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_TEXT, message)
+            clipData = ClipData.newRawUri("statement", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        throw IllegalStateException("لا يمكن فتح واتساب لمشاركة صورة الكشف.")
+        val chooser = Intent.createChooser(media, "اختر واتساب، ثم الزبون").apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = ClipData.newRawUri("statement", uri)
+            if (!hasActivityContext(context)) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
     }
 
+    // New-document/multiple-task broke the *first* share on real devices.
+    // Keep Android's normal ACTION_SEND task lifecycle. WhatsApp's JID
+    // is unofficial and the app may still ignore the intended recipient.
     internal fun freshTargetedWhatsappIntent(
         uri: Uri, text: String, phone: String, pkg: String
-    ): Intent = targetedWhatsappIntent(uri, text, phone, pkg).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-    }
+    ): Intent = targetedWhatsappIntent(uri, text, phone, pkg)
 
     internal fun pickerWhatsappIntent(uri: Uri, text: String, pkg: String): Intent =
-        targetedWhatsappIntent(uri, text, "", pkg).apply {
-            removeExtra("jid")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-        }
+        targetedWhatsappIntent(uri, text, "", pkg).apply { removeExtra("jid") }
 
     internal fun targetedWhatsappIntent(uri: Uri, text: String, phone: String, pkg: String): Intent =
         Intent(Intent.ACTION_SEND).apply {
