@@ -8,20 +8,37 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
+import androidx.core.content.FileProvider
+import androidx.test.core.app.ApplicationProvider
 import java.io.File
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Before
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowContentResolver
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class WhatsappReceiptLaunchTest {
+    @Before fun registerProviderForThisTestsCacheDirectory() {
+        // Robolectric gives each test a new dataDir, while AndroidX's URI
+        // strategy cache survives in the shared sandbox. attachInfo refreshes
+        // that strategy through FileProvider's public initialization API.
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val authority = app.packageName + ".fileprovider"
+        val info = app.packageManager.resolveContentProvider(authority, 0)!!
+        val provider = FileProvider()
+        provider.attachInfo(app, info)
+        provider.onCreate()
+        ShadowContentResolver.registerProviderInternal(authority, provider)
+    }
+
     private class RecordingContext(activity: Activity, private val ordinaryMissing: Boolean = false) : ContextWrapper(activity) {
         val launched = mutableListOf<Intent>()
         val grants = mutableListOf<Pair<String, Uri>>()

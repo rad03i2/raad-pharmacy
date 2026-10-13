@@ -47,8 +47,9 @@ fun validatedIraqiWhatsappPhone(raw: String): String? {
     // Saved/contact numbers may use 00964, Arabic or Persian digits. Normalize
     // the routing value only; never rewrite the customer's stored phone number.
     val digits = raw.mapNotNull { char -> Character.digit(char, 10).takeIf { it >= 0 } }
-        .joinToString("").removePrefix("00")
+        .joinToString("")
     val normalized = when {
+        digits.startsWith("00") -> digits.drop(2)
         digits.startsWith("964") -> digits
         digits.startsWith("0") -> "964" + digits.drop(1)
         else -> "964$digits"

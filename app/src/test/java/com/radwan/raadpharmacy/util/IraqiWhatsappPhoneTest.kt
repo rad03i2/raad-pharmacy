@@ -23,5 +23,6 @@ class IraqiWhatsappPhoneTest {
         assertNull(validatedIraqiWhatsappPhone("0712345678"))
         assertNull(validatedIraqiWhatsappPhone("+447701234567"))
         assertNull(validatedIraqiWhatsappPhone("0044 7701234567"))
+        assertNull(validatedIraqiWhatsappPhone("0007701234567"))
     }
 }
