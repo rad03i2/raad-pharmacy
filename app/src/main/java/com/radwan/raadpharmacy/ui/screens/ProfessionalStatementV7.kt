@@ -110,6 +110,17 @@ fun StatementScreenV7(
     var working by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
+    fun statementMessage(): String {
+        val account = com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries)
+        val kind = ReadyMessages.kindFor(account)
+        return ReadyMessages.render(
+            ReadyMessages.load(context, kind),
+            snapshot.customer.name,
+            snapshot.currentBalance,
+            account.ageDays
+        )
+    }
+
     fun shareImage(whatsappOnly: Boolean) {
         if (working) return
         if (whatsappOnly && customer.phone.isNullOrBlank()) {
@@ -127,14 +138,14 @@ fun StatementScreenV7(
                     StatementShare.shareImageToWhatsappContact(
                         context = context,
                         file = file,
-                        message = ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.kindFor(com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries))), snapshot.customer.name, snapshot.currentBalance),
+                        message = statementMessage(),
                         phone = customer.phone.orEmpty()
                     )
                 } else {
                     StatementShare.shareImage(
                         context,
                         file,
-                        ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.kindFor(com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries))), snapshot.customer.name, snapshot.currentBalance),
+                        statementMessage(),
                         false
                     )
                 }
@@ -160,7 +171,7 @@ fun StatementScreenV7(
                 StatementShare.shareImageToMessages(
                     context = context,
                     file = file,
-                    message = ReadyMessages.render(ReadyMessages.load(context, ReadyMessages.kindFor(com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries))), snapshot.customer.name, snapshot.currentBalance),
+                    message = statementMessage(),
                     phone = customer.phone.orEmpty()
                 )
             }
