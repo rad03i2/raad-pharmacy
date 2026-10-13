@@ -289,7 +289,7 @@ interface PharmacyLedgerDao {
     // Failure to persist the change journal rolls back the financial write as well.
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertCustomerRow(customer: CustomerEntity)
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertEntryRow(entry: LedgerEntryEntity)
     @Update
     suspend fun updateCustomerRow(customer: CustomerEntity)
@@ -415,8 +415,9 @@ interface PharmacyLedgerDao {
     @Transaction
     suspend fun insertEntry(entry: LedgerEntryEntity, origin: String = "LOCAL") {
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
-        if (getEntryById(entry.id) == entry) return
-        insertEntryRow(entry)
+        val existing = getEntryById(entry.id)
+        if (existing == entry) return
+        if (existing == null) insertEntryRow(entry) else updateEntryRow(entry)
         appendBackupChange(BackupChangeEntity.entry(entry, origin))
     }
     @Transaction
