@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.22.4",
+  "tag_name": "v3.3.22.5",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 72\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.4: التراجع عن أعلام تشغيل واتساب التي عطّلت المشاركة الأولى، وإبقاء المشاركة المباشرة أفضل محاولة فقط مع مشاركة النظام المضمونة للصورة والنص واختيار المستلم عند الحاجة.\nإمكانية تخصيص النصوص من الإعدادات الإضافية مع المبلغ بالأرقام والكتابة.\nإضافة موعد تسديد اختياري لكل دين وربطه بمسودة الحفظ والمزامنة والنسخ الاحتياطية دون مسح السجلات السابقة.\nفلتر موعد خاص في شاشة المتابعة مع مراعاة التسديد الجزئي حسب الأقدم أولاً؛ وتبقى المتابعة الاعتيادية للديون دون موعد خاص بعد 30 يومًا.\nيستمر التحقق من بصمة SHA-256 وشهادة التوقيع قبل تثبيت أي تحديث.",
+  "body": "VersionCode: 73\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.5: استعادة مشاركة الوصل إلى رقم الزبون من الزر الأساسي مع الصورة والنص الجاهز، وإبقاء اختيار المستلم ضمن زر مشاركة بديل منفصل.\nتثبيت بيانات كل وصل قبل التجهيز، ومنع الضغط المكرر، وفصل حالة الشاشة حسب الزبون.\nتحديث طلب المشاركة المباشرة لإعادة إنشاء مستقبل المشاركة القياسي عند بقائه في الخلفية، مع صور مستقلة لكل وصل وأذونات قراءة صحيحة ودعم WhatsApp Business.\nلا يتغير توقيع التطبيق أو حسابات الصيدلية أو بياناتها. استجابة واتساب للمستلم والمرفقات تحتاج تأكيدًا على الهاتف الفعلي؛ اختبارات Android لا تشغّل واتساب نفسه.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.22.4.apk",
+      "name": "Raad-Pharmacy-v3.3.22.5.apk",
       "size": 5483038,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.4/Raad-Pharmacy-v3.3.22.4.apk"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.5/Raad-Pharmacy-v3.3.22.5.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.22.4.apk.sha256",
+      "name": "Raad-Pharmacy-v3.3.22.5.apk.sha256",
       "size": 94,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.4/Raad-Pharmacy-v3.3.22.4.apk.sha256"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.5/Raad-Pharmacy-v3.3.22.5.apk.sha256"
     }
   ]
 }
