@@ -26,10 +26,8 @@ object StatementShare {
         message: String,
         phone: String
     ) {
-        val normalized = normalizeIraqPhone(phone)
-            .filter(Char::isDigit)
-            .removePrefix("00")
-        require(normalized.isNotBlank()) { "رقم الهاتف غير صالح." }
+        val normalized = validatedIraqiWhatsappPhone(phone)
+            ?: throw IllegalArgumentException("رقم الزبون غير صالح لفتح محادثة واتساب.")
         // WhatsApp's ACTION_SEND chooser sometimes ignores the jid extra. First
         // try opening the requested conversation explicitly, while carrying the
         // image URI and its caption. No automatic send is performed.
