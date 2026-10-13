@@ -66,11 +66,6 @@
         </provider>
 
         <activity
-            android:name=".demo.DemoMarketingActivity"
-            android:exported="false"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.RaadPharmacy" />
-        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:screenOrientation="portrait"

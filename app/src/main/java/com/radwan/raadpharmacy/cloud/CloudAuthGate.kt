@@ -3,8 +3,6 @@ package com.radwan.raadpharmacy.cloud
 import android.Manifest
 import com.radwan.raadpharmacy.notifications.FollowupNotificationScheduler
 import android.content.Context
-import android.content.Intent
-import com.radwan.raadpharmacy.demo.DemoMarketingActivity
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -141,7 +139,6 @@ private fun LoadingCloudSession() {
 
 @Composable
 private fun CloudLoginScreen() {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -232,13 +229,6 @@ private fun CloudLoginScreen() {
                     Text("دخول")
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            androidx.compose.material3.OutlinedButton(
-                modifier = Modifier.fillMaxWidth(),
-                onClick = {
-                    context.startActivity(Intent(context, DemoMarketingActivity::class.java))
-                }
-            ) { Text("الدخول إلى حساب العرض الإعلامي") }
         }
     }
 }
