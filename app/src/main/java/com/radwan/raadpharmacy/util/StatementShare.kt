@@ -47,10 +47,6 @@ object StatementShare {
         val packages = listOf("com.whatsapp", "com.whatsapp.w4b")
         for (pkg in packages) {
             val intent = targetedWhatsappIntent(uri, message, normalized, pkg)
-            // The share button lives in an Activity. Avoid NEW_TASK here: on
-            // repeat shares Android may simply bring WhatsApp's earlier task
-            // to the foreground, showing the previous chooser/chat state.
-            // Only non-Activity callers need this flag to start an Activity.
             // Create a separate short-lived document task for every share.
             // Android then cannot simply foreground an earlier WhatsApp share
             // task when the user returns for a second or third customer.
@@ -76,10 +72,7 @@ object StatementShare {
         require(message.isNotBlank()) { "رسالة كشف الحساب فارغة." }
         val uri = contentUri(context, file)
         for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
-            val intent = targetedWhatsappIntent(uri, message, "", pkg).apply {
-                removeExtra("jid")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-            }
+            val intent = pickerWhatsappIntent(uri, message, pkg)
             val launched = runCatching {
                 context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 context.startActivity(intent)
@@ -88,6 +81,12 @@ object StatementShare {
         }
         throw IllegalStateException("لا يمكن فتح واتساب لمشاركة صورة الكشف.")
     }
+
+    internal fun pickerWhatsappIntent(uri: Uri, text: String, pkg: String): Intent =
+        targetedWhatsappIntent(uri, text, "", pkg).apply {
+            removeExtra("jid")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+        }
 
     internal fun targetedWhatsappIntent(uri: Uri, text: String, phone: String, pkg: String): Intent =
         Intent(Intent.ACTION_SEND).apply {
