@@ -54,7 +54,7 @@ class TargetedWhatsappIntentTest {
         assertFalse(StatementShare.hasActivityContext(activity.applicationContext))
     }
 
-    @Test fun everyWhatsappShareIsANewAndroidDocumentWithCurrentPayload() {
+    @Test fun directShareNeverCreatesNewDocumentTasks() {
         val contacts = listOf(
             Triple("9647701111111", "تذكير بعد يوم", "first.png"),
             Triple("9647702222222", "تذكير بعد أسبوع", "second.png"),
@@ -66,8 +66,8 @@ class TargetedWhatsappIntentTest {
             assertEquals("$phone@s.whatsapp.net", intent.getStringExtra("jid"))
             assertEquals(caption, intent.getStringExtra(Intent.EXTRA_TEXT))
             assertEquals(uri, intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
-            assertTrue(intent.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT != 0)
-            assertTrue(intent.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK != 0)
+            assertEquals(0, intent.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+            assertEquals(0, intent.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
             assertTrue(intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
         }
     }
@@ -79,8 +79,23 @@ class TargetedWhatsappIntentTest {
         assertEquals("com.whatsapp.w4b", intent.`package`)
         assertEquals("المبلغ المتبقي: 50000", intent.getStringExtra(Intent.EXTRA_TEXT))
         assertEquals(uri, intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
-        assertTrue(intent.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT != 0)
-        assertTrue(intent.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK != 0)
+        assertEquals(0, intent.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+        assertEquals(0, intent.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+    }
+
+    @Test fun androidFallbackPreservesImageAndCaptionWithoutUndocumentedJid() {
+        val uri = Uri.parse("content://com.radwan.raadpharmacy.fileprovider/photo2.png")
+        val intent = StatementShare.platformMediaIntent(uri, "النص الجاهز للزبون الثاني")
+        assertEquals(Intent.ACTION_SEND, intent.action)
+        assertEquals("image/png", intent.type)
+        assertEquals(uri, intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
+        assertEquals("النص الجاهز للزبون الثاني", intent.getStringExtra(Intent.EXTRA_TEXT))
+        assertNull(intent.getStringExtra("jid"))
+        assertNull(intent.`package`)
+        assertTrue(intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+        assertEquals(0, intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK)
+        assertEquals(0, intent.flags and Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+        assertEquals(0, intent.flags and Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
     }
 
     private fun assertPrepared(packageName: String) {

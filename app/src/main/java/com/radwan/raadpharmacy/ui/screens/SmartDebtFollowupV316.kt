@@ -126,6 +126,7 @@ fun SmartDebtFollowupV316(
     var sharing by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var missingPhoneFor by remember { mutableStateOf<String?>(null) }
+    var lastSharedId by remember { mutableStateOf<String?>(null) }
 
     // Dates are derived, never stored; recompute when midnight passes in Baghdad.
     LaunchedEffect(Unit) {
@@ -200,17 +201,18 @@ fun SmartDebtFollowupV316(
         }
     }
 
-    fun share(id: String) {
+    fun share(id: String, useSystemChooser: Boolean = false) {
         if (sharing != null) return
         val record = records.firstOrNull { it.customer.id == id } ?: return
         val customer = record.customer
         val digits = validatedIraqiWhatsappPhone(customer.phone.orEmpty())
-        if (digits == null) {
+        if (!useSystemChooser && digits == null) {
             missingPhoneFor = id
             return
         }
         // Double taps are blocked synchronously before launching work.
         sharing = id
+        lastSharedId = id
         scope.launch {
             val result = runCatching {
                 val ownMovements = movements.filter { it.customerId == id }
@@ -227,25 +229,21 @@ fun SmartDebtFollowupV316(
                 val file = withContext(Dispatchers.Default) {
                     StatementDocumentRenderer.createPng(context, snapshot)
                 }
-                StatementShare.shareImageToWhatsappContact(
-                    context = context,
-                    file = file,
-                    message = ReadyMessages.render(
-                        ReadyMessages.load(
-                            context,
-                            ReadyMessages.kindFor(record)
-                        ),
-                        snapshot.customer.name,
-                        snapshot.currentBalance,
-                        record.ageDays
-                    ),
-                                        phone = digits
+                val caption = ReadyMessages.render(
+                    ReadyMessages.load(context, ReadyMessages.kindFor(record)),
+                    snapshot.customer.name, snapshot.currentBalance, record.ageDays
                 )
+                if (useSystemChooser) {
+                    StatementShare.shareImageToWhatsappPicker(context, file, caption)
+                } else {
+                    StatementShare.shareImageToWhatsappContact(context, file, caption, digits.orEmpty())
+                }
             }
             sharing = null
-            statusMessage = if (result.isSuccess)
-                "فُتحت واجهة مشاركة كشف الحساب. لم يتم تأكيد إرسال الرسالة من واتساب."
-            else "تعذر فتح مشاركة كشف الحساب. تحقق من رقم الهاتف ووجود واتساب."
+            statusMessage = if (result.isSuccess) {
+                if (useSystemChooser) "اختر واتساب والزبون المعني وتأكد من الرقم قبل إرسال الصورة والنص."
+                else "فُتحت محاولة المشاركة المباشرة. إذا لم تظهر الصورة والنص، استخدم المشاركة البديلة."
+            } else "تعذرت المشاركة. جرّب المشاركة البديلة بالصورة والنص."
         }
     }
 
@@ -254,7 +252,15 @@ fun SmartDebtFollowupV316(
             onDismissRequest = { statusMessage = null },
             title = { Text("مشاركة كشف الحساب") },
             text = { Text(msg) },
-            confirmButton = { TextButton(onClick = { statusMessage = null }) { Text("حسنًا") } }
+            confirmButton = { TextButton(onClick = { statusMessage = null }) { Text("حسنًا") } },
+            dismissButton = {
+                lastSharedId?.let { id ->
+                    TextButton(onClick = {
+                        statusMessage = null
+                        share(id, useSystemChooser = true)
+                    }) { Text("مشاركة بديلة بالصورة والنص") }
+                }
+            }
         )
     }
     missingPhoneFor?.let { id ->
