@@ -3,6 +3,7 @@ package com.radwan.raadpharmacy.ui.screens
 import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.SystemUpdate
@@ -95,6 +97,7 @@ fun SettingsScreenV10(
     var showAdditionalSettings by rememberSaveable { mutableStateOf(false) }
     var showMissingPhoneCustomers by rememberSaveable { mutableStateOf(false) }
     var showReadyMessages by rememberSaveable { mutableStateOf(false) }
+    var showReminderSettings by rememberSaveable { mutableStateOf(false) }
 
 
     if (showAbout) {
@@ -191,6 +194,20 @@ fun SettingsScreenV10(
 
     if (showReadyMessages) {
         ReadyMessagesSettingsScreen(onBack = { showReadyMessages = false })
+        return
+    }
+
+    if (showReminderSettings) {
+        BackHandler { showReminderSettings = false }
+        Scaffold(topBar = { ScreenTopBar("المتابعة الذكية", onBack = { showReminderSettings = false }) }) { padding ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item { SmartReminderSettingsCardV10(vm) }
+            }
+        }
         return
     }
 
@@ -317,8 +334,10 @@ fun SettingsScreenV10(
             item { SectionTitle("الأصوات والتأكيدات") }
             item { FinancialSoundSettingsCardV28(vm) }
 
-            item { SectionTitle("المتابعة الذكية") }
-            item { SmartReminderSettingsCardV10(vm) }
+            item {
+                V8SettingsRow(Icons.Rounded.NotificationsActive, "المتابعة الذكية",
+                    "إعدادات إشعارات المتابعة ومواعيدها") { showReminderSettings = true }
+            }
 
             item { SectionTitle("الخصوصية والأمان") }
             item { SecuritySettingsCardV9(vm) }

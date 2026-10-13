@@ -52,6 +52,10 @@ object ReadyMessages {
             .edit().putString(kind.name, text).apply()
     }
 
+    /** One routing path for both the statement and follow-up, including special agreements. */
+    fun messageFor(context: Context, account: DebtFollowupEngine.Account, amount: Long = account.balance): String =
+        render(load(context, kindFor(account)), account.customer.name, amount, account.ageDays)
+
     fun render(
         template: String,
         customerName: String,

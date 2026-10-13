@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,6 +66,7 @@ import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.data.DebtFollowupEngine
 import com.radwan.raadpharmacy.data.EntryType
 import com.radwan.raadpharmacy.data.ReadyMessages
+import com.radwan.raadpharmacy.data.FollowupReminderStore
 import com.radwan.raadpharmacy.ui.components.CustomerAvatar
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
 import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
@@ -74,6 +76,7 @@ import com.radwan.raadpharmacy.util.StatementSnapshot
 import com.radwan.raadpharmacy.util.formatMoney
 import com.radwan.raadpharmacy.util.validatedIraqiWhatsappPhone
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -127,6 +130,9 @@ fun SmartDebtFollowupV316(
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var missingPhoneFor by remember { mutableStateOf<String?>(null) }
     var lastSharedId by remember { mutableStateOf<String?>(null) }
+    val reminderStore = remember(context) { FollowupReminderStore(context) }
+    var reminderRevision by remember { mutableIntStateOf(0) }
+    var reminderConfirmation by remember { mutableStateOf(reminderStore.confirmation()) }
 
     // Dates are derived, never stored; recompute when midnight passes in Baghdad.
     LaunchedEffect(Unit) {
@@ -137,10 +143,16 @@ fun SmartDebtFollowupV316(
             delay(ChronoUnit.MILLIS.between(now, next).coerceAtLeast(1000L) + 1000L)
         }
     }
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, reminderStore) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 today = LocalDate.now(DebtFollowupEngine.IRAQ_ZONE)
+                reminderRevision++
+                reminderConfirmation = reminderStore.confirmation()
+            } else if (event == Lifecycle.Event.ON_PAUSE) {
+                runCatching { reminderStore.departed() }.onFailure {
+                    statusMessage = "تعذر حفظ حالة التذكير على الجهاز."
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -213,38 +225,72 @@ fun SmartDebtFollowupV316(
         // Double taps are blocked synchronously before launching work.
         sharing = id
         lastSharedId = id
+        // Capture one consistent account and template before asynchronous rendering.
+        val ownMovements = movements.filter { it.customerId == id }
+        val shareDate = today
         scope.launch {
-            val result = runCatching {
-                val ownMovements = movements.filter { it.customerId == id }
-                val debts = customer.openingDebt + ownMovements
-                    .filter { it.type == EntryType.DEBT }.sumOf { it.amount }
-                val payments = ownMovements.filter { it.type == EntryType.PAYMENT }.sumOf { it.amount }
+            var pending: FollowupReminderStore.Pending? = null
+            try {
+                val account = DebtFollowupEngine.calculate(customer, ownMovements, shareDate)
                 val snapshot = StatementSnapshot(
                     customer = customer,
                     entries = ownMovements,
-                    currentBalance = vm.balance(customer),
-                    totalDebts = debts,
-                    totalPaid = payments
+                    currentBalance = account.balance,
+                    totalDebts = customer.openingDebt + ownMovements.filter { it.type == EntryType.DEBT }.sumOf { it.amount },
+                    totalPaid = ownMovements.filter { it.type == EntryType.PAYMENT }.sumOf { it.amount }
                 )
+                val caption = ReadyMessages.messageFor(context, account)
+                val reminderCase = FollowupReminderStore.caseFor(account, ownMovements)
                 val file = withContext(Dispatchers.Default) {
                     StatementDocumentRenderer.createPng(context, snapshot)
                 }
-                val caption = ReadyMessages.render(
-                    ReadyMessages.load(context, ReadyMessages.kindFor(record)),
-                    snapshot.customer.name, snapshot.currentBalance, record.ageDays
-                )
+                check(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    "ارجع إلى شاشة المتابعة واضغط مشاركة الوصل مرة أخرى."
+                }
+                val request = reminderStore.stage(reminderCase)
+                pending = request
                 if (useSystemChooser) {
                     StatementShare.shareImageToWhatsappPicker(context, file, caption)
                 } else {
                     StatementShare.shareImageToWhatsappContact(context, file, caption, digits.orEmpty())
                 }
+                reminderStore.launched(request.token)
+                // Launching WhatsApp is not proof of sending. ON_RESUME asks the
+                // user to confirm after an actual pause/resume round trip.
+            } catch (cancelled: CancellationException) {
+                pending?.let { runCatching { reminderStore.discard(it.token) } }
+                throw cancelled
+            } catch (error: Exception) {
+                pending?.let { runCatching { reminderStore.discard(it.token) } }
+                statusMessage = "تعذرت المشاركة. جرّب المشاركة البديلة بالصورة والنص."
+            } finally {
+                sharing = null
             }
-            sharing = null
-            statusMessage = if (result.isSuccess) {
-                if (useSystemChooser) "اختر واتساب والزبون المعني وتأكد من الرقم قبل إرسال الصورة والنص."
-                else "فُتحت محاولة المشاركة المباشرة. إذا لم تظهر الصورة والنص، استخدم المشاركة البديلة."
-            } else "تعذرت المشاركة. جرّب المشاركة البديلة بالصورة والنص."
         }
+    }
+
+    reminderConfirmation?.let { request ->
+        val customerName = customers.firstOrNull { it.id == request.case.customerId }?.name ?: "هذا الزبون"
+        fun discardRequest() {
+            runCatching { reminderStore.discard(request.token) }.onFailure {
+                statusMessage = "تعذر حفظ حالة التذكير على الجهاز."
+            }
+            reminderConfirmation = null
+        }
+        FollowupReminderConfirmation(
+            customerName = customerName,
+            onSent = {
+                if (reminderStore.confirmSent(request.token)) {
+                    reminderRevision++
+                    reminderConfirmation = null
+                } else {
+                    reminderConfirmation = null
+                    statusMessage = "تعذر حفظ علامة التذكير. جرّب مرة أخرى."
+                }
+            },
+            onCanceled = ::discardRequest,
+            onAlternative = { discardRequest(); share(request.case.customerId, useSystemChooser = true) }
+        )
     }
 
     statusMessage?.let { msg ->
@@ -450,11 +496,14 @@ fun SmartDebtFollowupV316(
                 }
             } else {
                 items(shown, key = { it.customer.id }) { item ->
+                    val reminderCase = remember(item, movements) { FollowupReminderStore.caseFor(item, movements) }
+                    val remindedAt = remember(reminderCase, reminderRevision) { reminderStore.confirmedAt(reminderCase) }
                     FollowupAccountCard(
                         record = item,
                         hideAmounts = security.hideAmounts,
                         isSharing = sharing == item.customer.id,
                         isBusy = sharing != null,
+                        remindedAt = remindedAt,
                         onShare = { share(item.customer.id) },
                         onOpen = { onCustomer(item.customer.id) }
                     )
@@ -467,6 +516,45 @@ fun SmartDebtFollowupV316(
                     modifier = Modifier.padding(vertical = 9.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+internal fun FollowupReminderConfirmation(
+    customerName: String,
+    onSent: () -> Unit,
+    onCanceled: () -> Unit,
+    onAlternative: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onCanceled,
+        title = { Text("تأكيد التذكير") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("هل أرسلت الوصل والرسالة إلى $customerName عبر واتساب؟")
+                TextButton(onClick = onAlternative) { Text("مشاركة بديلة بالصورة والنص") }
+            }
+        },
+        confirmButton = { TextButton(onClick = onSent) { Text("نعم، تم الإرسال") } },
+        dismissButton = { TextButton(onClick = onCanceled) { Text("لم أرسل") } }
+    )
+}
+
+@Composable
+internal fun FollowupReminderBadge(remindedAt: Long?) {
+    if (remindedAt == null) return
+    val green = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) Color(0xFF79DDB0) else Color(0xFF137D58)
+    val time = Instant.ofEpochMilli(remindedAt).atZone(DebtFollowupEngine.IRAQ_ZONE)
+    val stamp = time.toLocalDate().format(clockFormat) + " • " +
+        time.format(DateTimeFormatter.ofPattern("h:mm", Locale.US)) +
+        if (time.hour < 12) " صباحًا" else " مساءً"
+    Surface(color = green.copy(alpha = 0.12f), shape = MaterialTheme.shapes.medium) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = green, modifier = Modifier.size(18.dp))
+            Text("تم تذكيره • $stamp", color = green, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -493,6 +581,7 @@ private fun FollowupAccountCard(
     hideAmounts: Boolean,
     isSharing: Boolean,
     isBusy: Boolean,
+    remindedAt: Long?,
     onShare: () -> Unit,
     onOpen: () -> Unit
 ) {
@@ -547,6 +636,7 @@ private fun FollowupAccountCard(
                         color = shade, style = MaterialTheme.typography.labelSmall)
                 }
             }
+            FollowupReminderBadge(remindedAt)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("الرصيد الحالي", style = MaterialTheme.typography.labelSmall,
