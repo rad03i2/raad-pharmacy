@@ -64,7 +64,7 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
-    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/phone-whatsapp/assets"))
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/phone-whatsapp/assets").get().asFile)
 }
 
 val packagePhoneWhatsappHelper by tasks.registering(Exec::class) {
