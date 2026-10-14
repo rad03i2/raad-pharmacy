@@ -1,0 +1,5 @@
+node_modules/
+session/
+config.json
+linked-number.json
+trial-journal.json*

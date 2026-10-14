@@ -47,8 +47,8 @@ jobs:
       - name: Verify stable version metadata
         shell: bash
         run: |
-          grep -q 'versionName = "3.3.22.6"' app/build.gradle.kts
-          grep -q 'versionCode = 74' app/build.gradle.kts
+          grep -q 'versionName = "3.3.22.7"' app/build.gradle.kts
+          grep -q 'versionCode = 75' app/build.gradle.kts
           if grep -q 'versionName = ".*-rc' app/build.gradle.kts; then
             echo "Release candidate suffix is still present."
             exit 1
@@ -69,6 +69,20 @@ jobs:
 
       - name: Run unit, Room and Compose tests
         run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Set up Node for phone WhatsApp trial
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tools/phone-whatsapp/package-lock.json
+
+      - name: Verify local phone sender without contacting WhatsApp
+        working-directory: tools/phone-whatsapp
+        run: |
+          npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
+          npm run verify-runtime
+          npm test
 
       - name: Run release lint
         run: gradle :app:lintRelease --stacktrace
