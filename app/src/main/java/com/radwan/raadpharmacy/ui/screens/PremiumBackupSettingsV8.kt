@@ -98,6 +98,7 @@ fun SettingsScreenV10(
     var showMissingPhoneCustomers by rememberSaveable { mutableStateOf(false) }
     var showReadyMessages by rememberSaveable { mutableStateOf(false) }
     var showReminderSettings by rememberSaveable { mutableStateOf(false) }
+    var showPhoneWhatsapp by rememberSaveable { mutableStateOf(false) }
 
 
     if (showAbout) {
@@ -172,6 +173,11 @@ fun SettingsScreenV10(
                 TextButton(onClick = { message = null }) { Text("حسنًا") }
             }
         )
+    }
+
+    if (showPhoneWhatsapp) {
+        PhoneWhatsappTrialScreen(onBack = { showPhoneWhatsapp = false })
+        return
     }
 
     if (showMissingPhoneCustomers) {
@@ -337,6 +343,10 @@ fun SettingsScreenV10(
             item {
                 V8SettingsRow(Icons.Rounded.NotificationsActive, "المتابعة الذكية",
                     "إعدادات إشعارات المتابعة ومواعيدها") { showReminderSettings = true }
+            }
+            item {
+                V8SettingsRow(Icons.Rounded.NotificationsActive, "مساعد واتساب • تجربة الربط",
+                    "إعداد المرسل على الهاتف واختبار وصول الصورة والنص") { showPhoneWhatsapp = true }
             }
 
             item { SectionTitle("الخصوصية والأمان") }

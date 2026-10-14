@@ -15,8 +15,8 @@ android {
         applicationId = "com.radwan.raadpharmacy"
         minSdk = 26
         targetSdk = 37
-        versionCode = 74
-        versionName = "3.3.22.6"
+        versionCode = 75
+        versionName = "3.3.22.7"
         buildConfigField("String", "SUPABASE_URL", "\"https://gsyrjhqkbfomxqacexle.supabase.co\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_dEvMmAVvoihNljWjLAutRg_lkAD934q\"")
         manifestPlaceholders["debtVoicePermission"] =
@@ -64,7 +64,21 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/phone-whatsapp/assets").get().asFile)
 }
+
+val packagePhoneWhatsappHelper by tasks.registering(Exec::class) {
+    val helperDir = rootProject.file("tools/phone-whatsapp")
+    val archive = layout.buildDirectory.file("generated/phone-whatsapp/assets/raad-phone-whatsapp.tgz")
+    inputs.files(fileTree(helperDir) {
+        include("*.mjs", "*.json", "*.sh", "build-asset.py")
+        exclude("config.json", "linked-number.json", "trial-journal.json")
+    })
+    outputs.file(archive)
+    workingDir(rootProject.projectDir)
+    commandLine("python3", "tools/phone-whatsapp/build-asset.py", "--output", archive.get().asFile.absolutePath)
+}
+tasks.named("preBuild") { dependsOn(packagePhoneWhatsappHelper) }
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")

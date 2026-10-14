@@ -82,6 +82,22 @@ jobs:
           # Room debug/release KSP tasks share the schema directory; one worker prevents concurrent schema writes.
           gradle --max-workers=1 :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
 
+      - name: Set up Node for phone WhatsApp trial
+        if: steps.gate.outputs.publish == 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tools/phone-whatsapp/package-lock.json
+
+      - name: Verify local phone sender without contacting WhatsApp
+        if: steps.gate.outputs.publish == 'true'
+        working-directory: tools/phone-whatsapp
+        run: |
+          npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
+          npm run verify-runtime
+          npm test
+
       - name: Set up Deno for dispatcher verification
         if: steps.gate.outputs.publish == 'true'
         uses: denoland/setup-deno@v2
@@ -190,10 +206,11 @@ jobs:
             echo "VersionCode: $code"
             echo "SigningCertificateSHA256: $signer"
             echo
-            echo "تحديث 3.3.22.6: إزالة ملاحظة المستلم من كشف الحساب، ووضع إعدادات المتابعة الذكية خلف زر يفتح شاشة مستقلة."
-            echo "توحد مشاركة الكشف والمتابعة قراءة الرسائل المحفوظة في الإعدادات؛ الموعد الخاص يختار مدة الاتفاق، والمتابعة الاعتيادية تختار رسالة 30 أو 60 يومًا فأكثر."
-            echo "علامة خضراء بتاريخ ووقت آخر تذكير مؤكد على الجهاز. عند العودة من واتساب، اختر نعم تم الإرسال لتسجيلها؛ الإلغاء أو مجرد فتح واتساب لا يسجلان إرسالًا."
-            echo "تظل العلامة مع التسديد الجزئي لنفس حالة الدين، وتُعاد المتابعة عند دين جديد أو تغير الموعد أو الحالة. بيانات الدين والتحصيل والمزامنة والتوقيع محفوظة."
+            echo "تحديث 3.3.22.7: المرحلة الأولى لمساعد واتساب المجاني على الهاتف، من الضبط ثم مساعد واتساب • تجربة الربط."
+            echo "إعداد Termux بأمر يُنسخ من التطبيق، وربط حساب واتساب برمز، وإرسال صورة ونص تجريبيين إلى رقم يحدده المستخدم."
+            echo "حفظ محاولة الاختبار قبل الإرسال ومنع إعادة الطلب نفسه، مع حالات مستقلة لتسجيل الطلب وتأكيد الإرسال والتسليم والقراءة عند توفرها."
+            echo "لا توجد جدولة لتذكيرات الزبائن في هذه المرحلة؛ نجاح الربط والإرسال والعمل في الخلفية يحتاج تجربة فعلية على الهاتف."
+            echo "المساعد غير رسمي وقد يتوقف في الخلفية أو يُقيّد حساب واتساب. بيانات الدفتر والمزامنة والتوقيع محفوظة."
           } > "$RUNNER_TEMP/release-notes.txt"
           echo "RAAD_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           echo "RAAD_RELEASE_NOTES=$RUNNER_TEMP/release-notes.txt" >> "$GITHUB_ENV"
