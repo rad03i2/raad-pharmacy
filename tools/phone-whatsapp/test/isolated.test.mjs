@@ -56,7 +56,7 @@ test('a socket crash leaves HTTP status available and an explicit retry starts a
   });
   assert.equal(response.status, 200);
   const status = await response.json();
-  assert.equal(status.helperVersion, '3.3.22.8');
+  assert.equal(status.helperVersion, '3.3.22.9');
   assert.equal(status.state, 'error');
   assert.equal(status.errorCode, 'runtime_exit');
   await f.adapter.connect('9647701234567');
