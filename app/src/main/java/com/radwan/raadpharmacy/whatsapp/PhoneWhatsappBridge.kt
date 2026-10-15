@@ -73,7 +73,7 @@ internal object PhoneWhatsappSetup {
             sh "${'$'}raad_bridge_dir/install.sh" '$token'
         """.trimIndent()
     }
-    const val RESUME_COMMAND = "sh \"${'
+    const val RESUME_COMMAND = "sh \"${'$'}HOME/.raad-whatsapp/supervisor.sh\""
 }
 
 /** Fixed loopback destination, no redirects/proxy, bounded responses and no automatic retry. */
@@ -102,78 +102,6 @@ internal class PhoneWhatsappClient(private val token: () -> String, private val 
             .put("imageBase64", Base64.encodeToString(image.image, Base64.NO_WRAP))
             .put("thumbnailBase64", Base64.encodeToString(image.thumbnail, Base64.NO_WRAP))
         return parseTrial(request("POST", "/auto", body).getJSONObject("job"))
-    }
-    private suspend fun request(method: String, path: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
-        val key = token()
-        require(Regex("^[a-f0-9]{64}$").matches(key))
-        val connection = URL("http://127.0.0.1:$port$path").openConnection(Proxy.NO_PROXY) as HttpURLConnection
-        try {
-            connection.requestMethod = method
-            connection.instanceFollowRedirects = false
-            connection.connectTimeout = 4_000
-            connection.readTimeout = 5_000
-            connection.setRequestProperty("Authorization", "Bearer $key")
-            connection.setRequestProperty("Accept", "application/json")
-            if (body != null) {
-                val bytes = body.toString().toByteArray(Charsets.UTF_8)
-                require(bytes.size <= 300_000)
-                connection.doOutput = true
-                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                connection.setFixedLengthStreamingMode(bytes.size)
-                connection.outputStream.use { it.write(bytes) }
-            }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val content = stream?.use { input ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(4_096)
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    check(output.size() + count <= 64_000) { "رد المساعد أكبر من الحد المسموح." }
-                    output.write(buffer, 0, count)
-                }
-                output.toString(Charsets.UTF_8.name())
-            }.orEmpty()
-            val json = runCatching { JSONObject(content) }.getOrElse { throw IllegalStateException("تعذر قراءة رد المساعد.") }
-            check(json.optString("protocol") == PHONE_WHATSAPP_PROTOCOL) { "أعد إعداد المساعد باستخدام الأمر من هذا الإصدار." }
-            check(status in 200..299) { json.optString("error", "تعذر تنفيذ طلب المساعد.") }
-            json
-        } finally { connection.disconnect() }
-    }
-    private fun parseStatus(json: JSONObject) = PhoneWhatsappStatus(
-        state = if (json.optString("helperVersion") == PHONE_WHATSAPP_HELPER_VERSION)
-            json.optString("state", "unavailable") else "upgrade_required",
-        phone = json.optionalString("phone"),
-        pairingCode = if (json.optString("helperVersion") == PHONE_WHATSAPP_HELPER_VERSION) json.optionalString("pairingCode") else null,
-        busy = json.optBoolean("busy", false), errorCode = json.optionalString("errorCode")
-    )
-    private fun parseTrial(json: JSONObject) = PhoneWhatsappTrial(
-        id = json.getString("id"), phone = json.getString("phone"), senderPhone = json.optionalString("senderPhone"),
-        state = json.getString("state"), updatedAt = json.getLong("updatedAt")
-    )
-}
-
-private fun JSONObject.optionalString(key: String): String? = if (isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
-}HOME/.raad-whatsapp/supervisor.sh\""
-}
-
-/** Fixed loopback destination, no redirects/proxy, bounded responses and no automatic retry. */
-internal class PhoneWhatsappClient(private val token: () -> String, private val port: Int = PHONE_WHATSAPP_PORT) {
-    suspend fun status(): PhoneWhatsappStatus = parseStatus(request("GET", "/status"))
-    suspend fun connect(phone: String) = parseStatus(request("POST", "/connect", JSONObject().put("phone", phone)))
-    suspend fun unlink() = parseStatus(request("POST", "/unlink", JSONObject()))
-    suspend fun stop() = parseStatus(request("POST", "/stop", JSONObject()))
-    suspend fun trial(id: String): PhoneWhatsappTrial {
-        require(UUID.fromString(id).version() == 4)
-        return parseTrial(request("GET", "/jobs/$id").getJSONObject("job"))
-    }
-    suspend fun sendTrial(id: String, phone: String, image: PhoneWhatsappTestImage.Payload): PhoneWhatsappTrial {
-        require(UUID.fromString(id).version() == 4)
-        val body = JSONObject().put("requestId", id).put("phone", phone)
-            .put("imageBase64", Base64.encodeToString(image.image, Base64.NO_WRAP))
-            .put("thumbnailBase64", Base64.encodeToString(image.thumbnail, Base64.NO_WRAP))
-        return parseTrial(request("POST", "/test", body).getJSONObject("job"))
     }
     private suspend fun request(method: String, path: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
         val key = token()
