@@ -9,7 +9,8 @@ const directory = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(join(directory, 'config.json'), 'utf8'));
 const adapter = new IsolatedWhatsappAdapter(directory);
 const store = new TrialStore(join(directory, 'trial-journal.json'));
-const service = createTrialService({ token: config.token, adapter, store });
+const autoStore = new TrialStore(join(directory, 'auto-journal.json'), 5000);
+const service = createTrialService({ token: config.token, adapter, store, autoStore });
 try {
   await service.listen();
   console.log('مساعد واتساب جاهز. ارجع إلى دفتر الصيدلية لإجراء الربط والتجربة.');
