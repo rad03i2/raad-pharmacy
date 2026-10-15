@@ -14,12 +14,14 @@ import java.util.UUID
 
 internal const val PHONE_WHATSAPP_PROTOCOL = "raad-phone-whatsapp-trial-v1"
 internal const val PHONE_WHATSAPP_PORT = 39761
+internal const val PHONE_WHATSAPP_HELPER_VERSION = "3.3.22.8"
 
 internal data class PhoneWhatsappStatus(
     val state: String = "unavailable",
     val phone: String? = null,
     val pairingCode: String? = null,
-    val busy: Boolean = false
+    val busy: Boolean = false,
+    val errorCode: String? = null
 )
 
 internal data class PhoneWhatsappTrial(val id: String, val phone: String, val senderPhone: String?, val state: String, val updatedAt: Long)
@@ -130,8 +132,11 @@ internal class PhoneWhatsappClient(private val token: () -> String, private val 
         } finally { connection.disconnect() }
     }
     private fun parseStatus(json: JSONObject) = PhoneWhatsappStatus(
-        state = json.optString("state", "unavailable"), phone = json.optionalString("phone"),
-        pairingCode = json.optionalString("pairingCode"), busy = json.optBoolean("busy", false)
+        state = if (json.optString("helperVersion") == PHONE_WHATSAPP_HELPER_VERSION)
+            json.optString("state", "unavailable") else "upgrade_required",
+        phone = json.optionalString("phone"),
+        pairingCode = if (json.optString("helperVersion") == PHONE_WHATSAPP_HELPER_VERSION) json.optionalString("pairingCode") else null,
+        busy = json.optBoolean("busy", false), errorCode = json.optionalString("errorCode")
     )
     private fun parseTrial(json: JSONObject) = PhoneWhatsappTrial(
         id = json.getString("id"), phone = json.getString("phone"), senderPhone = json.optionalString("senderPhone"),

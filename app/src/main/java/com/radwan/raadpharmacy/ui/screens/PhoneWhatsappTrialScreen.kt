@@ -111,7 +111,7 @@ internal fun PhoneWhatsappTrialScreen(onBack: () -> Unit) {
             while (true) {
                 try { refresh() }
                 catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { bridge = PhoneWhatsappStatus(); verifiedAt = 0L }
+                catch (_: Exception) { bridge = PhoneWhatsappStatus(state = "unreachable"); verifiedAt = 0L }
                 delay(3_000)
             }
         }
@@ -179,10 +179,11 @@ internal fun PhoneWhatsappTrialScreen(onBack: () -> Unit) {
             item {
                 TrialPanel("ربط واتساب المرسل") {
                     Text(bridgeStateText(bridge.state), style = MaterialTheme.typography.titleSmall)
+                    bridge.errorCode?.let { Text(phoneWhatsappFailureText(it), style = MaterialTheme.typography.bodyMedium) }
                     OutlinedTextField(senderPhone, { senderPhone = it.take(80) }, label = { Text("رقم واتساب الذي سيرسل") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), singleLine = true,
                         enabled = !working && !bridge.busy && bridge.state != "connected", modifier = Modifier.fillMaxWidth())
-                    Button(enabled = !working && !bridge.busy && bridge.state != "connected" && validatedIraqiWhatsappPhone(senderPhone) != null,
+                    Button(enabled = !working && !bridge.busy && bridge.state !in listOf("connected", "connecting", "starting", "upgrade_required") && validatedIraqiWhatsappPhone(senderPhone) != null,
                         onClick = { perform { bridge = client.connect(validatedIraqiWhatsappPhone(senderPhone)!!) } },
                         modifier = Modifier.fillMaxWidth()) { Text(if (bridge.pairingCode == null) "طلب رمز الربط" else "طلب رمز جديد") }
                     bridge.pairingCode?.let { code ->
@@ -262,13 +263,27 @@ internal fun PhoneWhatsappTrialResult(state: String) {
     }, style = MaterialTheme.typography.bodyMedium)
 }
 
-private fun bridgeStateText(state: String): String = when (state) {
+internal fun bridgeStateText(state: String): String = when (state) {
     "connected" -> "المساعد متصل بواتساب"
     "connecting" -> "جاري الاتصال بواتساب…"
+    "starting" -> "جاري تجهيز اتصال واتساب؛ انتظر قليلًا…"
+    "upgrade_required" -> "حدّث مساعد Termux: انسخ أمر الإعداد من هذا التحديث وشغّله مرة واحدة"
+    "unreachable" -> "تعذر الوصول إلى Termux. افتحه وتأكد أن المساعد يعمل، ثم افحص الاتصال"
     "pairing" -> "بانتظار إدخال رمز الربط في واتساب"
     "disconnected" -> "انقطع اتصال واتساب؛ افحص الإنترنت ثم اطلب الاتصال"
     "logged_out" -> "انتهى الربط. ألغِ ربط المساعد ثم اربطه مجددًا"
     "error" -> "تعذر الربط. افحص الإنترنت ثم اطلب رمزًا جديدًا"
     "idle" -> "المساعد يعمل؛ يمكن طلب رمز الربط"
     else -> "المساعد متوقف أو لم يُجهّز بعد"
+}
+
+internal fun phoneWhatsappFailureText(code: String): String = when (code) {
+    "runtime_exit", "runtime_start_failed" -> "توقف محرك اتصال واتساب؛ المساعد المحلي ما زال يعمل. اطلب الربط مجددًا دون إعادة تثبيت Termux."
+    "runtime_killed" -> "أنهى الهاتف محرك اتصال واتساب. افتح إعدادات بطارية Termux واجعل تشغيله دون تقييد ثم أعد الربط."
+    "runtime_incomplete" -> "ملفات محرك واتساب غير مكتملة. انسخ أمر الإعداد من هذا التحديث وشغّله مرة واحدة في Termux."
+    "pairing_timeout", "request_timeout" -> "انتهت مهلة الاتصال بواتساب. افحص الإنترنت ثم اطلب رمزًا جديدًا."
+    "pairing_rejected" -> "لم يقبل واتساب الربط. افتح الأجهزة المرتبطة في واتساب ثم أعد طلب الرمز."
+    "session_storage" -> "تعذر حفظ جلسة واتساب. افحص مساحة الهاتف وصلاحية مجلد Termux."
+    "network_error" -> "تعذر الاتصال بخوادم واتساب؛ ستجري محاولات اتصال محدودة دون إرسال رسائل."
+    else -> "تعذر بدء اتصال واتساب. الخدمة المحلية تعمل؛ افحص الاتصال ثم أعد طلب الربط."
 }

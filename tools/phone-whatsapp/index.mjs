@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BaileysAdapter } from './baileys-adapter.mjs';
+import { IsolatedWhatsappAdapter } from './isolated-adapter.mjs';
 import { TrialStore } from './store.mjs';
 import { createTrialService } from './service.mjs';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(readFileSync(join(directory, 'config.json'), 'utf8'));
-const adapter = new BaileysAdapter(directory);
+const adapter = new IsolatedWhatsappAdapter(directory);
 const store = new TrialStore(join(directory, 'trial-journal.json'));
 const service = createTrialService({ token: config.token, adapter, store });
 try {

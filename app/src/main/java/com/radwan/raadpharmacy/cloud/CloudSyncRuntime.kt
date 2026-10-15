@@ -106,7 +106,7 @@ object CloudSyncRuntime {
         val app = context.applicationContext
         return withContext(Dispatchers.IO) {
             runCatching {
-                CloudSyncEngine(app).pullRemoteNow()
+                CloudSyncEngine(app).pullRemoteNow(forceSnapshot = true)
                 CloudNotificationInbox(app).catchUp()
                 startRealtimeIfPossible(app)
             }.onFailure { reportFailure(it) }
