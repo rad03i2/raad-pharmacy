@@ -8,7 +8,7 @@ import tarfile
 FILES = (
     'package.json', 'package-lock.json', 'protocol.mjs', 'store.mjs', 'service.mjs',
     'baileys-adapter.mjs', 'isolated-adapter.mjs', 'socket-worker.mjs',
-    'index.mjs', 'verify-runtime.mjs', 'stop-previous.mjs', 'install.sh',
+    'index.mjs', 'verify-runtime.mjs', 'stop-previous.mjs', 'install.sh', 'supervisor.sh',
 )
 
 def package(output):
