@@ -202,7 +202,7 @@ internal class AutomaticWhatsappWorker(context: Context, params: WorkerParameter
                 val freshAccount = DebtFollowupEngine.calculate(freshCustomer, freshEntries, today)
                 if (AutomaticWhatsappPlanner.due(listOf(freshAccount)).isEmpty()) continue
                 val currentPhone = freshCustomer.phone?.let(::validatedIraqiWhatsappPhone)
-                if (currentPhone != phone || !store.approved(freshCustomer.id, currentPhone)) continue
+                if (currentPhone == null || currentPhone != phone || !store.approved(freshCustomer.id, currentPhone)) continue
                 val case = FollowupReminderStore.caseFor(freshAccount, freshEntries)
                 // A confirmed manual WhatsApp reminder for the same debt stage is sufficient.
                 if (FollowupReminderStore(app).confirmedAt(case) != null) continue
