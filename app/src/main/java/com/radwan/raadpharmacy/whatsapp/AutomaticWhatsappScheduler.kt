@@ -177,7 +177,7 @@ internal class AutomaticWhatsappWorker(context: Context, params: WorkerParameter
 
             // Reconcile old attempts. Uncertain outcomes are never retried automatically.
             store.logs().forEach { old ->
-                if (old.state in listOf("submitted", "uncertain")) {
+                if (old.state in listOf("submitting", "submitted", "sent", "uncertain")) {
                     runCatching { client.trial(old.id) }.onSuccess { store.record(old.id, it.state) }
                 }
             }
