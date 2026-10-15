@@ -192,19 +192,35 @@ internal class AutomaticWhatsappWorker(context: Context, params: WorkerParameter
                 if (store.dayAttempts(today) >= 10) break
                 val phone = account.customer.phone?.let(::validatedIraqiWhatsappPhone)
                 if (phone == null || !store.approved(account.customer.id, phone)) { skipped++; continue }
-                val case = FollowupReminderStore.caseFor(account, entries)
-                // A manual WhatsApp reminder already confirmed for this debt stage is sufficient.
+                // Synchronize again immediately before each financial claim.
+                // A payment from a second device may have arrived since the first snapshot.
+                CloudSyncEngine(app).syncOnce()
+                if (dao.restoreHold() == "1" || dao.cloudOutbox().isNotEmpty())
+                    error("توقفت المطالبات لأن المزامنة لم تكتمل.")
+                val freshCustomer = dao.getCustomerById(account.customer.id)?.toModel() ?: continue
+                val freshEntries = dao.getEntriesForCustomer(account.customer.id).map { it.toModel() }
+                val freshAccount = DebtFollowupEngine.calculate(freshCustomer, freshEntries, today)
+                if (AutomaticWhatsappPlanner.due(listOf(freshAccount)).isEmpty()) continue
+                val currentPhone = freshCustomer.phone?.let(::validatedIraqiWhatsappPhone)
+                if (currentPhone != phone || !store.approved(freshCustomer.id, currentPhone)) continue
+                val case = FollowupReminderStore.caseFor(freshAccount, freshEntries)
+                // A confirmed manual WhatsApp reminder for the same debt stage is sufficient.
                 if (FollowupReminderStore(app).confirmedAt(case) != null) continue
-                val message = ReadyMessages.messageFor(app, account)
+                val message = ReadyMessages.messageFor(app, freshAccount) +
+                    "\nالصورة المرفقة ملخص للحساب وليست كشفًا كاملًا."
                 if (message.length > 1800) { skipped++; continue }
                 val id = store.reserve(case.fingerprint, phone) ?: continue
                 attempted++
                 try {
-                    val image = AutomaticWhatsappReceiptImage.create(app, account, entries)
+                    if (!store.enabled() || isStopped) continue
+                    val image = AutomaticWhatsappReceiptImage.create(app, freshAccount, freshEntries)
                     val job = client.sendReminder(id, phone, case.fingerprint, message, image)
                     store.record(id, job.state)
                 } catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { store.record(id, "uncertain") }
+                catch (error: Exception) {
+                    store.record(id, "uncertain")
+                    throw error
+                }
             }
             store.markChecked("فحص مكتمل: $attempted محاولة جديدة، $skipped حساب دون رقم معتمد أو نص صالح.")
         } catch (cancelled: CancellationException) { throw cancelled }
