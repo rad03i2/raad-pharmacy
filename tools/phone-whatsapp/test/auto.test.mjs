@@ -39,7 +39,7 @@ async function fixture(t) {
     return { status: response.status, body: await response.json() };
   };
   t.after(async () => { await svc.close(); rmSync(dir, { recursive: true, force: true }); });
-  return { request, sent, autoStore, store };
+  return { request, sent, autoStore, store, adapter };
 }
 
 test('auto sends cannot be started without explicit consent and validated case', async t => {
@@ -94,8 +94,11 @@ test('WhatsApp delivery receipts update automatic journal but never affect trial
   assert.equal((await f.request('/auto', body)).status, 202);
   assert.equal(f.autoStore.get(body.requestId).state, 'submitted');
   const id = f.autoStore.get(body.requestId).messageId;
-  // The isolated helper reports WhatsApp receipts through its callback.
-  // A service restart must not invent receipt confirmations.
+  f.adapter.ack(id, 3);
+  assert.equal(f.autoStore.get(body.requestId).state, 'delivered');
+  f.adapter.ack(id, 2);
+  assert.equal(f.autoStore.get(body.requestId).state, 'delivered');
+  // The trial journal must remain independent of automatic reminders.
   const status = await f.request('/jobs/' + body.requestId);
   assert.equal(status.body.job.messageId, id);
   assert.equal(f.store.get(body.requestId), null);
