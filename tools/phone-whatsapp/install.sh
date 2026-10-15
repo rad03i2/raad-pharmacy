@@ -10,5 +10,12 @@ node stop-previous.mjs
 printf '{"token":"%s"}\n' "$raad_bridge_token" > config.json
 npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
 node verify-runtime.mjs
-termux-wake-lock
-node index.mjs
+# Termux:Boot starts the same supervisor after reboot when its official add-on is enabled.
+mkdir -p "$HOME/.termux/boot"
+cat > "$HOME/.termux/boot/raad-whatsapp" <<'RAAD_BOOT'
+#!/data/data/com.termux/files/usr/bin/sh
+cd "$HOME/.raad-whatsapp" || exit 1
+sh supervisor.sh >> "$HOME/.raad-whatsapp/boot.log" 2>&1
+RAAD_BOOT
+chmod 700 "$HOME/.termux/boot/raad-whatsapp"
+exec sh supervisor.sh

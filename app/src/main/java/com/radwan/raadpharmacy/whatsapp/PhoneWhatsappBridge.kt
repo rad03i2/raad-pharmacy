@@ -14,7 +14,7 @@ import java.util.UUID
 
 internal const val PHONE_WHATSAPP_PROTOCOL = "raad-phone-whatsapp-trial-v1"
 internal const val PHONE_WHATSAPP_PORT = 39761
-internal const val PHONE_WHATSAPP_HELPER_VERSION = "3.3.22.8"
+internal const val PHONE_WHATSAPP_HELPER_VERSION = "3.3.22.9"
 
 internal data class PhoneWhatsappStatus(
     val state: String = "unavailable",
@@ -73,7 +73,7 @@ internal object PhoneWhatsappSetup {
             sh "${'$'}raad_bridge_dir/install.sh" '$token'
         """.trimIndent()
     }
-    const val RESUME_COMMAND = "termux-wake-lock && node \"${'$'}HOME/.raad-whatsapp/index.mjs\""
+    const val RESUME_COMMAND = "sh \"${'$'}HOME/.raad-whatsapp/supervisor.sh\""
 }
 
 /** Fixed loopback destination, no redirects/proxy, bounded responses and no automatic retry. */
@@ -92,6 +92,16 @@ internal class PhoneWhatsappClient(private val token: () -> String, private val 
             .put("imageBase64", Base64.encodeToString(image.image, Base64.NO_WRAP))
             .put("thumbnailBase64", Base64.encodeToString(image.thumbnail, Base64.NO_WRAP))
         return parseTrial(request("POST", "/test", body).getJSONObject("job"))
+    }
+    suspend fun sendReminder(id: String, phone: String, caseKey: String, caption: String,
+        image: PhoneWhatsappTestImage.Payload): PhoneWhatsappTrial {
+        require(UUID.fromString(id).version() == 4 && Regex("^[a-f0-9]{64}$").matches(caseKey))
+        require(caption.isNotBlank() && caption.length <= 1800)
+        val body = JSONObject().put("requestId", id).put("phone", phone).put("caseKey", caseKey)
+            .put("approved", true).put("caption", caption)
+            .put("imageBase64", Base64.encodeToString(image.image, Base64.NO_WRAP))
+            .put("thumbnailBase64", Base64.encodeToString(image.thumbnail, Base64.NO_WRAP))
+        return parseTrial(request("POST", "/auto", body).getJSONObject("job"))
     }
     private suspend fun request(method: String, path: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
         val key = token()

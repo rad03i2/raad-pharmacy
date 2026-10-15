@@ -228,6 +228,7 @@ internal fun PhoneWhatsappTrialScreen(onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth()) { Text("إلغاء ربط المساعد") }
                 }
             }
+            item { AutomaticWhatsappPanel(bridge) }
             if (working) item { CircularProgressIndicator() }
         }
     }

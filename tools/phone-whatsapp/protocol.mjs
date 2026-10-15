@@ -59,3 +59,14 @@ export function testRequest(body) {
 
 export const ACK_STATE = { 2: 'sent', 3: 'delivered', 4: 'read', 5: 'read' };
 export const STATE_RANK = { submitting: 0, uncertain: 0, submitted: 1, sent: 2, delivered: 3, read: 4 };
+
+/** Automatic reminders require an explicit per-customer approval from the native app. */
+export function autoRequest(body) {
+  if (body?.approved !== true || typeof body?.caseKey !== 'string' || !/^[a-f0-9]{64}$/.test(body.caseKey) ||
+      typeof body?.caption !== 'string' || !body.caption.trim() || body.caption.length > 1800) {
+    throw new RequestError(400, 'يجب اعتماد المستلم والنص وحالة الدين قبل إرسال التذكير.');
+  }
+  const media = testRequest(body);
+  return { ...media, caseKey: body.caseKey, caption: body.caption,
+    digest: createHash('sha256').update(media.digest).update(body.caseKey).update(body.caption).digest('hex') };
+}

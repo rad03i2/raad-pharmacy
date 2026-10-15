@@ -4,7 +4,8 @@ import { ACK_STATE, RequestError, STATE_RANK } from './protocol.mjs';
 
 /** Persist the request BEFORE contacting WhatsApp. An ambiguous result is never retried. */
 export class TrialStore {
-  constructor(file) {
+  constructor(file, limit = 100) {
+    this.limit = limit;
     this.file = file;
     this.jobs = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
     if (!this.jobs || typeof this.jobs !== 'object' || Array.isArray(this.jobs)) throw new Error('Invalid trial journal');
@@ -26,7 +27,7 @@ export class TrialStore {
       if (previous.digest !== request.digest) throw new RequestError(409, 'لا يمكن تغيير محتوى اختبار سابق.');
       return { job: previous, fresh: false };
     }
-    if (Object.keys(this.jobs).length >= 100) throw new RequestError(429, 'اكتملت سعة سجل التجارب.');
+    if (Object.keys(this.jobs).length >= this.limit) throw new RequestError(429, 'اكتملت سعة سجل الإرسال. راجع النتائج قبل المتابعة.');
     const job = {
       id: request.requestId, phone: request.phone, senderPhone: request.senderPhone, digest: request.digest,
       state: 'submitting', messageId: null, createdAt: Date.now(), updatedAt: Date.now()

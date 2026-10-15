@@ -1,4 +1,5 @@
 import { fork } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RequestError } from './protocol.mjs';
@@ -11,9 +12,21 @@ export class IsolatedWhatsappAdapter {
     this.child = null; this.generation = 0; this.sequence = 0; this.pendingPhone = null;
     this.pending = new Map(); this.ready = null; this.readyReject = null; this.startupTimer = null; this.ack = () => {};
     this.snapshot = { state: 'idle', phone: null, pairingCode: null, errorCode: null };
+    this.nextRecoveryAt = 0; this.recoveryAttempts = 0;
   }
   onAck(callback) { this.ack = callback; }
-  status() { return { ...this.snapshot }; }
+  status() {
+    if (this.snapshot.state === 'connected') this.recoveryAttempts = 0;
+    // Only recover a previously linked session, never start pairing or send messages.
+    if (!this.child && this.snapshot.state === 'error' && this.snapshot.phone &&
+        existsSync(join(this.directory, 'session', 'creds.json')) &&
+        this.recoveryAttempts < 6 && Date.now() >= this.nextRecoveryAt) {
+      const delay = Math.min(3_600_000, 60_000 * 2 ** this.recoveryAttempts++);
+      this.nextRecoveryAt = Date.now() + delay;
+      void this.restore();
+    }
+    return { ...this.snapshot };
+  }
 
   startWorker() {
     if (this.child) return this.ready;
@@ -86,6 +99,7 @@ export class IsolatedWhatsappAdapter {
     ++this.generation;
     this.child?.kill(); this.child = null; this.ready = null;
     this.snapshot = { ...this.snapshot, state: 'error', pairingCode: null, errorCode };
+    if (!this.nextRecoveryAt) this.nextRecoveryAt = Date.now() + 30_000;
     for (const { reject, timer } of this.pending.values()) {
       clearTimeout(timer); reject(new RequestError(503, 'توقف اتصال واتساب؛ الخدمة المحلية تعمل. اطلب الاتصال مجددًا.'));
     }
