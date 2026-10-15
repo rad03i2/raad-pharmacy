@@ -64,15 +64,18 @@ export class IsolatedWhatsappAdapter {
   }
 
   async call(command, payload = {}, timeout = 15_000) {
-    await this.startWorker();
+    const ready = this.startWorker();
+    const generation = this.generation;
+    await ready;
+    if (generation !== this.generation) throw new RequestError(503, 'تغير اتصال المساعد؛ أعد فحص حالته.');
     const child = this.child;
     if (!child?.connected) throw new RequestError(503, 'تعذر الاتصال بمحرك واتساب.');
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => this.failWorker('request_timeout'), timeout);
+      const timer = setTimeout(() => { if (child === this.child && this.pending.has(id)) this.failWorker('request_timeout'); }, timeout);
       timer.unref?.();
       this.pending.set(id, { resolve, reject, timer });
-      child.send({ id, command, ...payload }, error => { if (error) this.failWorker('runtime_exit'); });
+      child.send({ id, command, ...payload }, error => { if (error && child === this.child) this.failWorker('runtime_exit'); });
     });
   }
 
@@ -101,9 +104,12 @@ export class IsolatedWhatsappAdapter {
     this.pendingPhone = phone;
     // Acknowledge locally before loading keys or opening the remote websocket.
     // /status remains responsive throughout pairing, including slow phones.
-    void this.call('connect', { phone }).catch(() => {
-      if (this.snapshot.state !== 'idle') this.snapshot = { ...this.snapshot, state: 'error', pairingCode: null, errorCode: this.snapshot.errorCode || 'socket_error' };
-    }).finally(() => { this.pendingPhone = null; });
+    const request = this.call('connect', { phone });
+    const generation = this.generation;
+    void request.catch(() => {
+      if (generation === this.generation && this.snapshot.state !== 'idle')
+        this.snapshot = { ...this.snapshot, state: 'error', pairingCode: null, errorCode: this.snapshot.errorCode || 'socket_error' };
+    }).finally(() => { if (generation === this.generation) this.pendingPhone = null; });
   }
 
   async sendTest(phone, image, thumbnail, caption) {
