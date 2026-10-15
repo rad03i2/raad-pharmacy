@@ -77,6 +77,11 @@ internal class AutomaticWhatsappStore(context: Context) {
         check(prefs.edit().putString(key, row.toString()).commit())
     }
 
+    fun stateFor(caseKey: String, phone: String): String? = runCatching {
+        val id = prefs.getString("case:$caseKey:$phone", null) ?: return@runCatching null
+        JSONObject(prefs.getString("job:$id", null) ?: return@runCatching null).getString("state")
+    }.getOrNull()
+
     fun logs(): List<Log> = prefs.all.asSequence().filter { it.key.startsWith("job:") }
         .mapNotNull {
             runCatching {
@@ -173,6 +178,8 @@ internal class AutomaticWhatsappWorker(context: Context, params: WorkerParameter
                 val phone = account.customer.phone?.let(::validatedIraqiWhatsappPhone)
                 if (phone == null || !store.approved(account.customer.id, phone)) { skipped++; continue }
                 val case = FollowupReminderStore.caseFor(account, entries)
+                // A manual WhatsApp reminder already confirmed for this debt stage is sufficient.
+                if (FollowupReminderStore(app).confirmedAt(case) != null) continue
                 val message = ReadyMessages.messageFor(app, account)
                 if (message.length > 1800) { skipped++; continue }
                 val id = store.reserve(case.fingerprint, phone) ?: continue
