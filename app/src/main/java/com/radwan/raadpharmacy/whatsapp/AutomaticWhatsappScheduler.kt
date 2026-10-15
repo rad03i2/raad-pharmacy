@@ -1,6 +1,7 @@
 package com.radwan.raadpharmacy.whatsapp
 
 import android.content.Context
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -122,13 +123,22 @@ internal object AutomaticWhatsappScheduler {
             return
         }
         val task = PeriodicWorkRequestBuilder<AutomaticWhatsappWorker>(24, TimeUnit.HOURS)
-            .setInitialDelay(10, TimeUnit.MINUTES).setConstraints(connected).build()
+            .setInitialDelay(10, TimeUnit.MINUTES).setConstraints(connected)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES).build()
         manager.enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.KEEP, task)
+    }
+
+    fun ensureCatchUp(context: Context) {
+        val store = AutomaticWhatsappStore(context)
+        if (!store.enabled()) return
+        val last = store.lastChecked()
+        if (last <= 0L || System.currentTimeMillis() - last > TimeUnit.HOURS.toMillis(22)) checkNow(context)
     }
 
     fun checkNow(context: Context) {
         val task = OneTimeWorkRequestBuilder<AutomaticWhatsappWorker>()
-            .setConstraints(connected).build()
+            .setConstraints(connected)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES).build()
         WorkManager.getInstance(context.applicationContext)
             .enqueueUniqueWork(MANUAL, ExistingWorkPolicy.KEEP, task)
     }
@@ -140,12 +150,14 @@ internal class AutomaticWhatsappWorker(context: Context, params: WorkerParameter
         val store = AutomaticWhatsappStore(app)
         if (!store.enabled()) return Result.success()
         val today = LocalDate.now(DebtFollowupEngine.IRAQ_ZONE)
+        var retryable = false
         try {
             if (!CloudSyncScheduler.isEnabled(app)) error("يلزم تسجيل الدخول وتفعيل مزامنة الصيدلية.")
             val auth = SupabaseProvider.client.auth
             auth.awaitInitialization()
             val user = auth.currentSessionOrNull()?.user?.id
             if (user == null || user != store.userId()) error("تغير حساب المستخدم؛ أوقف الإرسال حتى إعادة الاعتماد.")
+            retryable = true
 
             // Never send against a stale local ledger or pending offline collections.
             CloudSyncEngine(app).syncOnce()
@@ -195,6 +207,8 @@ internal class AutomaticWhatsappWorker(context: Context, params: WorkerParameter
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
             store.markChecked("توقف الفحص دون إرسال إضافي: ${error.message ?: "خطأ غير معروف"}")
+            // Keep automatic retries bounded. Persisted attempt IDs must not be reused for sending.
+            if (retryable && runAttemptCount < 2 && store.enabled()) return Result.retry()
         }
         return Result.success()
     }
