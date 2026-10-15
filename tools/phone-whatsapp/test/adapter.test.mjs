@@ -45,6 +45,19 @@ test('a different account cannot replace the current binding silently', async t 
   assert.equal(f.socket.sendCalls, 0);
 });
 
+test('a late pairing result cannot resurrect a code from a closed connection', async t => {
+  const f = await fixture(t);
+  let resolveCode;
+  f.socket.requestPairingCode = () => new Promise(resolve => { resolveCode = resolve; });
+  await f.adapter.connect('9647701234567');
+  f.socket.ev.emit('connection.update', { qr: 'pending' });
+  f.socket.ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: { output: { statusCode: 401 } } } });
+  resolveCode('STALE123');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.adapter.status().pairingCode, null);
+  assert.equal(f.adapter.status().state, 'logged_out');
+});
+
 test('stopping or unlinking an unregistered pairing does not call account logout or save late credentials', async t => {
   const f = await fixture(t);
   await f.adapter.connect('9647701234567');

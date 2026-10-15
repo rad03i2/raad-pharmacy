@@ -44,7 +44,7 @@ export function createTrialService({ token, adapter, store }) {
     response.setHeader('Content-Type', 'application/json; charset=utf-8');
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
-    const reply = (status, body) => { response.writeHead(status); response.end(JSON.stringify({ protocol: PROTOCOL, ...body })); };
+    const reply = (status, body) => { response.writeHead(status); response.end(JSON.stringify({ protocol: PROTOCOL, helperVersion: '3.3.22.8', ...body })); };
     try {
       // Reject browser-origin requests. No CORS; only the native app can use this API.
       if (request.headers.origin || !authenticated(request.headers.authorization, token)) {

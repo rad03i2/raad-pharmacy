@@ -25,8 +25,18 @@ class CloudDeviceStore(context: Context) {
     fun savePushIdentity(userId: String, pharmacyId: String) {
         synchronized(identityLock) {
             val edit = prefs.edit().putString("push_user_id", userId).putString("push_pharmacy_id", pharmacyId)
+            val owner = "$pharmacyId:$userId"
+            if (prefs.getString("device_owner", null) != owner) {
+                // devices/push_tokens RLS binds a row to its original user. Reusing an
+                // installation UUID after switching accounts makes the upsert fail.
+                val device = prefs.getString("account_device:$owner", null) ?: UUID.randomUUID().toString()
+                val row = prefs.getString("account_push:$owner", null) ?: UUID.randomUUID().toString()
+                edit.putString("device_id", device).putString("push_token_row_id", row)
+                    .putString("account_device:$owner", device).putString("account_push:$owner", row)
+                    .putString("device_owner", owner).remove("push_registered_version")
+            }
             if (pushUserId() != userId || pushPharmacyId() != pharmacyId) edit.remove("push_registered_version")
-            edit.commit()
+            check(edit.commit()) { "تعذر حفظ هوية جهاز المزامنة." }
         }
     }
 

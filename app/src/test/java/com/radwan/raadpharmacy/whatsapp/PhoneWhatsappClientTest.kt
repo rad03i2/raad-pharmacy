@@ -82,4 +82,22 @@ class PhoneWhatsappClientTest {
             assertFalse(body.has("message"))
         }
     }
+
+    @Test fun aReachableLegacyHelperRequestsAnUpgradeInsteadOfPretendingToBeStopped() = runBlocking {
+        LocalReply("""{"protocol":"$PHONE_WHATSAPP_PROTOCOL","state":"idle"}""").use { local ->
+            assertEquals("upgrade_required", PhoneWhatsappClient({ "a".repeat(64) }, local.port).status().state)
+        }
+    }
+
+    @Test fun aSocketFailureIsDifferentFromAnUnreachableLocalService() = runBlocking {
+        val response = """{"protocol":"$PHONE_WHATSAPP_PROTOCOL","helperVersion":"$PHONE_WHATSAPP_HELPER_VERSION","state":"error","errorCode":"runtime_exit"}"""
+        LocalReply(response).use { local ->
+            val status = PhoneWhatsappClient({ "a".repeat(64) }, local.port).status()
+            assertEquals("error", status.state)
+            assertEquals("runtime_exit", status.errorCode)
+            assertTrue(com.radwan.raadpharmacy.ui.screens.phoneWhatsappFailureText(status.errorCode!!)
+                .contains("المساعد المحلي ما زال يعمل"))
+        }
+        assertFalse(com.radwan.raadpharmacy.ui.screens.bridgeStateText("error").contains("المساعد متوقف"))
+    }
 }

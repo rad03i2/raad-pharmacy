@@ -37,6 +37,17 @@ class CloudSyncEngine(context: Context) {
     private val mediaStore = CloudMediaStore(appContext)
     private val actors = EntryActorStore.get(appContext)
     private val syncPrefs = appContext.getSharedPreferences("raad_cloud_sync_state_v2", Context.MODE_PRIVATE)
+    private val ledgerPuller = CloudLedgerPuller(syncPrefs, ::fetchCustomers, ::fetchTransactions) { customers, transactions, full ->
+        if (full) applyRemoteSnapshot(customers, transactions)
+        else {
+            customers.forEach { applyCustomerRealtime(it) }
+            transactions.forEach { applyTransactionRealtime(it) }
+        }
+        actors.rememberActors(transactions)
+        try { mediaStore.reconcileCustomerPhotos(customers) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) { Log.w(TAG, "Photo sync deferred after ledger reception", failure) }
+    }
 
     suspend fun unregisterPushToken() = globalSyncMutex.withLock {
         LedgerReleaseCleanup.clearOnce(appContext)
@@ -75,16 +86,15 @@ class CloudSyncEngine(context: Context) {
             .select { filter { eq("id", userId) } }
             .decodeSingle<CloudProfileRow>()
 
-        registerDevice(profile, userId)
-        registerPushTokenBestEffort(profile, userId)
-
-        if (!deviceStore.isBootstrapped(profile.pharmacyId)) {
-            bootstrap(profile)
-            deviceStore.markBootstrapped(profile.pharmacyId)
-        }
-
-        pushPending(profile)
-        pullRemoteDelta()
+        syncBothDirections(upload = {
+            registerDevice(profile, userId)
+            registerPushTokenBestEffort(profile, userId)
+            if (!deviceStore.isBootstrapped(profile.pharmacyId)) {
+                bootstrap(profile)
+                deviceStore.markBootstrapped(profile.pharmacyId)
+            }
+            pushPending(profile)
+        }, receive = { pullRemoteDelta() })
     }
 
     suspend fun flushPendingOnly() = globalSyncMutex.withLock {
@@ -103,13 +113,13 @@ class CloudSyncEngine(context: Context) {
         pushPending(profile)
     }
 
-    suspend fun pullRemoteNow() = globalSyncMutex.withLock {
+    suspend fun pullRemoteNow(forceSnapshot: Boolean = false) = globalSyncMutex.withLock {
         if (dao.restoreHold() == "1") return@withLock
         journal.importLegacy()
         LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
         if (client.auth.currentSessionOrNull() == null) return@withLock
-        pullRemoteDelta()
+        pullRemoteDelta(forceSnapshot)
     }
 
     fun startRealtime(scope: CoroutineScope): Boolean {
@@ -276,10 +286,14 @@ class CloudSyncEngine(context: Context) {
     private suspend fun fetchCustomers(since: String? = null): List<CloudCustomerRow> {
         val rows = mutableListOf<CloudCustomerRow>()
         do {
+            val afterId = rows.lastOrNull()?.id
             val page = client.from("customers").select {
-                if (since != null) filter { gte("updated_at", since) }
+                filter {
+                    if (since != null) gte("updated_at", since)
+                    if (afterId != null) gt("id", afterId)
+                }
                 order("id", Order.ASCENDING)
-                range(rows.size.toLong()..(rows.size + 99L))
+                range(0L..99L)
             }.decodeList<CloudCustomerRow>()
             rows.addAll(page)
         } while (page.size == 100)
@@ -289,56 +303,21 @@ class CloudSyncEngine(context: Context) {
     private suspend fun fetchTransactions(since: String? = null): List<CloudTransactionRow> {
         val rows = mutableListOf<CloudTransactionRow>()
         do {
+            val afterId = rows.lastOrNull()?.id
             val page = client.from("transactions").select {
-                if (since != null) filter { gte("updated_at", since) }
+                filter {
+                    if (since != null) gte("updated_at", since)
+                    if (afterId != null) gt("id", afterId)
+                }
                 order("id", Order.ASCENDING)
-                range(rows.size.toLong()..(rows.size + 99L))
+                range(0L..99L)
             }.decodeList<CloudTransactionRow>()
             rows.addAll(page)
         } while (page.size == 100)
         return rows
     }
 
-    private suspend fun pullRemoteSnapshot() {
-        val pullStartedAt = System.currentTimeMillis()
-        val remoteCustomers = fetchCustomers()
-        val remoteTransactions = fetchTransactions()
-        actors.rememberActors(remoteTransactions)
-        applyRemoteSnapshot(remoteCustomers, remoteTransactions)
-        mediaStore.reconcileCustomerPhotos(remoteCustomers)
-        syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, pullStartedAt).apply()
-    }
-
-    private suspend fun pullRemoteDelta() {
-        val pullStartedAt = System.currentTimeMillis()
-        val lastPullAt = syncPrefs.getLong(KEY_LAST_REMOTE_PULL_AT, 0L)
-        if (lastPullAt <= 0L) {
-            pullRemoteSnapshot()
-            return
-        }
-
-        val since = Instant.ofEpochMilli(
-            (lastPullAt - DELTA_SAFETY_WINDOW_MS).coerceAtLeast(0L)
-        ).toString()
-
-        val changedCustomers = fetchCustomers(since)
-        val changedTransactions = fetchTransactions(since)
-        actors.rememberActors(changedTransactions)
-        // Once per installation, populate creators of existing historical entries.
-        // A failure never blocks normal financial reconciliation and can retry later.
-        if (!syncPrefs.getBoolean("transaction_authors_backfilled_v1", false)) {
-            runCatching {
-                actors.rememberActors(fetchTransactions())
-                syncPrefs.edit().putBoolean("transaction_authors_backfilled_v1", true).apply()
-            }.onFailure { Log.w(TAG, "Author metadata backfill deferred", it) }
-        }
-
-        changedCustomers.forEach { applyCustomerRealtime(it) }
-        changedTransactions.forEach { applyTransactionRealtime(it) }
-        mediaStore.reconcileCustomerPhotos(changedCustomers)
-
-        syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, pullStartedAt).apply()
-    }
+    private suspend fun pullRemoteDelta(forceSnapshot: Boolean = false) = ledgerPuller.pull(forceSnapshot)
 
     private fun transactionRow(action: PostgresAction): CloudTransactionRow? =
         when (action) {
@@ -433,7 +412,7 @@ class CloudSyncEngine(context: Context) {
         com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).protectCurrentBeforeReconciliation()
         check(appContext.getSharedPreferences("raad_cloud_sync_journal", Context.MODE_PRIVATE).edit().clear().commit())
         deviceStore.markBootstrapped(profile.pharmacyId)
-        check(syncPrefs.edit().putLong(KEY_LAST_REMOTE_PULL_AT, System.currentTimeMillis()).commit())
+        CloudLedgerPuller.invalidate(syncPrefs)
         // Do not let the normal photo fallback re-upload pictures from the restored archive.
         com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).rebuildFromBackup(emptyList())
         dao.completeReconciliation(validCustomers, validEntries)
@@ -500,8 +479,6 @@ class CloudSyncEngine(context: Context) {
 
     companion object {
         private const val TAG = "CloudSyncEngine"
-        private const val KEY_LAST_REMOTE_PULL_AT = "last_remote_pull_at"
-        private const val DELTA_SAFETY_WINDOW_MS = 5_000L
         private val globalSyncMutex = Mutex()
         suspend fun <T> withLedgerSyncLock(block: suspend () -> T): T = globalSyncMutex.withLock { block() }
         private val pushRegistrationMutex = Mutex()
