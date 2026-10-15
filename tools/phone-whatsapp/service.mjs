@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { PROTOCOL, PORT, MAX_BODY_BYTES, JOB_ID, TEST_CAPTION, RequestError, authenticated, iraqiPhone, testRequest } from './protocol.mjs';
+import { PROTOCOL, PORT, MAX_BODY_BYTES, JOB_ID, TEST_CAPTION, RequestError, authenticated, iraqiPhone, testRequest, autoRequest } from './protocol.mjs';
 
 async function jsonBody(request) {
   if (request.headers['content-type']?.split(';')[0] !== 'application/json') {
@@ -17,7 +17,7 @@ async function jsonBody(request) {
 }
 
 /** Only explicit /test requests can send. Startup, status, pairing and reconnection cannot. */
-export function createTrialService({ token, adapter, store }) {
+export function createTrialService({ token, adapter, store, autoStore = store }) {
   if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid local bridge token');
   let busy = false;
   const earlyAcks = new Map();
@@ -27,16 +27,16 @@ export function createTrialService({ token, adapter, store }) {
     if (earlyAcks.size > 100) earlyAcks.delete(earlyAcks.keys().next().value);
   });
 
-  async function dispatch(request) {
+  async function dispatch(request, journal = store, caption = TEST_CAPTION) {
     busy = true;
     try {
-      const messageId = await adapter.sendTest(request.phone, request.image, request.thumbnail, TEST_CAPTION);
+      const messageId = await adapter.sendTest(request.phone, request.image, request.thumbnail, caption);
       if (!messageId || typeof messageId !== 'string') throw new Error('No message identifier');
-      store.update(request.requestId, { state: 'submitted', messageId });
-      store.acknowledge(messageId, earlyAcks.get(messageId));
+      journal.update(request.requestId, { state: 'submitted', messageId });
+      journal.acknowledge(messageId, earlyAcks.get(messageId));
     } catch (error) {
       // A network error may occur after WhatsApp accepted a message. Do not retry.
-      store.update(request.requestId, { state: error instanceof RequestError && error.status === 404 ? 'not_registered' : 'uncertain' });
+      journal.update(request.requestId, { state: error instanceof RequestError && error.status === 404 ? 'not_registered' : 'uncertain' });
     } finally { busy = false; }
   }
 
@@ -57,11 +57,11 @@ export function createTrialService({ token, adapter, store }) {
       if (request.method === 'GET' && path?.startsWith('/jobs/')) {
         const id = path.slice('/jobs/'.length);
         if (!JOB_ID.test(id)) throw new RequestError(400, 'معرّف الاختبار غير صالح.');
-        const job = store.get(id);
+        const job = store.get(id) || autoStore.get(id);
         if (!job) throw new RequestError(404, 'لم يسجل المساعد هذه المحاولة بعد.');
         reply(200, { job: store.publicJob(job) }); return;
       }
-      if (request.method !== 'POST' || !['/connect', '/test', '/unlink', '/stop'].includes(path)) {
+      if (request.method !== 'POST' || !['/connect', '/test', '/auto', '/unlink', '/stop'].includes(path)) {
         request.resume(); throw new RequestError(404, 'المسار غير موجود.');
       }
       const body = await jsonBody(request);
@@ -83,6 +83,23 @@ export function createTrialService({ token, adapter, store }) {
         // Dispatch exactly once, after the durable journal has accepted the request.
         void dispatch(test);
         reply(202, { job: store.publicJob(job) }); return;
+      }
+      if (path === '/auto') {
+        const jobRequest = autoRequest(body);
+        const previous = autoStore.get(jobRequest.requestId);
+        if (previous) {
+          const { job } = autoStore.begin(jobRequest);
+          reply(200, { job: autoStore.publicJob(job) }); return;
+        }
+        if (busy) throw new RequestError(409, 'هناك إرسال آخر قيد التنفيذ.');
+        if (adapter.status().state !== 'connected') throw new RequestError(409, 'واتساب غير متصل. أُجّل التذكير.');
+        const day = new Date().toISOString().slice(0, 10);
+        const count = Object.values(autoStore.jobs).filter(job =>
+          new Date(job.createdAt).toISOString().slice(0, 10) === day).length;
+        if (count >= 20) throw new RequestError(429, 'تم بلوغ حد الأمان اليومي، راجع سجل الإرسال.');
+        const { job } = autoStore.begin({ ...jobRequest, senderPhone: adapter.status().phone });
+        void dispatch(jobRequest, autoStore, jobRequest.caption);
+        reply(202, { job: autoStore.publicJob(job) }); return;
       }
       if (busy) throw new RequestError(409, 'انتظر نتيجة تجربة الإرسال أولًا.');
       if (path === '/unlink') {
