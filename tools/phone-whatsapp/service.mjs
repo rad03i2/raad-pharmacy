@@ -23,6 +23,7 @@ export function createTrialService({ token, adapter, store, autoStore = store })
   const earlyAcks = new Map();
   adapter.onAck((id, ack) => {
     store.acknowledge(id, ack);
+    if (autoStore !== store) autoStore.acknowledge(id, ack);
     earlyAcks.set(id, Math.max(earlyAcks.get(id) || 0, ack));
     if (earlyAcks.size > 100) earlyAcks.delete(earlyAcks.keys().next().value);
   });
