@@ -30,6 +30,7 @@ import java.util.concurrent.TimeUnit
 /** Opt-in is device-, account-, number- and customer-specific. No schema changes. */
 internal class AutomaticWhatsappStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("raad_auto_whatsapp_v1", Context.MODE_PRIVATE)
+    companion object { private val RESERVATION_LOCK = Any() }
 
     data class Log(val id: String, val phone: String, val state: String, val at: Long)
 
@@ -56,11 +57,13 @@ internal class AutomaticWhatsappStore(context: Context) {
         check(edit.commit()) { "تعذر حفظ موافقة الزبون." }
     }
 
-    @Synchronized fun reserve(caseKey: String, phone: String): String? {
+    fun reserve(caseKey: String, phone: String): String? = synchronized(RESERVATION_LOCK) {
         require(Regex("^[a-f0-9]{64}$").matches(caseKey))
-        if (!enabled()) return null
+        if (!enabled()) return@synchronized null
         val key = "case:$caseKey:$phone"
-        if (prefs.contains(key)) return null
+        if (prefs.contains(key)) return@synchronized null
+        // Periodic and manual workers can run concurrently; enforce the cap in the same lock.
+        if (dayAttempts(LocalDate.now(DebtFollowupEngine.IRAQ_ZONE)) >= 10) return@synchronized null
         // Commit the id before the network request. Failed/ambiguous sends cannot be repeated.
         val id = UUID.randomUUID().toString()
         val row = JSONObject().put("id", id).put("phone", phone)
@@ -68,7 +71,7 @@ internal class AutomaticWhatsappStore(context: Context) {
         check(prefs.edit().putString(key, id).putString("job:$id", row.toString()).commit()) {
             "تعذر حفظ محاولة التذكير."
         }
-        return id
+        id
     }
 
     fun record(id: String, state: String) {
