@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.22.7",
+  "tag_name": "v3.3.22.8",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 75\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.7: المرحلة الأولى لمساعد واتساب المجاني على الهاتف، من الضبط ثم مساعد واتساب • تجربة الربط.\nإعداد Termux بأمر يُنسخ من التطبيق، وربط حساب واتساب برمز، وإرسال صورة ونص تجريبيين إلى رقم يحدده المستخدم.\nحفظ محاولة الاختبار قبل الإرسال ومنع إعادة الطلب نفسه، مع حالات مستقلة لتسجيل الطلب وتأكيد الإرسال والتسليم والقراءة عند توفرها.\nلا توجد جدولة لتذكيرات الزبائن في هذه المرحلة؛ نجاح الربط والإرسال والعمل في الخلفية يحتاج تجربة فعلية على الهاتف.\nالمساعد غير رسمي وقد يتوقف في الخلفية أو يُقيّد حساب واتساب. بيانات الدفتر والمزامنة والتوقيع محفوظة.",
+  "body": "VersionCode: 76\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.8: استدراك الديون الفائتة بين الهواتف وفصل استقبال الحسابات عن فشل رفع العمليات.\nمؤشرات المزامنة تعتمد وقت الخادم، مع جلب كامل آمن عند أول تشغيل، وحماية العمليات المحلية غير المرفوعة وهوية جهاز مستقلة لكل حساب.\nعزل اتصال واتساب عن المساعد المحلي، وإبقاء فحص الاتصال متاحًا عند فشل المكتبة، وتوضيح أخطاء الربط والتشغيل.\nبعد التحديث افتح مساعد واتساب وانسخ أمر الإعداد الجديد إلى Termux مرة واحدة لتحديث المساعد؛ لا تحذف التطبيق أو بياناته.\nالمساعد غير رسمي، وجدولة رسائل الزبائن لم تُفعّل بعد. الربط والإشعارات والمزامنة النهائية تحتاج تجربة الهواتف.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.22.7.apk",
-      "size": 5518214,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.7/Raad-Pharmacy-v3.3.22.7.apk"
+      "name": "Raad-Pharmacy-v3.3.22.8.apk",
+      "size": 5537534,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.8/Raad-Pharmacy-v3.3.22.8.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.22.7.apk.sha256",
+      "name": "Raad-Pharmacy-v3.3.22.8.apk.sha256",
       "size": 94,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.7/Raad-Pharmacy-v3.3.22.7.apk.sha256"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.8/Raad-Pharmacy-v3.3.22.8.apk.sha256"
     }
   ]
 }
