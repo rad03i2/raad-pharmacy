@@ -57,4 +57,30 @@ class AutomaticWhatsappStoreTest {
         store.setEnabled(true, "9647700000000", "user-a")
         assertNull(store.reserve(key, "9647700000001"))
     }
+
+    @Test fun differentWorkerInstancesCannotReserveTheSameReminderTwice() {
+        store.setEnabled(true, "9647700000000", "user-a")
+        val key = "a".repeat(64)
+        val results = java.util.Collections.synchronizedList(mutableListOf<String?>())
+        val start = java.util.concurrent.CountDownLatch(1)
+        val threads = (1..8).map {
+            Thread {
+                start.await()
+                results.add(AutomaticWhatsappStore(context).reserve(key, "9647700000001"))
+            }.also { it.start() }
+        }
+        start.countDown()
+        threads.forEach { it.join(5_000) }
+        assertEquals(1, results.count { it != null })
+    }
+
+    @Test fun reservationEnforcesTenDailyAttemptsEvenWithDifferentCases() {
+        store.setEnabled(true, "9647700000000", "user-a")
+        for (i in 0 until 10) {
+            val hash = i.toString(16).padStart(64, '0')
+            assertNotNull(store.reserve(hash, "9647700000001"))
+        }
+        assertNull(store.reserve("f".repeat(64), "9647700000001"))
+        assertEquals(10, store.logs().size)
+    }
 }
