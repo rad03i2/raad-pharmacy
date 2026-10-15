@@ -87,3 +87,16 @@ test('status and pairing endpoints cannot send reminders', async t => {
   await f.request('/connect', { phone: '07709999999' });
   assert.equal(f.sent.length, 0);
 });
+
+test('WhatsApp delivery receipts update automatic journal but never affect trial journal', async t => {
+  const f = await fixture(t);
+  const body = data();
+  assert.equal((await f.request('/auto', body)).status, 202);
+  assert.equal(f.autoStore.get(body.requestId).state, 'submitted');
+  const id = f.autoStore.get(body.requestId).messageId;
+  // The isolated helper reports WhatsApp receipts through its callback.
+  // A service restart must not invent receipt confirmations.
+  const status = await f.request('/jobs/' + body.requestId);
+  assert.equal(status.body.job.messageId, id);
+  assert.equal(f.store.get(body.requestId), null);
+});
