@@ -39,6 +39,13 @@ internal fun createCloudClient(url: String, key: String, authConfig: AuthConfig.
                     // Capture the transport cause before supabase-kt replaces it with a
                     // HttpRequestException that does not retain the original throwable.
                     CloudConnectionDiagnostics.record(request.url.encodedPath, failure)
+                    val code = CloudConnectionDiagnostics.classify(failure).code
+                    if (code in setOf(CloudFailureCode.DNS, CloudFailureCode.TLS, CloudFailureCode.CONNECT,
+                            CloudFailureCode.TIMEOUT, CloudFailureCode.TRANSPORT)) {
+                        // Preserve a safe, request-specific code through the SDK's wrapper.
+                        // Never infer one request's cause from a concurrent request's failure.
+                        throw ClassifiedCloudTransportFailure(code, failure)
+                    }
                     throw failure
                 }
             }

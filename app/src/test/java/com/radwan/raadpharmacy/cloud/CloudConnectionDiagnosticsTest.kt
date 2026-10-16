@@ -32,4 +32,11 @@ class CloudConnectionDiagnosticsTest {
         assertFalse(health.needsRecovery(false, true))
         health.reset(); assertTrue(health.needsRecovery(false, true))
     }
+    @Test fun theSdkWrapperRetainsTheCodeOfThisRequestWithoutUsingAnotherRequestsFailure() {
+        val request = io.ktor.client.request.HttpRequestBuilder()
+        val wrapped = io.github.jan.supabase.exceptions.HttpRequestException("RAAD_TRANSPORT_TLS", request)
+        assertEquals(CloudFailureCode.TLS, CloudConnectionDiagnostics.classify(wrapped).code)
+        assertEquals(CloudFailureCode.DNS, CloudConnectionDiagnostics.classify(
+            ClassifiedCloudTransportFailure(CloudFailureCode.DNS, UnknownHostException())).code)
+    }
 }

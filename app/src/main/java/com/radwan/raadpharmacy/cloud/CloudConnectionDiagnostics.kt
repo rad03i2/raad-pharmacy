@@ -23,6 +23,8 @@ import org.json.JSONObject
 internal enum class CloudFailureCode { DNS, TLS, CONNECT, TIMEOUT, HTTP, SESSION, DECODE, TRANSPORT, UNKNOWN }
 internal data class CloudConnectionFailure(val path: String, val code: CloudFailureCode,
     val status: Int? = null, val at: Long = System.currentTimeMillis())
+internal class ClassifiedCloudTransportFailure(val code: CloudFailureCode, cause: Throwable) :
+    java.io.IOException("RAAD_TRANSPORT_${code.name}", cause)
 
 /** Only allowlisted metadata. Never persist exception text, URLs, identifiers or credentials. */
 internal object CloudConnectionDiagnostics {
@@ -47,8 +49,11 @@ internal object CloudConnectionDiagnostics {
         // Match fixed markers if needed; the original text is never saved or displayed.
         val markers = causes.joinToString(" ") { it.javaClass.simpleName + " " + it.message.orEmpty() }.lowercase()
         val status = causes.filterIsInstance<RestException>().firstOrNull()?.statusCode
+        val transportTag = if (causes.any { it is ClassifiedCloudTransportFailure || it.javaClass.simpleName == "HttpRequestException" })
+            CloudFailureCode.entries.firstOrNull { "raad_transport_${it.name.lowercase()}" in markers } else null
         val code = when {
             status != null -> CloudFailureCode.HTTP
+            transportTag != null -> transportTag
             causes.any { it is UnknownHostException } || "unknownhost" in markers || "unable to resolve host" in markers -> CloudFailureCode.DNS
             causes.any { it is SSLException } || "sslhandshake" in markers || "trust anchor" in markers || "certificate" in markers -> CloudFailureCode.TLS
             causes.any { it is SocketTimeoutException || it is kotlinx.coroutines.TimeoutCancellationException } || "timeout" in markers || "timed out" in markers -> CloudFailureCode.TIMEOUT
@@ -72,11 +77,7 @@ internal object CloudConnectionDiagnostics {
             else -> "runtime"
         }
         val next = classify(error).copy(path = route)
-        val previous = mutableFailure.value
-        // Keep the engine's specific cause when the SDK immediately wraps the same failure.
-        val saved = if (next.code in setOf(CloudFailureCode.UNKNOWN, CloudFailureCode.TRANSPORT) &&
-            previous != null && next.at - previous.at in 0..1_000 && previous.code !in setOf(CloudFailureCode.UNKNOWN, CloudFailureCode.TRANSPORT))
-            previous.copy(path = route) else next
+        val saved = next
         mutableFailure.value = saved
         preferences?.edit()?.putString("failure", JSONObject().put("path", saved.path)
             .put("code", saved.code.name).put("status", saved.status ?: 0).put("at", saved.at).toString())?.apply()
