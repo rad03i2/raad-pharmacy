@@ -53,6 +53,7 @@ class MainActivity : FragmentActivity() {
             LaunchedEffect(Unit) {
                 try {
                     withContext(Dispatchers.IO) {
+                        com.radwan.raadpharmacy.cloud.CloudConnectionDiagnostics.initialize(applicationContext)
                         LedgerReleaseCleanup.clearOnce(applicationContext)
                         LedgerReleaseCleanup.retireOldMessagingTrial(applicationContext)
                     }

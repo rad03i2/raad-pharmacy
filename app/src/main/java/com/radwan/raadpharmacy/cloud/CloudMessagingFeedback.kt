@@ -44,6 +44,7 @@ internal object CloudMessagingFeedback {
     }
 
     fun record(path: String, error: Throwable) {
+        CloudConnectionDiagnostics.record(path, error)
         Log.w("RaadMessaging", "path=$path kind=${kind(error)} at=${System.currentTimeMillis()}")
     }
 }

@@ -11,10 +11,6 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeout
-import android.os.SystemClock
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.TimeoutCancellationException
 
 /** Team loading belongs to the application, never to a settings screen or ledger sync lock. */
 internal object CloudTeamRuntime {
@@ -22,8 +18,6 @@ internal object CloudTeamRuntime {
     private var refresh: AutomaticTeamRefresh? = null
     private val extrasMutex = Mutex()
     private var extras: Job? = null
-    private val recovery = Mutex()
-    private var lastRecovery = -5_000L
 
     @Synchronized fun start(context: Context): AutomaticTeamRefresh {
         refresh?.let { return it }
@@ -41,26 +35,10 @@ internal object CloudTeamRuntime {
         loader.request()
         return loader
     }
-    fun request(context: Context, recoverSession: Boolean = false) {
-        val loader = start(context)
-        loader.request()
-        if (!recoverSession) return
-        scope.launch {
-            if (!recovery.tryLock()) return@launch
-            try {
-                val auth = SupabaseProvider.client.auth
-                if (auth.sessionStatus.value is SessionStatus.RefreshFailure &&
-                    SystemClock.elapsedRealtime() - lastRecovery >= 5_000L) {
-                    lastRecovery = SystemClock.elapsedRealtime()
-                    // Reload only the SDK's existing stored session; never create credentials.
-                    withTimeout(5_000L) { auth.loadFromStorage() }
-                    loader.request()
-                }
-            } catch (error: TimeoutCancellationException) { CloudMessagingFeedback.record("team_session_restore", error) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { CloudMessagingFeedback.record("team_session_restore", error) }
-            finally { recovery.unlock() }
-        }
+    fun request(context: Context) {
+        // Auth owns its one refresh job. Reloading stored sessions here cancels that
+        // job and can re-import an older session during an explicit sign-in.
+        start(context).request()
     }
 
     fun enrich(context: Context, owner: String, generation: Long, profiles: List<CloudTeamProfileRow>) {

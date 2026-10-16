@@ -157,7 +157,7 @@ class CloudSyncEngine(context: Context) {
             catch (error: Exception) {
                 if (error is CancellationException && error !is kotlinx.coroutines.TimeoutCancellationException) throw error
                 Log.w(TAG, "Ledger subscription failed; scheduling recovery")
-                CloudSyncRuntime.recoverLedgerRealtime(appContext)
+                CloudSyncRuntime.ledgerRealtimeLost(appContext)
             }
         }
         scope.launch {
@@ -169,7 +169,7 @@ class CloudSyncEngine(context: Context) {
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) { Log.w(TAG, "Ledger catch-up deferred after join") }
                 }
-            }, onLost = { CloudSyncRuntime.recoverLedgerRealtime(appContext) })
+            }, onLost = { CloudSyncRuntime.ledgerRealtimeLost(appContext) })
         }
 
         scope.launch {
@@ -465,8 +465,9 @@ class CloudSyncEngine(context: Context) {
     companion object {
         private const val TAG = "CloudSyncEngine"
         private val globalSyncMutex = Mutex()
-        private suspend fun <T> ledgerOperation(block: suspend () -> T): T = globalSyncMutex.withLock {
-            withTimeout(30_000L) { block() }
+        internal suspend fun <T> ledgerOperation(block: suspend () -> T): T = globalSyncMutex.withLock {
+            // HTTP requests have their own SDK deadline. A backlog is not one request.
+            block()
         }
         suspend fun <T> withLedgerSyncLock(block: suspend () -> T): T = globalSyncMutex.withLock { block() }
         private val pushRegistrationMutex = Mutex()

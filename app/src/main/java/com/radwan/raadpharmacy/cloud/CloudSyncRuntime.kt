@@ -33,6 +33,7 @@ object CloudSyncRuntime {
     private val connectivityObserverStarted = AtomicBoolean(false)
     private val foregroundDeltaLoopStarted = AtomicBoolean(false)
     private val realtimeRecoveryRunning = AtomicBoolean(false)
+    private val realtimeHealth = CloudRealtimeHealth()
     private val consecutiveRealtimeFailures = AtomicInteger(0)
     private val lastBackgroundAt = AtomicLong(0L)
     private val runtimeStarted = AtomicBoolean(false)
@@ -101,7 +102,7 @@ object CloudSyncRuntime {
     fun onAppForegrounded(context: Context) {
         val app = context.applicationContext
         CloudUiEvents.setAppForeground(true)
-        CloudTeamRuntime.request(app, recoverSession = true)
+        CloudTeamRuntime.request(app)
         CloudFinancialSyncRuntime.request(app)
         CloudContinuousListening.startFromVisibleApp(app)
         val backgroundDuration = System.currentTimeMillis() - lastBackgroundAt.get()
@@ -162,6 +163,7 @@ object CloudSyncRuntime {
         realtimeJob = null
         realtimeOwner = null
         runCatching { SupabaseProvider.client.realtime.removeAllChannels() }
+        realtimeHealth.reset()
         dataRealtimeStarted.set(false)
         notificationRealtimeStarted.set(false)
         teamRealtimeStarted.set(false)
@@ -176,7 +178,8 @@ object CloudSyncRuntime {
             try {
                 val exponent = consecutiveRealtimeFailures.getAndIncrement().coerceAtMost(5)
                 delay((2_000L * (1L shl exponent)).coerceAtMost(60_000L))
-                if (CloudSyncScheduler.isEnabled(context)) {
+                if (CloudSyncScheduler.isEnabled(context) && realtimeHealth.needsRecovery(
+                        dataRealtimeStarted.get(), notificationRealtimeStarted.get())) {
                     resetRealtime()
                     startRealtimeIfPossible(context)
                     // Release the recovery gate before slow ledger I/O, so a failed
@@ -193,7 +196,24 @@ object CloudSyncRuntime {
     }
 
     internal fun ledgerRealtimeConnected() {
-        consecutiveRealtimeFailures.set(0)
+        realtimeHealth.ledger.set(true)
+        clearFailuresIfHealthy()
+    }
+    internal fun notificationRealtimeConnected() {
+        realtimeHealth.messages.set(true)
+        clearFailuresIfHealthy()
+    }
+    private fun clearFailuresIfHealthy() {
+        if (!realtimeHealth.needsRecovery(dataRealtimeStarted.get(), notificationRealtimeStarted.get()))
+            consecutiveRealtimeFailures.set(0)
+    }
+    internal fun ledgerRealtimeLost(context: Context) {
+        realtimeHealth.ledger.set(false)
+        recoverLedgerRealtime(context)
+    }
+    internal fun notificationRealtimeLost(context: Context) {
+        realtimeHealth.messages.set(false)
+        recoverLedgerRealtime(context)
     }
 
     /** Keep the alert subscription healthy; do not turn continuous monitoring into bulk sync. */
@@ -213,6 +233,7 @@ object CloudSyncRuntime {
             realtimeJob?.cancel()
             realtimeJob = null
             SupabaseProvider.client.realtime.removeAllChannels()
+            realtimeHealth.reset()
             dataRealtimeStarted.set(false)
             notificationRealtimeStarted.set(false)
             teamRealtimeStarted.set(false)
@@ -241,7 +262,7 @@ object CloudSyncRuntime {
         manager.registerDefaultNetworkCallback(
             object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    CloudTeamRuntime.request(context, recoverSession = true)
+                    CloudTeamRuntime.request(context)
                     CloudFinancialSyncRuntime.request(context)
                     scope.launch {
                         resetRealtime()
@@ -285,8 +306,9 @@ object CloudSyncRuntime {
     private const val REALTIME_RECONNECT_AFTER_MS = 8_000L
     private const val PRESENCE_HEARTBEAT_MS = 25_000L
 
-    private fun reportFailure(error: Throwable) {
-        if (error is CancellationException) throw error
+    private suspend fun reportFailure(error: Throwable) {
+        error.rethrowCloudCancellation()
+        CloudConnectionDiagnostics.record("runtime", error)
         FirebaseCrashlytics.getInstance().recordException(error)
     }
 }
