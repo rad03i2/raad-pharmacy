@@ -49,7 +49,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.radwan.raadpharmacy.cloud.CloudActivityBannerHost
 import com.radwan.raadpharmacy.cloud.CloudSyncRuntime
-import com.radwan.raadpharmacy.whatsapp.AutomaticWhatsappScheduler
 import com.radwan.raadpharmacy.data.FormDraftStore
 import com.radwan.raadpharmacy.ui.components.FloatingLedgerNavigation
 import com.radwan.raadpharmacy.ui.components.LedgerNavigationItem
@@ -170,7 +169,6 @@ fun PharmacyLedgerApp(
                 Lifecycle.Event.ON_START -> {
                     vm.onAppForegrounded()
                     CloudSyncRuntime.onAppForegrounded(context)
-                    AutomaticWhatsappScheduler.ensureCatchUp(context)
                 }
                 Lifecycle.Event.ON_STOP -> {
                     FormDraftStore.flush(context)
