@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.22.9",
+  "tag_name": "v3.3.22.10",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 77\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.9: معاينة وتنبيهات واتساب اليومية من هاتف واحد بموافقات صريحة ومنع التكرار.\nالفحص اليومي عبر WorkManager يعتمد نجاح المزامنة وخلو العمليات المعلقة؛ يستخدم رسائل المواعيد الخاصة ومراحل 30 و60 يومًا.\nإضافة إشراف على تشغيل Termux وملف Termux:Boot بعد تفعيل الإضافة، وسجل دائم لمنع تكرار المحاولات أو إعادتها عند غموض النتيجة.\nبعد التحديث افتح مساعد واتساب وانسخ أمر الإعداد الجديد إلى Termux مرة واحدة لتحديث المساعد؛ لا تحذف التطبيق أو بياناته.\nالإرسال مغلق افتراضيًا؛ يُفعّل من شاشة المساعد بعد تجربة ناجحة وموافقة الزبائن وتحديد هاتف واحد. المساعد غير رسمي؛ الثبات والشاشة المقفلة يحتاجان تجربة فعلية على الهاتف.",
+  "body": "VersionCode: 78\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.10: العودة إلى إرسال كشوف الحساب يدويًا فقط، وتحسين تسجيل الدخول واستقرار قائمة حسابات فريق الصيدلية.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.22.9.apk",
-      "size": 5538574,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.9/Raad-Pharmacy-v3.3.22.9.apk"
+      "name": "Raad-Pharmacy-v3.3.22.10.apk",
+      "size": 5499514,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.10/Raad-Pharmacy-v3.3.22.10.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.22.9.apk.sha256",
-      "size": 94,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.9/Raad-Pharmacy-v3.3.22.9.apk.sha256"
+      "name": "Raad-Pharmacy-v3.3.22.10.apk.sha256",
+      "size": 95,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.10/Raad-Pharmacy-v3.3.22.10.apk.sha256"
     }
   ]
 }
