@@ -44,7 +44,14 @@ import com.radwan.raadpharmacy.ui.theme.PharmacyLedgerTheme
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.status.SessionStatus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import java.io.IOException
 import java.util.Locale
 
 @Composable
@@ -208,15 +215,26 @@ private fun CloudLoginScreen() {
                     working = true
                     error = null
                     scope.launch {
-                        runCatching {
-                            SupabaseProvider.client.auth.signInWith(Email) {
-                                email = "$canonical@raad-pharmacy.local"
-                                this.password = password
+                        try {
+                            // Keep the existing account mapping: never modify stored Supabase credentials.
+                            withTimeout(25_000L) {
+                                SupabaseProvider.client.auth.signInWith(Email) {
+                                    email = "$canonical@raad-pharmacy.local"
+                                    this.password = password
+                                }
                             }
-                        }.onFailure {
-                            error = "تعذر تسجيل الدخول. تحقق من اسم المستخدم وكلمة المرور والإنترنت."
+                            // A successful session is delivered through sessionStatus above.
+                        } catch (failure: TimeoutCancellationException) {
+                            error = if (auth.currentSessionOrNull() == null)
+                                CloudLoginFeedback.forFailure(failure) else null
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            error = if (auth.currentSessionOrNull() == null)
+                                CloudLoginFeedback.forFailure(failure) else null
+                        } finally {
+                            working = false
                         }
-                        working = false
                     }
                 }
             ) {
