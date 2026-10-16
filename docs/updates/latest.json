@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.22.11",
+  "tag_name": "v3.3.22.12",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 79\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.11: تأكيد حفظ الرسائل والتنبيهات، تسجيل جهاز الحساب قبل الإرسال، واستعادة الاشتراكات اللحظية وتحديث الشارات دون انتظار شاشة الإعدادات.",
+  "body": "VersionCode: 80\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.12: تحميل الحسابات وتحديثها تلقائيا عند فتح التطبيق، عرض الأسماء المحفوظة مباشرة، وإلغاء زر تحديث الحسابات اليدوي.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.22.11.apk",
+      "name": "Raad-Pharmacy-v3.3.22.12.apk",
       "size": 5499514,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.11/Raad-Pharmacy-v3.3.22.11.apk"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.12/Raad-Pharmacy-v3.3.22.12.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.22.11.apk.sha256",
+      "name": "Raad-Pharmacy-v3.3.22.12.apk.sha256",
       "size": 95,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.11/Raad-Pharmacy-v3.3.22.11.apk.sha256"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.12/Raad-Pharmacy-v3.3.22.12.apk.sha256"
     }
   ]
 }
