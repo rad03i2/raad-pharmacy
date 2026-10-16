@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.annotations.SupabaseInternal
+import io.github.jan.supabase.auth.MemoryCodeVerifierCache
 import io.github.jan.supabase.auth.MemorySessionManager
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -83,7 +84,7 @@ class CloudHttpIntegrationTest {
     private fun client(manager: MemorySessionManager = MemorySessionManager(), restore: Boolean = false) =
         createCloudClient(url, "fixture-publishable-key") {
             autoLoadFromStorage = restore; autoSaveToStorage = true; alwaysAutoRefresh = false
-            autoSetupPlatform = false; sessionManager = manager
+            autoSetupPlatform = false; sessionManager = manager; codeVerifierCache = MemoryCodeVerifierCache()
         }.also { clients += it }
     private suspend fun login(client: SupabaseClient) {
         client.auth.signInWith(Email) { email = "fixture@example.invalid"; password = "fixture-password" }
