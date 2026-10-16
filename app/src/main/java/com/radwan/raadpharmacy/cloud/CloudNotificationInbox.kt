@@ -137,12 +137,13 @@ class CloudNotificationInbox(context: Context) {
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (failure: Exception) {
                     CloudMessagingFeedback.record("realtime_delivery", failure)
-                    CloudSyncRuntime.recoverLedgerRealtime(appContext)
+                    CloudSyncRuntime.notificationRealtimeLost(appContext)
                 }
             }
         }
         scope.launch {
             channel.status.watchNotificationConnection(onConnected = {
+                    CloudSyncRuntime.notificationRealtimeConnected()
                     // Subscribe before taking the snapshot, closing the reconnect gap.
                     launch {
                         try { withTimeout(30_000L) { catchUp() } }
@@ -156,17 +157,17 @@ class CloudNotificationInbox(context: Context) {
                         catch (cancelled: CancellationException) { throw cancelled }
                         catch (failure: Exception) { CloudMessagingFeedback.record("message_catchup", failure) }
                     }
-            }, onLost = { CloudSyncRuntime.recoverLedgerRealtime(appContext) })
+            }, onLost = { CloudSyncRuntime.notificationRealtimeLost(appContext) })
         }
         scope.launch {
             try { withTimeout(15_000L) { channel.subscribe(blockUntilSubscribed = true) } }
             catch (failure: TimeoutCancellationException) {
                 CloudMessagingFeedback.record("realtime_subscribe", failure)
-                CloudSyncRuntime.recoverLedgerRealtime(appContext)
+                CloudSyncRuntime.notificationRealtimeLost(appContext)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) {
                 CloudMessagingFeedback.record("realtime_subscribe", failure)
-                CloudSyncRuntime.recoverLedgerRealtime(appContext)
+                CloudSyncRuntime.notificationRealtimeLost(appContext)
             }
         }
         scope.launch {
@@ -176,7 +177,7 @@ class CloudNotificationInbox(context: Context) {
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (failure: Exception) {
                         CloudMessagingFeedback.record("realtime_auth", failure)
-                        CloudSyncRuntime.recoverLedgerRealtime(appContext)
+                        CloudSyncRuntime.notificationRealtimeLost(appContext)
                     }
                 }
             }

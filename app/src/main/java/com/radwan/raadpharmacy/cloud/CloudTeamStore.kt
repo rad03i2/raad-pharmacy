@@ -149,17 +149,17 @@ class CloudTeamStore(context: Context) {
         scope.launch {
             channel.status.watchNotificationConnection(
                 onConnected = { CloudTeamRuntime.request(appContext) },
-                onLost = { CloudSyncRuntime.recoverLedgerRealtime(appContext) })
+                onLost = { CloudTeamRuntime.request(appContext) })
         }
         scope.launch {
             try { withTimeout(15_000L) { channel.subscribe(blockUntilSubscribed = true) } }
             catch (error: kotlinx.coroutines.TimeoutCancellationException) {
                 CloudMessagingFeedback.record("team_realtime", error)
-                CloudSyncRuntime.recoverLedgerRealtime(appContext)
+                CloudTeamRuntime.request(appContext)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 CloudMessagingFeedback.record("team_realtime", error)
-                CloudSyncRuntime.recoverLedgerRealtime(appContext)
+                CloudTeamRuntime.request(appContext)
             }
         }
         scope.launch {

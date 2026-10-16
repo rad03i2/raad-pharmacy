@@ -7,6 +7,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.radwan.raadpharmacy.ui.screens.ConnectionDiagnosticsPanel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -81,7 +84,7 @@ fun CloudAuthGate(content: @Composable () -> Unit) {
                 prefs.edit().putBoolean(KEY_HAS_OFFLINE_SESSION, true).apply()
                 lifecycle.withStarted {
                     CloudSyncScheduler.enable(context)
-                    CloudTeamRuntime.request(context, recoverSession = true)
+                    CloudTeamRuntime.request(context)
                     CloudContinuousListening.startFromVisibleApp(context)
                     FollowupNotificationScheduler.ensure(context)
                 }
@@ -219,11 +222,9 @@ private fun CloudLoginScreen() {
                     scope.launch {
                         try {
                             // Keep the existing account mapping: never modify stored Supabase credentials.
-                            withTimeout(25_000L) {
-                                SupabaseProvider.client.auth.signInWith(Email) {
-                                    email = "$canonical@raad-pharmacy.local"
-                                    this.password = password
-                                }
+                            SupabaseProvider.client.auth.signInWith(Email) {
+                                email = "$canonical@raad-pharmacy.local"
+                                this.password = password
                             }
                             // A successful session is delivered through sessionStatus above.
                         } catch (failure: TimeoutCancellationException) {
@@ -232,6 +233,7 @@ private fun CloudLoginScreen() {
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (failure: Exception) {
+                            CloudConnectionDiagnostics.record("login", failure)
                             error = if (auth.currentSessionOrNull() == null)
                                 CloudLoginFeedback.forFailure(failure) else null
                         } finally {
@@ -249,6 +251,7 @@ private fun CloudLoginScreen() {
                     Text("دخول")
                 }
             }
+            ConnectionDiagnosticsPanel()
         }
     }
 }

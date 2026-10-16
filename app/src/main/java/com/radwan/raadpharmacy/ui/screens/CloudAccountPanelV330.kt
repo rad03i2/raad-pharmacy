@@ -194,6 +194,7 @@ internal fun CloudAccountPanelV330() {
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             FinancialSyncStatus(pendingUploads, financialState)
+            ConnectionDiagnosticsPanel()
             snapshot.current?.let { current ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -428,8 +429,9 @@ internal fun FinancialSyncStatus(pending: Int, state: FinancialUploadState) {
     val text = if (pending == 0) "لا توجد عمليات مالية بانتظار الرفع"
         else when (state) {
             FinancialUploadState.WAITING_FOR_SESSION -> "محفوظ على الهاتف: $pending عملية تنتظر استعادة الاتصال بالحساب"
-            FinancialUploadState.RETRYING -> "محفوظ على الهاتف: $pending عملية، سنعيد رفعها تلقائيًا عند استعادة الاتصال"
-            else -> "محفوظ على الهاتف: جارٍ رفع $pending عملية إلى السحابة…"
+            FinancialUploadState.RETRYING -> "محفوظ على الهاتف: تعذر رفع $pending عملية الآن، تجري إعادة المحاولة تلقائيًا"
+            FinancialUploadState.UPLOADING -> "محفوظ على الهاتف: جارٍ رفع $pending عملية إلى السحابة…"
+            FinancialUploadState.IDLE -> "محفوظ على الهاتف: $pending عملية بانتظار المزامنة التلقائية"
         }
     Text(text, style = MaterialTheme.typography.bodySmall,
         color = if (pending > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)

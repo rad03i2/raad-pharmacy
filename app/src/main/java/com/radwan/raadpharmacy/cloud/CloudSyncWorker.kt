@@ -29,12 +29,9 @@ class CloudSyncWorker(
         )
         for (operation in operations) {
             if (!CloudSyncScheduler.isEnabled(applicationContext)) return Result.success()
-            try { operation() }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) {
-                failed = true
-                FirebaseCrashlytics.getInstance().recordException(error)
-            }
+            if (!recoverableCloudOperation(onFailure = {
+                FirebaseCrashlytics.getInstance().recordException(it)
+            }, operation = operation)) failed = true
         }
         return if (failed) Result.retry() else Result.success()
     }
