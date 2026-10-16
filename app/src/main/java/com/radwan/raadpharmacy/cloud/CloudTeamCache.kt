@@ -37,9 +37,7 @@ internal class CloudTeamCache(context: Context) {
         val saved = runCatching {
             prefs.getString(KEY, null)?.let { Json.decodeFromString<CachedTeam>(it) }
         }.getOrNull()?.takeIf { it.ownerId == ownerId }
-        saved?.members?.forEach { row ->
-            CloudTeamAvatars.load(row.avatarPath?.let(::File), row.avatarRevision)
-        }
+        // Restore names immediately; avatar decoding happens on a background dispatcher in the UI.
         entry.value = saved
     }
 
