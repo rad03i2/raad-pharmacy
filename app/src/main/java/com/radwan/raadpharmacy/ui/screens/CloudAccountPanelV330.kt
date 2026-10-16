@@ -1,6 +1,9 @@
 package com.radwan.raadpharmacy.ui.screens
 
 import android.graphics.Bitmap
+import com.radwan.raadpharmacy.cloud.CloudFinancialSyncRuntime
+import com.radwan.raadpharmacy.cloud.FinancialUploadState
+import com.radwan.raadpharmacy.data.PharmacyLedgerDatabase
 import com.radwan.raadpharmacy.cloud.CloudTeamRuntime
 import com.radwan.raadpharmacy.cloud.TeamLoadingState
 import com.radwan.raadpharmacy.cloud.CloudTeamAvatars
@@ -78,6 +81,10 @@ internal fun CloudAccountPanelV330() {
     val snapshot by updates.collectAsStateWithLifecycle(initialValue = store.cachedSnapshot())
     val automatic = remember(context) { CloudTeamRuntime.start(context) }
     val teamState by automatic.state.collectAsStateWithLifecycle()
+    val financial = remember(context) { CloudFinancialSyncRuntime.start(context) }
+    val financialState by financial.state.collectAsStateWithLifecycle()
+    val pendingFlow = remember(context) { PharmacyLedgerDatabase.get(context).dao().observeCloudPendingCount() }
+    val pendingUploads by pendingFlow.collectAsStateWithLifecycle(initialValue = -1)
     var uploading by remember { mutableStateOf(false) }
     var avatarTargetId by remember { mutableStateOf<String?>(null) }
     var sendingTo by remember { mutableStateOf(emptySet<String>()) }
@@ -186,6 +193,7 @@ internal fun CloudAccountPanelV330() {
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            FinancialSyncStatus(pendingUploads, financialState)
             snapshot.current?.let { current ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -412,4 +420,17 @@ private fun lastSeenLabel(lastSeenAt: Long?): String {
             "آخر ظهور " + formatDate(lastSeenAt) + " • " + formatTime(lastSeenAt)
         }
     }
+}
+
+@Composable
+internal fun FinancialSyncStatus(pending: Int, state: FinancialUploadState) {
+    if (pending < 0) return
+    val text = if (pending == 0) "لا توجد عمليات مالية بانتظار الرفع"
+        else when (state) {
+            FinancialUploadState.WAITING_FOR_SESSION -> "محفوظ على الهاتف: $pending عملية تنتظر استعادة الاتصال بالحساب"
+            FinancialUploadState.RETRYING -> "محفوظ على الهاتف: $pending عملية، سنعيد رفعها تلقائيًا عند استعادة الاتصال"
+            else -> "محفوظ على الهاتف: جارٍ رفع $pending عملية إلى السحابة…"
+        }
+    Text(text, style = MaterialTheme.typography.bodySmall,
+        color = if (pending > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
 }

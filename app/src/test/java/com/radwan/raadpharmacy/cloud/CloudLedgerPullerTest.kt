@@ -116,4 +116,24 @@ class CloudLedgerPullerTest {
         assertTrue(result.exceptionOrNull() is CancellationException)
         assertFalse(received)
     }
+
+    @Test fun noSessionNeverAcknowledgesAnAmountAndRecoveryUploadsTheOriginalOperationExactlyOnce() = runBlocking {
+        dao.insertCustomer(CustomerEntity(customer.id, customer.name, null, "", "", 0, "", 1), "REMOTE")
+        dao.insertEntry(LedgerEntryEntity("unsent", customer.id, "DEBT", 9000, null, null, "", 2))
+        val before = dao.cloudOutbox()
+        var owner: String? = null
+        val committed = linkedMapOf<String, CloudOutboxEntity>()
+        val drain = DurableCloudDrain(dao) { row ->
+            requireCloudSyncOwner(owner)
+            committed[row.entityId] = row
+        }
+        assertTrue(runCatching { drain.flush() }.exceptionOrNull() is CloudSessionNotReady)
+        assertEquals(before, dao.cloudOutbox()); assertTrue(committed.isEmpty())
+        // A pull from the older phone must not erase the new phone's unsent amount.
+        dao.applyCloudSnapshot(listOf(CustomerEntity(customer.id, customer.name, null, "", "", 0, "", 1)), emptyList())
+        assertEquals(9000L, dao.getEntryById("unsent")!!.amount)
+        owner = "restored-owner"; drain.flush(); drain.flush()
+        assertEquals(1, committed.size); assertEquals(before.single(), committed.values.single())
+        assertTrue(dao.cloudOutbox().isEmpty())
+    }
 }
