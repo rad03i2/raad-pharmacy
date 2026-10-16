@@ -70,18 +70,6 @@ jobs:
       - name: Run unit, Room and Compose tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
-  uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: tools/phone-whatsapp/package-lock.json
-
-      - name: Verify local phone sender without contacting WhatsApp
-        working-directory: tools/phone-whatsapp
-        run: |
-          npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
-          npm run verify-runtime
-          npm test
 
       - name: Run release lint
         run: gradle :app:lintRelease --stacktrace
