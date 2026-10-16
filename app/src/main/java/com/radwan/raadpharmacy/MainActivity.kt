@@ -52,7 +52,10 @@ class MainActivity : FragmentActivity() {
             val resetError = remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
                 try {
-                    withContext(Dispatchers.IO) { LedgerReleaseCleanup.clearOnce(applicationContext) }
+                    withContext(Dispatchers.IO) {
+                        LedgerReleaseCleanup.clearOnce(applicationContext)
+                        LedgerReleaseCleanup.retireOldMessagingTrial(applicationContext)
+                    }
                     resetFinished.value = true
                 } catch (_: Exception) {
                     resetError.value = true

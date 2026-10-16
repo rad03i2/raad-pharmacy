@@ -82,21 +82,6 @@ jobs:
           # Room debug/release KSP tasks share the schema directory; one worker prevents concurrent schema writes.
           gradle --max-workers=1 :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
 
-      - name: Set up Node for phone WhatsApp trial
-        if: steps.gate.outputs.publish == 'true'
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: tools/phone-whatsapp/package-lock.json
-
-      - name: Verify local phone sender without contacting WhatsApp
-        if: steps.gate.outputs.publish == 'true'
-        working-directory: tools/phone-whatsapp
-        run: |
-          npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
-          npm run verify-runtime
-          npm test
 
       - name: Set up Deno for dispatcher verification
         if: steps.gate.outputs.publish == 'true'
@@ -206,11 +191,7 @@ jobs:
             echo "VersionCode: $code"
             echo "SigningCertificateSHA256: $signer"
             echo
-            echo "تحديث 3.3.22.9: معاينة وتنبيهات واتساب اليومية من هاتف واحد بموافقات صريحة ومنع التكرار."
-            echo "الفحص اليومي عبر WorkManager يعتمد نجاح المزامنة وخلو العمليات المعلقة؛ يستخدم رسائل المواعيد الخاصة ومراحل 30 و60 يومًا."
-            echo "إضافة إشراف على تشغيل Termux وملف Termux:Boot بعد تفعيل الإضافة، وسجل دائم لمنع تكرار المحاولات أو إعادتها عند غموض النتيجة."
-            echo "بعد التحديث افتح مساعد واتساب وانسخ أمر الإعداد الجديد إلى Termux مرة واحدة لتحديث المساعد؛ لا تحذف التطبيق أو بياناته."
-            echo "الإرسال مغلق افتراضيًا؛ يُفعّل من شاشة المساعد بعد تجربة ناجحة وموافقة الزبائن وتحديد هاتف واحد. المساعد غير رسمي؛ الثبات والشاشة المقفلة يحتاجان تجربة فعلية على الهاتف."
+            echo "تحديث 3.3.22.10: العودة إلى إرسال كشوف الحساب يدويًا فقط، وتحسين تسجيل الدخول واستقرار قائمة حسابات فريق الصيدلية."
           } > "$RUNNER_TEMP/release-notes.txt"
           echo "RAAD_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           echo "RAAD_RELEASE_NOTES=$RUNNER_TEMP/release-notes.txt" >> "$GITHUB_ENV"

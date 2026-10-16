@@ -67,7 +67,6 @@ import com.radwan.raadpharmacy.data.DebtFollowupEngine
 import com.radwan.raadpharmacy.data.EntryType
 import com.radwan.raadpharmacy.data.ReadyMessages
 import com.radwan.raadpharmacy.data.FollowupReminderStore
-import com.radwan.raadpharmacy.whatsapp.AutomaticWhatsappStore
 import com.radwan.raadpharmacy.ui.components.CustomerAvatar
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
 import com.radwan.raadpharmacy.ui.components.rememberLedgerFlingBehavior
@@ -132,7 +131,6 @@ fun SmartDebtFollowupV316(
     var missingPhoneFor by remember { mutableStateOf<String?>(null) }
     var lastSharedId by remember { mutableStateOf<String?>(null) }
     val reminderStore = remember(context) { FollowupReminderStore(context) }
-    val automaticStore = remember(context) { AutomaticWhatsappStore(context) }
     var reminderRevision by remember { mutableIntStateOf(0) }
     var reminderConfirmation by remember { mutableStateOf(reminderStore.confirmation()) }
 
@@ -500,18 +498,12 @@ fun SmartDebtFollowupV316(
                 items(shown, key = { it.customer.id }) { item ->
                     val reminderCase = remember(item, movements) { FollowupReminderStore.caseFor(item, movements) }
                     val remindedAt = remember(reminderCase, reminderRevision) { reminderStore.confirmedAt(reminderCase) }
-                    val autoState = remember(reminderCase, reminderRevision) {
-                        item.customer.phone?.let(::validatedIraqiWhatsappPhone)?.let {
-                            automaticStore.stateFor(reminderCase.fingerprint, it)
-                        }
-                    }
                     FollowupAccountCard(
                         record = item,
                         hideAmounts = security.hideAmounts,
                         isSharing = sharing == item.customer.id,
                         isBusy = sharing != null,
                         remindedAt = remindedAt,
-                        autoState = autoState,
                         onShare = { share(item.customer.id) },
                         onOpen = { onCustomer(item.customer.id) }
                     )
@@ -590,7 +582,6 @@ private fun FollowupAccountCard(
     isSharing: Boolean,
     isBusy: Boolean,
     remindedAt: Long?,
-    autoState: String?,
     onShare: () -> Unit,
     onOpen: () -> Unit
 ) {
@@ -646,15 +637,6 @@ private fun FollowupAccountCard(
                 }
             }
             FollowupReminderBadge(remindedAt)
-            if (remindedAt == null && autoState != null) {
-                Text(when (autoState) {
-                    "delivered" -> "تم تسليم التذكير التلقائي"
-                    "read" -> "تمت قراءة التذكير التلقائي"
-                    "submitted", "sent" -> "سُجّل طلب التذكير التلقائي؛ تحقق من وصوله في واتساب"
-                    else -> "نتيجة التذكير التلقائي غير مؤكدة؛ راجع واتساب قبل إعادة الإرسال"
-                }, style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary)
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("الرصيد الحالي", style = MaterialTheme.typography.labelSmall,
