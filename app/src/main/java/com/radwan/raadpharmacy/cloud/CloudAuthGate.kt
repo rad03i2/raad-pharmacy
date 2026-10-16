@@ -147,6 +147,7 @@ private fun LoadingCloudSession() {
 @Composable
 private fun CloudLoginScreen() {
     val scope = rememberCoroutineScope()
+    val auth = SupabaseProvider.client.auth
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
