@@ -253,18 +253,7 @@ class CloudSyncEngine(context: Context) {
     }
 
     private suspend fun registerDevice(profile: CloudProfileRow, userId: String) {
-        deviceStore.savePushIdentity(userId, profile.pharmacyId)
-        val row = CloudDeviceWrite(
-            id = deviceStore.deviceId(),
-            pharmacyId = profile.pharmacyId,
-            userId = userId,
-            name = listOf(Build.MANUFACTURER, Build.MODEL)
-                .filter { it.isNotBlank() }
-                .joinToString(" ")
-                .ifBlank { "Android" },
-            lastSeenAt = nowIso()
-        )
-        client.from("devices").upsert(row) { onConflict = "id" }
+        CloudDeviceRegistration.register(appContext, profile, userId)
     }
 
     private suspend fun registerPushToken(profile: CloudProfileRow, userId: String) = tokenRegistrationMutex.withLock {

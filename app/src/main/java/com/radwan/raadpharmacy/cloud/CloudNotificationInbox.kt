@@ -13,6 +13,9 @@ import io.github.jan.supabase.realtime.decodeRecordOrNull
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -77,10 +80,11 @@ class CloudNotificationInbox(context: Context) {
             }
             cache.merge(userId, listOf(row))
         }
-        if (isSeen(row.id)) return@withLock true
         val name = row.customerName ?: if (row.privacyRedacted) "الزبون"
             else row.customerId?.let { dao.getCustomerById(it)?.name } ?: "الزبون"
         val item = row.toExternal(name)
+        emitBannerOnce(row, item)
+        if (isSeen(row.id)) return@withLock true
         val posted = CloudNotificationCenter.post(appContext, item.title, item.body, item.customerId, true, item.id,
             openSettings = row.eventType in setOf("TEAM_ALERT", "TEAM_MESSAGE"), isMessage = row.eventType == "TEAM_MESSAGE",
             forceHidden = row.privacyRedacted)
@@ -113,27 +117,67 @@ class CloudNotificationInbox(context: Context) {
     }
 
     fun startRealtime(scope: CoroutineScope): Boolean {
-        val session = client.auth.currentSessionOrNull() ?: return false
-        val userId = session.user?.id ?: return false
+        val userId = client.auth.currentSessionOrNull()?.user?.id ?: return false
         val channel = client.channel("raad-notifications-" + userId)
-        val inserts = channel.postgresChangeFlow<PostgresAction.Insert>("public") {
-            table = "notification_events"
-        }
-
+        val changes = channel.postgresChangeFlow<PostgresAction>("public") { table = "notification_events" }
         scope.launch {
-            launch {
-                inserts.collect { action ->
-                    val row = action.decodeRecordOrNull<CloudNotificationEventRow>() ?: return@collect
-                    runCatching { deliverPush(row) }
+            changes.collect { action ->
+                if (client.auth.currentSessionOrNull()?.user?.id != userId) return@collect
+                val row = when (action) {
+                    is PostgresAction.Insert -> action.decodeRecordOrNull<CloudNotificationEventRow>()
+                    is PostgresAction.Update -> action.decodeRecordOrNull<CloudNotificationEventRow>()
+                    else -> null
+                } ?: return@collect
+                try {
+                    if (action is PostgresAction.Insert) deliverPush(row)
+                    else if (row.eventType == "TEAM_MESSAGE" && row.recipientUserId == userId) {
+                        CloudTeamMessageCache.get(appContext).merge(userId, listOf(row))
+                    }
+                    android.util.Log.i("RaadMessaging", "event_id=${row.id} realtime_applied_at=${System.currentTimeMillis()}")
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) {
+                    CloudMessagingFeedback.record("realtime_delivery", failure)
+                    CloudSyncRuntime.recoverLedgerRealtime(appContext)
                 }
             }
-            runCatching { channel.subscribe() }
         }
-
+        scope.launch {
+            channel.status.watchNotificationConnection(onConnected = {
+                    // Subscribe before taking the snapshot, closing the reconnect gap.
+                    launch {
+                        try { withTimeout(30_000L) { catchUp() } }
+                        catch (failure: TimeoutCancellationException) { CloudMessagingFeedback.record("catchup", failure) }
+                        catch (cancelled: CancellationException) { throw cancelled }
+                        catch (failure: Exception) { CloudMessagingFeedback.record("catchup", failure) }
+                    }
+                    launch {
+                        try { withTimeout(30_000L) { CloudTeamMessageStore(appContext).refresh() } }
+                        catch (failure: TimeoutCancellationException) { CloudMessagingFeedback.record("message_catchup", failure) }
+                        catch (cancelled: CancellationException) { throw cancelled }
+                        catch (failure: Exception) { CloudMessagingFeedback.record("message_catchup", failure) }
+                    }
+            }, onLost = { CloudSyncRuntime.recoverLedgerRealtime(appContext) })
+        }
+        scope.launch {
+            try { withTimeout(15_000L) { channel.subscribe(blockUntilSubscribed = true) } }
+            catch (failure: TimeoutCancellationException) {
+                CloudMessagingFeedback.record("realtime_subscribe", failure)
+                CloudSyncRuntime.recoverLedgerRealtime(appContext)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                CloudMessagingFeedback.record("realtime_subscribe", failure)
+                CloudSyncRuntime.recoverLedgerRealtime(appContext)
+            }
+        }
         scope.launch {
             client.auth.sessionStatus.collect { status ->
-                if (status is SessionStatus.Authenticated) {
-                    runCatching { channel.updateAuth(status.session.accessToken) }
+                if (status is SessionStatus.Authenticated && status.session.user?.id == userId) {
+                    try { channel.updateAuth(status.session.accessToken) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (failure: Exception) {
+                        CloudMessagingFeedback.record("realtime_auth", failure)
+                        CloudSyncRuntime.recoverLedgerRealtime(appContext)
+                    }
                 }
             }
         }
@@ -160,13 +204,14 @@ class CloudNotificationInbox(context: Context) {
                     rememberSeen(listOf(row.id))
                     return@withLock
                 }
-                if (isSeen(row.id)) return@withLock
                 if (row.actorDeviceId == deviceStore.deviceId()) {
                     rememberSeen(listOf(row.id))
                     return@withLock
                 }
                 val name = row.customerName ?: row.customerId?.let { dao.getCustomerById(it)?.name } ?: "الزبون"
                 val item = row.toExternal(name)
+                emitBannerOnce(row, item)
+                if (isSeen(row.id)) return@withLock
                 if (!CloudSyncScheduler.isEnabled(appContext)) return@withLock
                 // FCM owns direct external display for server-managed v52+ events.
                 // Realtime emits the internal banner. Explicit queue-loss recovery
@@ -183,18 +228,22 @@ class CloudNotificationInbox(context: Context) {
                     rememberSeen(listOf(row.id))
                     acknowledgeDisplayed(row.id)
                 }
-                if (CloudUiEvents.isAppForeground()) {
-                    CloudUiEvents.emit(CloudUiEvent(
-                        title = row.uiTitle(), message = item.body,
-                        customerId = item.customerId, actorName = row.actorDisplayName,
-                        kind = row.uiKind()
-                    ))
-                }
             }
             // Avoid artificial latency for single live Realtime/FCM events.
             // Only space out bulk alerts accumulated while offline.
             if (paceBacklog && (forceRecovery || !usesManagedPush(row)) && index < rows.lastIndex) delay(3_000L)
         }
+    }
+
+    /** Called under deliveryMutex. A banner is not evidence of system notification display. */
+    private fun emitBannerOnce(row: CloudNotificationEventRow, item: CloudExternalNotification) {
+        if (!CloudUiEvents.isAppForeground()) return
+        val ids = prefs.getStringSet(KEY_BANNERS, emptySet()).orEmpty()
+        if (row.id in ids) return
+        prefs.edit().putStringSet(KEY_BANNERS, (ids.toList() + row.id).takeLast(MAX_SEEN).toSet()).apply()
+        CloudUiEvents.emit(CloudUiEvent(title = row.uiTitle(), message = item.body,
+            customerId = item.customerId, actorName = row.actorDisplayName, kind = row.uiKind()))
+        android.util.Log.i("RaadMessaging", "event_id=${row.id} banner_emitted_at=${System.currentTimeMillis()}")
     }
 
     internal fun usesManagedPush(row: CloudNotificationEventRow): Boolean =
@@ -313,6 +362,7 @@ class CloudNotificationInbox(context: Context) {
         private const val PREFS = "raad_cloud_notification_inbox_v1"
         private const val KEY_CURSOR_AT = "catchup_cursor_at"
         private const val KEY_SEEN = "seen_ids"
+        private const val KEY_BANNERS = "banner_ids"
         private const val KEY_FEATURE_START_AT = "feature_start_at"
         private const val MAX_SEEN = 5_000
     }

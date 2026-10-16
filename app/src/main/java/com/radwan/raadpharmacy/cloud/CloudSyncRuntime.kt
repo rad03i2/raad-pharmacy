@@ -40,6 +40,7 @@ object CloudSyncRuntime {
     private val catchUpRunning = Mutex()
     private val realtimeMutex = Mutex()
     private var realtimeJob: Job? = null
+    private var realtimeOwner: String? = null
     private var lastSyncStartedAt = 0L
 
     fun start(context: Context) {
@@ -57,8 +58,8 @@ object CloudSyncRuntime {
         scope.launch { runCatching { CloudTeamStore(app).load() }.onFailure { reportFailure(it) } }
 
         scope.launch {
-            fullSyncAndCatchUp(app)
             startRealtimeIfPossible(app)
+            fullSyncAndCatchUp(app)
         }
 
         if (authObserverStarted.compareAndSet(false, true)) {
@@ -70,8 +71,8 @@ object CloudSyncRuntime {
                         scope.launch { runCatching { CloudTeamMessageStore(app).refresh() }.onFailure { reportFailure(it) } }
                         scope.launch { runCatching { CloudTeamStore(app).load() }.onFailure { reportFailure(it) } }
                         CloudSyncScheduler.enable(app)
-                        fullSyncAndCatchUp(app)
                         startRealtimeIfPossible(app)
+                        fullSyncAndCatchUp(app)
                         if (CloudUiEvents.isAppForeground()) {
                             runCatching { CloudTeamStore(app).heartbeat(true) }
                         }
@@ -124,9 +125,9 @@ object CloudSyncRuntime {
                 resetRealtime()
             }
 
+            startRealtimeIfPossible(app)
             runCatching { CloudTeamStore(app).heartbeat(true) }
             fullSyncAndCatchUp(app)
-            startRealtimeIfPossible(app)
         }
     }
 
@@ -173,6 +174,7 @@ object CloudSyncRuntime {
     private suspend fun resetRealtime() = realtimeMutex.withLock {
         realtimeJob?.cancel()
         realtimeJob = null
+        realtimeOwner = null
         runCatching { SupabaseProvider.client.realtime.removeAllChannels() }
         dataRealtimeStarted.set(false)
         notificationRealtimeStarted.set(false)
@@ -189,9 +191,13 @@ object CloudSyncRuntime {
                 delay((2_000L * (1L shl exponent)).coerceAtMost(60_000L))
                 if (CloudSyncScheduler.isEnabled(context)) {
                     resetRealtime()
-                    runCatching { CloudSyncEngine(context).pullRemoteNow() }
-                        .onFailure { reportFailure(it) }
                     startRealtimeIfPossible(context)
+                    // Release the recovery gate before slow ledger I/O, so a failed
+                    // notification rejoin can schedule its next bounded retry.
+                    scope.launch {
+                        runCatching { CloudSyncEngine(context).pullRemoteNow() }
+                            .onFailure { reportFailure(it) }
+                    }
                 }
             } finally {
                 realtimeRecoveryRunning.set(false)
@@ -215,17 +221,27 @@ object CloudSyncRuntime {
 
     private suspend fun startRealtimeIfPossible(context: Context, includeLedger: Boolean = true): Unit = realtimeMutex.withLock {
         if (!CloudSyncScheduler.isEnabled(context)) return@withLock
+        val owner = SupabaseProvider.client.auth.currentSessionOrNull()?.user?.id ?: return@withLock
+        if (realtimeOwner != null && realtimeOwner != owner) {
+            realtimeJob?.cancel()
+            realtimeJob = null
+            SupabaseProvider.client.realtime.removeAllChannels()
+            dataRealtimeStarted.set(false)
+            notificationRealtimeStarted.set(false)
+        }
+        realtimeOwner = owner
         val job = realtimeJob ?: SupervisorJob(scope.coroutineContext[Job]).also { realtimeJob = it }
         val realtimeScope = CoroutineScope(job + Dispatchers.IO)
+        // Notification subscription is independent of financial uploads and screen lifetime.
+        if (!notificationRealtimeStarted.get()) {
+            val inbox = CloudNotificationInbox(context.applicationContext)
+            if (inbox.startRealtime(realtimeScope)) notificationRealtimeStarted.set(true)
+        }
         if (includeLedger && !dataRealtimeStarted.get()) {
             val engine = CloudSyncEngine(context.applicationContext)
             if (engine.startRealtime(realtimeScope)) dataRealtimeStarted.set(true)
         }
 
-        if (!notificationRealtimeStarted.get()) {
-            val inbox = CloudNotificationInbox(context.applicationContext)
-            if (inbox.startRealtime(realtimeScope)) notificationRealtimeStarted.set(true)
-        }
     }
 
     private fun startConnectivityObserver(context: Context) {
@@ -236,8 +252,8 @@ object CloudSyncRuntime {
                 override fun onAvailable(network: Network) {
                     scope.launch {
                         resetRealtime()
-                        fullSyncAndCatchUp(context)
                         startRealtimeIfPossible(context)
+                        fullSyncAndCatchUp(context)
                     }
                 }
             }

@@ -9,6 +9,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.radwan.raadpharmacy.cloud.CloudMessagingFeedback
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.CancellationException
 import com.radwan.raadpharmacy.util.formatDate
 import com.radwan.raadpharmacy.util.formatTime
@@ -142,12 +144,9 @@ internal fun CloudAccountPanelV330() {
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                try { withContext(Dispatchers.IO) { messagesStore.refresh() } }
-                catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { /* Retain the offline inbox. */ }
-                delay(10_000L)
-            }
+            try { withContext(Dispatchers.IO) { messagesStore.refresh() } }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Retain the offline inbox. */ }
         }
     }
     composeTo?.let { recipient ->
@@ -159,14 +158,14 @@ internal fun CloudAccountPanelV330() {
                     scope.launch {
                         try {
                             withContext(Dispatchers.IO) { messagesStore.send(recipient.id, messageId, messageText) }
-                            alertMessage = "تم إرسال الرسالة إلى " + recipient.displayName
+                            alertMessage = "تم حفظ الرسالة، ويجري توصيلها إلى " + recipient.displayName
                             composeTo = null
                             messageText = ""
+                        } catch (error: TimeoutCancellationException) {
+                            messageError = CloudMessagingFeedback.forFailure(context, error)
                         } catch (cancelled: CancellationException) { throw cancelled }
                         catch (error: Exception) {
-                            messageError = if (error.message.orEmpty().contains("MESSAGE_RATE_LIMIT"))
-                                "انتظر 3 ثوانٍ قبل إرسال رسالة أخرى."
-                            else "تعذر إرسال الرسالة. تحقق من الإنترنت ثم أعد المحاولة."
+                            messageError = CloudMessagingFeedback.forFailure(context, error)
                         } finally { messageSending = false }
                     }
                 }
@@ -324,12 +323,12 @@ internal fun CloudAccountPanelV330() {
                                 try {
                                     withContext(Dispatchers.IO) { store.sendAlert(member.id) }
                                     lastSent[member.id] = System.currentTimeMillis()
-                                    alertMessage = "تم إرسال طلب التنبيه إلى " + member.displayName
+                                    alertMessage = "تم حفظ طلب التنبيه، ويجري توصيله إلى " + member.displayName
+                                } catch (error: TimeoutCancellationException) {
+                                    alertMessage = CloudMessagingFeedback.forFailure(context, error, alert = true)
                                 } catch (cancelled: CancellationException) { throw cancelled }
                                 catch (error: Exception) {
-                                    alertMessage = if (error.message.orEmpty().contains("ALERT_RATE_LIMIT"))
-                                        "انتظر 30 ثانية قبل إرسال تنبيه آخر."
-                                    else "تعذر إرسال التنبيه. تحقق من اتصال الإنترنت ثم حاول مرة أخرى."
+                                    alertMessage = CloudMessagingFeedback.forFailure(context, error, alert = true)
                                 } finally { sendingTo = sendingTo - member.id }
                             }
                         }

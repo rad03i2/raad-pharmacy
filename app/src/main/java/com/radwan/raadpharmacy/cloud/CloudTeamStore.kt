@@ -4,10 +4,6 @@ import android.content.Context
 import com.radwan.raadpharmacy.data.CustomerCreatorNameStore
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
-import io.github.jan.supabase.postgrest.postgrest
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import java.util.UUID
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.awaitAll
@@ -135,15 +131,7 @@ class CloudTeamStore(context: Context) {
     }
 
     suspend fun sendAlert(recipientId: String) {
-        client.auth.awaitInitialization()
-        check(client.auth.currentSessionOrNull() != null) { "يرجى تسجيل الدخول" }
-        val alertId = UUID.randomUUID().toString()
-        client.postgrest.rpc("send_user_alert", buildJsonObject {
-            put("target_user_id", recipientId)
-            put("sender_device_id", deviceStore.deviceId())
-            put("alert_id", alertId)
-        })
-        CloudPushDispatcher.requestEvent(appContext, alertId)
+        CloudMessagingSender(appContext).alert(recipientId)
     }
 
     suspend fun heartbeat(online: Boolean) {

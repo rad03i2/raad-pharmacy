@@ -24,15 +24,7 @@ internal class CloudTeamMessageStore(context: Context) {
     suspend fun send(recipientId: String, messageId: String, text: String) {
         val body = text.trim()
         require(body.isNotEmpty() && body.length <= 500)
-        client.auth.awaitInitialization()
-        check(owner() != null)
-        client.postgrest.rpc("send_team_message", buildJsonObject {
-            put("target_user_id", recipientId)
-            put("sender_device_id", CloudDeviceStore(appContext).deviceId())
-            put("message_id", messageId)
-            put("message_text", body)
-        })
-        CloudPushDispatcher.requestEvent(appContext, messageId)
+        CloudMessagingSender(appContext).send(recipientId, messageId, body)
     }
 
     suspend fun refresh() = cache.refreshMutex.withLock {
