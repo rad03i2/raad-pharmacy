@@ -192,8 +192,12 @@ object CloudSyncRuntime {
                 if (CloudSyncScheduler.isEnabled(context)) {
                     resetRealtime()
                     startRealtimeIfPossible(context)
-                    runCatching { CloudSyncEngine(context).pullRemoteNow() }
-                        .onFailure { reportFailure(it) }
+                    // Release the recovery gate before slow ledger I/O, so a failed
+                    // notification rejoin can schedule its next bounded retry.
+                    scope.launch {
+                        runCatching { CloudSyncEngine(context).pullRemoteNow() }
+                            .onFailure { reportFailure(it) }
+                    }
                 }
             } finally {
                 realtimeRecoveryRunning.set(false)
