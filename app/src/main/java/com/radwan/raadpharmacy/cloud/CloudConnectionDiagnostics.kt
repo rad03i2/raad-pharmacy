@@ -49,17 +49,17 @@ internal object CloudConnectionDiagnostics {
         // Match fixed markers if needed; the original text is never saved or displayed.
         val markers = causes.joinToString(" ") { it.javaClass.simpleName + " " + it.message.orEmpty() }.lowercase()
         val status = causes.filterIsInstance<RestException>().firstOrNull()?.statusCode
-        val transportTag = if (causes.any { it is ClassifiedCloudTransportFailure || it.javaClass.simpleName == "HttpRequestException" })
+        val transportTag = if (causes.any { it is ClassifiedCloudTransportFailure || it is io.github.jan.supabase.exceptions.HttpRequestException })
             CloudFailureCode.entries.firstOrNull { "raad_transport_${it.name.lowercase()}" in markers } else null
         val code = when {
             status != null -> CloudFailureCode.HTTP
             transportTag != null -> transportTag
             causes.any { it is UnknownHostException } || "unknownhost" in markers || "unable to resolve host" in markers -> CloudFailureCode.DNS
             causes.any { it is SSLException } || "sslhandshake" in markers || "trust anchor" in markers || "certificate" in markers -> CloudFailureCode.TLS
-            causes.any { it is SocketTimeoutException || it is kotlinx.coroutines.TimeoutCancellationException } || "timeout" in markers || "timed out" in markers -> CloudFailureCode.TIMEOUT
+            causes.any { it is SocketTimeoutException || it is kotlinx.coroutines.TimeoutCancellationException || it is io.ktor.client.plugins.HttpRequestTimeoutException } || "timeout" in markers || "timed out" in markers -> CloudFailureCode.TIMEOUT
             causes.any { it is ConnectException } || "connection refused" in markers -> CloudFailureCode.CONNECT
             "session" in markers || "jwt" in markers -> CloudFailureCode.SESSION
-            "serializ" in markers || "json" in markers || "decode" in markers -> CloudFailureCode.DECODE
+            causes.any { it is kotlinx.serialization.SerializationException } || "serializ" in markers || "json" in markers || "decode" in markers -> CloudFailureCode.DECODE
             causes.any { it is java.io.IOException } || "httprequestexception" in markers -> CloudFailureCode.TRANSPORT
             else -> CloudFailureCode.UNKNOWN
         }
