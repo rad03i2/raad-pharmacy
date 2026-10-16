@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.withLock
 import android.os.SystemClock
 import kotlinx.serialization.SerialName
@@ -47,8 +49,11 @@ class CloudTeamStore(context: Context) {
 
     private val cache = CloudTeamCache.get(appContext)
 
-    fun cachedSnapshot(): CloudTeamSnapshot =
-        cache.current(client.auth.currentSessionOrNull()?.user?.id)
+    fun cachedSnapshot(): CloudTeamSnapshot {
+        val owner = client.auth.currentSessionOrNull()?.user?.id
+        if (owner != null) cache.restore(owner)
+        return cache.current(owner)
+    }
 
     fun snapshots(): Flow<CloudTeamSnapshot> =
         combine(cache.changes, client.auth.sessionStatus, flow {
@@ -71,14 +76,19 @@ class CloudTeamStore(context: Context) {
                 if (client.auth.currentSessionOrNull()?.user?.id == userId) cache.publish(userId, snapshot)
             }
             coroutineScope {
-                val profilesRequest = async { client.from("profiles").select().decodeList<CloudTeamProfileRow>() }
+                val profilesRequest = async {
+                    withTimeout(15_000L) { client.from("profiles").select().decodeList<CloudTeamProfileRow>() }
+                }
                 val presenceRequest = async {
-                    try { client.from("user_presence").select().decodeList<CloudPresenceRow>().associateBy { it.userId } }
+                    try { withTimeout(8_000L) {
+                        client.from("user_presence").select().decodeList<CloudPresenceRow>().associateBy { it.userId }
+                    } }
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { emptyMap() }
                 }
                 val profiles = profilesRequest.await()
                 val currentProfile = profiles.firstOrNull { it.id == userId }
+                    ?: error("لم يتمكن الخادم من إظهار ملف المستخدم الحالي. سيتم الاحتفاظ بالأسماء المحفوظة.")
                 currentProfile?.displayName?.let { CustomerCreatorNameStore.save(appContext, it) }
                 val pharmacyId = currentProfile?.pharmacyId
                 EntryActorStore.get(appContext).rememberProfiles(profiles.filter { it.pharmacyId == pharmacyId })
@@ -97,7 +107,7 @@ class CloudTeamStore(context: Context) {
                 // Names and saved photos appear before either presence or avatar downloads finish.
                 publish(snapshot(localMembers))
                 val avatarRequests = visible.map { profile -> async {
-                    try { mediaStore.syncProfilePhoto(profile.id, profile.avatarPath) }
+                    try { withTimeout(8_000L) { mediaStore.syncProfilePhoto(profile.id, profile.avatarPath) } }
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { mediaStore.profilePhotoFile(profile.id).takeIf(File::isFile) }
                 } }
