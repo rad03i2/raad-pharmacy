@@ -47,8 +47,8 @@ jobs:
       - name: Verify stable version metadata
         shell: bash
         run: |
-          grep -q 'versionName = "3.3.22.9"' app/build.gradle.kts
-          grep -q 'versionCode = 77' app/build.gradle.kts
+          grep -q 'versionName = "3.3.22.10"' app/build.gradle.kts
+          grep -q 'versionCode = 78' app/build.gradle.kts
           if grep -q 'versionName = ".*-rc' app/build.gradle.kts; then
             echo "Release candidate suffix is still present."
             exit 1
@@ -70,8 +70,7 @@ jobs:
       - name: Run unit, Room and Compose tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
-      - name: Set up Node for phone WhatsApp trial
-        uses: actions/setup-node@v5
+  uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
