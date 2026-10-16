@@ -80,9 +80,9 @@ class CloudTeamStore(context: Context) {
                     withTimeout(15_000L) { client.from("profiles").select().decodeList<CloudTeamProfileRow>() }
                 }
                 val presenceRequest = async {
-                    try { withTimeout(8_000L) {
+                    try { withTimeoutOrNull(8_000L) {
                         client.from("user_presence").select().decodeList<CloudPresenceRow>().associateBy { it.userId }
-                    } }
+                    } ?: emptyMap() }
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { emptyMap() }
                 }
@@ -107,7 +107,8 @@ class CloudTeamStore(context: Context) {
                 // Names and saved photos appear before either presence or avatar downloads finish.
                 publish(snapshot(localMembers))
                 val avatarRequests = visible.map { profile -> async {
-                    try { withTimeout(8_000L) { mediaStore.syncProfilePhoto(profile.id, profile.avatarPath) } }
+                    try { withTimeoutOrNull(8_000L) { mediaStore.syncProfilePhoto(profile.id, profile.avatarPath) }
+                        ?: mediaStore.profilePhotoFile(profile.id).takeIf(File::isFile) }
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { mediaStore.profilePhotoFile(profile.id).takeIf(File::isFile) }
                 } }
