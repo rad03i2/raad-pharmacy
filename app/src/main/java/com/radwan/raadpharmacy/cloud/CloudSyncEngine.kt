@@ -133,7 +133,7 @@ class CloudSyncEngine(context: Context) {
                 transactionChanges.collect { action ->
                     runCatching {
                         transactionRow(action)?.let { row ->
-                            globalSyncMutex.withLock {
+                            ledgerOperation {
                                 if (dao.restoreHold() != "1") applyTransactionRealtime(row)
                             }
                         }
@@ -145,7 +145,7 @@ class CloudSyncEngine(context: Context) {
             launch {
                 customerChanges.collect { action ->
                     runCatching {
-                        customerRow(action)?.let { row -> globalSyncMutex.withLock {
+                        customerRow(action)?.let { row -> ledgerOperation {
                             if (dao.restoreHold() != "1") applyCustomerRealtime(row)
                         } }
                     }.onFailure {
