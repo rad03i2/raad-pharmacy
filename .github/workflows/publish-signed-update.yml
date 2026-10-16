@@ -191,7 +191,7 @@ jobs:
             echo "VersionCode: $code"
             echo "SigningCertificateSHA256: $signer"
             echo
-            echo "تحديث 3.3.22.11: تأكيد حفظ الرسائل والتنبيهات، تسجيل جهاز الحساب قبل الإرسال، واستعادة الاشتراكات اللحظية وتحديث الشارات دون انتظار شاشة الإعدادات."
+            echo "تحديث 3.3.22.12: تحميل الحسابات وتحديثها تلقائيا عند فتح التطبيق، عرض الأسماء المحفوظة مباشرة، وإلغاء زر تحديث الحسابات اليدوي."
           } > "$RUNNER_TEMP/release-notes.txt"
           echo "RAAD_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           echo "RAAD_RELEASE_NOTES=$RUNNER_TEMP/release-notes.txt" >> "$GITHUB_ENV"

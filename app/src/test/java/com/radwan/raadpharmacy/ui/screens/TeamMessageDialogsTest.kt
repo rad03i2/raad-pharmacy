@@ -28,6 +28,15 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TeamMessageDialogsTest {
     @get:Rule val compose = createComposeRule()
+    @Test fun teamWaitsForSessionAndRecoversAutomaticallyWithoutManualReloadControls() {
+        var state by mutableStateOf(com.radwan.raadpharmacy.cloud.TeamLoadingState.WAITING_FOR_SESSION)
+        compose.setContent { PharmacyLedgerTheme { TeamAutomaticLoading(state) } }
+        compose.onNodeWithText("تجري استعادة جلسة الحساب تلقائيا…").assertIsDisplayed()
+        compose.onNodeWithText("تحديث الحسابات").assertDoesNotExist()
+        compose.onNodeWithText("إعادة تحميل حسابات الفريق").assertDoesNotExist()
+        compose.runOnIdle { state = com.radwan.raadpharmacy.cloud.TeamLoadingState.RETRYING }
+        compose.onNodeWithText("تجري إعادة الاتصال بالحسابات تلقائيا…").assertIsDisplayed()
+    }
     @Test fun unreadActionOnlyAppearsForNewMessagesAndAllActionsStayReachable() {
         var hasUnread by mutableStateOf(false)
         var sends=0; var alerts=0

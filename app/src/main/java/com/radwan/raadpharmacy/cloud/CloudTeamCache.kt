@@ -18,6 +18,8 @@ internal class CloudTeamCache(context: Context) {
     val refreshMutex = Mutex()
     var refreshedOwner: String? = null
     var refreshedAt = 0L
+    @Volatile var generation = 0L
+        private set
 
     fun current(ownerId: String?, now: Long = System.currentTimeMillis()): CloudTeamSnapshot {
         val saved = entry.value?.takeIf { ownerId != null && it.ownerId == ownerId }
@@ -43,7 +45,8 @@ internal class CloudTeamCache(context: Context) {
 
     @Synchronized fun publish(ownerId: String, snapshot: CloudTeamSnapshot) {
         val members = listOfNotNull(snapshot.current) + snapshot.others
-        members.forEach { CloudTeamAvatars.load(it.avatarFile, it.avatarRevision) }
+        // Publishing names must never decode images or perform media network work.
+        generation++
         val saved = CachedTeam(ownerId, members.map {
             CachedMember(it.id, it.displayName, it.avatarFile?.absolutePath,
                 it.avatarRevision, it.isOnline, it.lastSeenAt)
@@ -52,7 +55,25 @@ internal class CloudTeamCache(context: Context) {
         prefs.edit().putString(KEY, Json.encodeToString(saved)).apply()
     }
 
+    @Synchronized fun enrich(ownerId: String, expectedGeneration: Long,
+        presence: Map<String, CloudPresenceRow> = emptyMap(), avatars: Map<String, File?> = emptyMap()) {
+        val saved = entry.value?.takeIf { it.ownerId == ownerId && generation == expectedGeneration } ?: return
+        val updated = saved.copy(members = saved.members.map { member ->
+            val seen = presence[member.id]
+            val file = avatars[member.id]
+            val time = seen?.lastSeenAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+            val newer = time != null && (member.lastSeenAt == null || time >= member.lastSeenAt)
+            member.copy(isOnline = if (newer) seen!!.isOnline else member.isOnline,
+                lastSeenAt = if (newer) time else member.lastSeenAt,
+                avatarPath = file?.absolutePath ?: member.avatarPath,
+                avatarRevision = file?.lastModified() ?: member.avatarRevision)
+        })
+        entry.value = updated
+        prefs.edit().putString(KEY, Json.encodeToString(updated)).apply()
+    }
+
     @Synchronized fun clear() {
+        generation++
         entry.value = null
         refreshedOwner = null
         refreshedAt = 0L

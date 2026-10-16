@@ -42,10 +42,8 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             .onFailure { android.util.Log.w("AppRepository", "Portable backup startup deferred", it) }
         runCatching { CloudSyncRuntime.start(appContext) }
             .onFailure { android.util.Log.w("AppRepository", "Cloud startup deferred", it) }
-        CoroutineScope(Dispatchers.IO).launch {
-            runCatching { com.radwan.raadpharmacy.cloud.CloudTeamStore(appContext).load() }
-                .onFailure { android.util.Log.w("AppRepository", "Team profile cache deferred", it) }
-        }
+        com.radwan.raadpharmacy.cloud.CloudTeamRuntime.request(appContext)
+
     }
 
     fun observeCustomers(): Flow<List<Customer>> =

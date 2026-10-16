@@ -89,4 +89,30 @@ class CloudTeamCacheTest {
         cache.restore("one")
         assertNull(cache.current("one", now).current)
     }
+
+    @Test fun namesPublishWithoutDecodingAnExistingAvatar() {
+        CloudTeamAvatars.clear()
+        val file = java.io.File(context.cacheDir, "team-cache-no-eager-decode.png")
+        file.outputStream().use {
+            android.graphics.Bitmap.createBitmap(16,16,android.graphics.Bitmap.Config.ARGB_8888)
+                .compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)
+        }
+        val snapshot = team.copy(current = team.current!!.copy(avatarFile = file, avatarRevision = 42))
+        val cache = CloudTeamCache(context); cache.publish("one",snapshot)
+        assertEquals("رعد",cache.current("one",now).current!!.displayName)
+        assertNull(CloudTeamAvatars.cached(file,42))
+    }
+
+    @Test fun slowOptionalWorkCannotOverwriteNewerNamesOrAnotherAccountsState() {
+        val cache = CloudTeamCache(context); cache.publish("one",team)
+        val old = cache.generation
+        cache.publish("one",team.copy(current = team.current!!.copy(displayName="اسم جديد")))
+        cache.enrich("one",old,presence=mapOf("one" to CloudPresenceRow("one","pharmacy",isOnline=false,
+            lastSeenAt="2026-10-16T00:00:00Z")))
+        assertEquals("اسم جديد",cache.current("one",now).current!!.displayName)
+        assertTrue(cache.current("one",now).current!!.isOnline)
+        cache.clear()
+        cache.enrich("one",old,avatars=mapOf("one" to java.io.File("old-avatar")))
+        assertNull(cache.current("one",now).current)
+    }
 }
