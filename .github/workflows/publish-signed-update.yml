@@ -191,7 +191,7 @@ jobs:
             echo "VersionCode: $code"
             echo "SigningCertificateSHA256: $signer"
             echo
-            echo "تحديث 3.3.22.12: تحميل الحسابات وتحديثها تلقائيا عند فتح التطبيق، عرض الأسماء المحفوظة مباشرة، وإلغاء زر تحديث الحسابات اليدوي."
+            echo "تحديث 3.3.22.13: إعادة رفع العمليات المالية المعلقة تلقائيا، فصل تحميل الصور عن قفل الدفتر، وإظهار حالة الحفظ السحابي مع الحفاظ على توافق النسخ السابقة."
           } > "$RUNNER_TEMP/release-notes.txt"
           echo "RAAD_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           echo "RAAD_RELEASE_NOTES=$RUNNER_TEMP/release-notes.txt" >> "$GITHUB_ENV"

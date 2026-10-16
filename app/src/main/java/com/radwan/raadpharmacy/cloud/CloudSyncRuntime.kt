@@ -32,8 +32,6 @@ object CloudSyncRuntime {
     private val presenceLoopStarted = AtomicBoolean(false)
     private val connectivityObserverStarted = AtomicBoolean(false)
     private val foregroundDeltaLoopStarted = AtomicBoolean(false)
-    private val fastSyncRunning = AtomicBoolean(false)
-    private val fastSyncRequested = AtomicBoolean(false)
     private val realtimeRecoveryRunning = AtomicBoolean(false)
     private val consecutiveRealtimeFailures = AtomicInteger(0)
     private val lastBackgroundAt = AtomicLong(0L)
@@ -49,6 +47,7 @@ object CloudSyncRuntime {
         CloudNotificationCenter.ensureChannels(app)
         CloudSyncScheduler.enable(app)
         CloudTeamRuntime.start(app)
+        CloudFinancialSyncRuntime.start(app)
         if (!runtimeStarted.compareAndSet(false, true)) return
         CloudDeviceStore(app).refreshFcmToken(app)
         PixabaySoundAssets.prefetch(app)
@@ -70,6 +69,7 @@ object CloudSyncRuntime {
                     if (status is SessionStatus.Authenticated) {
                         scope.launch { runCatching { CloudTeamMessageStore(app).refresh() }.onFailure { reportFailure(it) } }
                         CloudSyncScheduler.enable(app)
+                        CloudFinancialSyncRuntime.request(app)
                         startRealtimeIfPossible(app)
                         fullSyncAndCatchUp(app)
                         if (CloudUiEvents.isAppForeground()) {
@@ -83,23 +83,8 @@ object CloudSyncRuntime {
 
     fun requestSync(context: Context) {
         val app = context.applicationContext
+        CloudFinancialSyncRuntime.request(app)
         CloudSyncScheduler.enqueue(app)
-        fastSyncRequested.set(true)
-        if (!fastSyncRunning.compareAndSet(false, true)) return
-
-        scope.launch {
-            try {
-                do {
-                    fastSyncRequested.set(false)
-                    runCatching { CloudSyncEngine(app).flushPendingOnly() }
-                        .onFailure { reportFailure(it) }
-                    startRealtimeIfPossible(app)
-                } while (fastSyncRequested.getAndSet(false))
-            } finally {
-                fastSyncRunning.set(false)
-                if (fastSyncRequested.get()) requestSync(app)
-            }
-        }
     }
 
     suspend fun refreshNow(context: Context): Result<Unit> {
@@ -117,6 +102,7 @@ object CloudSyncRuntime {
         val app = context.applicationContext
         CloudUiEvents.setAppForeground(true)
         CloudTeamRuntime.request(app, recoverSession = true)
+        CloudFinancialSyncRuntime.request(app)
         CloudContinuousListening.startFromVisibleApp(app)
         val backgroundDuration = System.currentTimeMillis() - lastBackgroundAt.get()
 
@@ -256,6 +242,7 @@ object CloudSyncRuntime {
             object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     CloudTeamRuntime.request(context, recoverSession = true)
+                    CloudFinancialSyncRuntime.request(context)
                     scope.launch {
                         resetRealtime()
                         startRealtimeIfPossible(context)
@@ -275,7 +262,7 @@ object CloudSyncRuntime {
             while (true) {
                 delay(15_000L)
                 if (CloudUiEvents.isAppForeground() && CloudSyncScheduler.isEnabled(context)
-                    && !fastSyncRunning.get() && !catchUpRunning.isLocked) {
+                    && !catchUpRunning.isLocked) {
                     runCatching { CloudSyncEngine(context).pullRemoteNow() }
                         .onFailure { reportFailure(it) }
                 }

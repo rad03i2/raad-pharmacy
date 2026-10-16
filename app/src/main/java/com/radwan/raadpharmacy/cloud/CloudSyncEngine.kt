@@ -23,6 +23,7 @@ import io.github.jan.supabase.realtime.decodeRecordOrNull
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
@@ -34,7 +35,6 @@ class CloudSyncEngine(context: Context) {
     private val dao = PharmacyLedgerDatabase.get(appContext).dao()
     private val journal = CloudSyncJournal(appContext)
     private val deviceStore = CloudDeviceStore(appContext)
-    private val mediaStore = CloudMediaStore(appContext)
     private val actors = EntryActorStore.get(appContext)
     private val syncPrefs = appContext.getSharedPreferences("raad_cloud_sync_state_v2", Context.MODE_PRIVATE)
     private val ledgerPuller = CloudLedgerPuller(syncPrefs, ::fetchCustomers, ::fetchTransactions) { customers, transactions, full ->
@@ -44,9 +44,7 @@ class CloudSyncEngine(context: Context) {
             transactions.forEach { applyTransactionRealtime(it) }
         }
         actors.rememberActors(transactions)
-        try { mediaStore.reconcileCustomerPhotos(customers) }
-        catch (cancelled: CancellationException) { throw cancelled }
-        catch (failure: Exception) { Log.w(TAG, "Photo sync deferred after ledger reception", failure) }
+        CloudLedgerMediaRuntime.enqueue(appContext, customers)
     }
 
     suspend fun unregisterPushToken() = globalSyncMutex.withLock {
@@ -75,20 +73,18 @@ class CloudSyncEngine(context: Context) {
         registerPushToken(profile, userId)
     }
 
-    suspend fun syncOnce() = globalSyncMutex.withLock {
-        if (dao.restoreHold() == "1") return@withLock
+    suspend fun syncOnce() = ledgerOperation {
+        if (dao.restoreHold() == "1") return@ledgerOperation
         journal.importLegacy()
         LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
-        val session = client.auth.currentSessionOrNull() ?: return@withLock
-        val userId = session.user?.id ?: return@withLock
+        val userId = requireCloudSyncOwner(client.auth.currentSessionOrNull()?.user?.id)
         val profile = client.from("profiles")
             .select { filter { eq("id", userId) } }
             .decodeSingle<CloudProfileRow>()
 
         syncBothDirections(upload = {
             registerDevice(profile, userId)
-            registerPushTokenBestEffort(profile, userId)
             if (!deviceStore.isBootstrapped(profile.pharmacyId)) {
                 bootstrap(profile)
                 deviceStore.markBootstrapped(profile.pharmacyId)
@@ -97,28 +93,26 @@ class CloudSyncEngine(context: Context) {
         }, receive = { pullRemoteDelta() })
     }
 
-    suspend fun flushPendingOnly() = globalSyncMutex.withLock {
-        if (dao.restoreHold() == "1") return@withLock
+    suspend fun flushPendingOnly() = ledgerOperation {
+        if (dao.restoreHold() == "1") return@ledgerOperation
         journal.importLegacy()
         LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
-        val session = client.auth.currentSessionOrNull() ?: return@withLock
-        val userId = session.user?.id ?: return@withLock
+        val userId = requireCloudSyncOwner(client.auth.currentSessionOrNull()?.user?.id)
         val profile = client.from("profiles")
             .select { filter { eq("id", userId) } }
             .decodeSingle<CloudProfileRow>()
 
         registerDevice(profile, userId)
-        registerPushTokenBestEffort(profile, userId)
         pushPending(profile)
     }
 
-    suspend fun pullRemoteNow(forceSnapshot: Boolean = false) = globalSyncMutex.withLock {
-        if (dao.restoreHold() == "1") return@withLock
+    suspend fun pullRemoteNow(forceSnapshot: Boolean = false) = ledgerOperation {
+        if (dao.restoreHold() == "1") return@ledgerOperation
         journal.importLegacy()
         LedgerReleaseCleanup.clearOnce(appContext)
         client.auth.awaitInitialization()
-        if (client.auth.currentSessionOrNull() == null) return@withLock
+        requireCloudSyncOwner(client.auth.currentSessionOrNull()?.user?.id)
         pullRemoteDelta(forceSnapshot)
     }
 
@@ -139,7 +133,7 @@ class CloudSyncEngine(context: Context) {
                 transactionChanges.collect { action ->
                     runCatching {
                         transactionRow(action)?.let { row ->
-                            globalSyncMutex.withLock {
+                            ledgerOperation {
                                 if (dao.restoreHold() != "1") applyTransactionRealtime(row)
                             }
                         }
@@ -151,7 +145,7 @@ class CloudSyncEngine(context: Context) {
             launch {
                 customerChanges.collect { action ->
                     runCatching {
-                        customerRow(action)?.let { row -> globalSyncMutex.withLock {
+                        customerRow(action)?.let { row -> ledgerOperation {
                             if (dao.restoreHold() != "1") applyCustomerRealtime(row)
                         } }
                     }.onFailure {
@@ -159,12 +153,23 @@ class CloudSyncEngine(context: Context) {
                     }
                 }
             }
-            runCatching { channel.subscribe() }
-                .onSuccess { CloudSyncRuntime.ledgerRealtimeConnected() }
-                .onFailure {
-                    Log.w(TAG, "Realtime channel subscription failed; scheduling recovery", it)
-                    CloudSyncRuntime.recoverLedgerRealtime(appContext)
+            try { withTimeout(15_000L) { channel.subscribe(blockUntilSubscribed = true) } }
+            catch (error: Exception) {
+                if (error is CancellationException && error !is kotlinx.coroutines.TimeoutCancellationException) throw error
+                Log.w(TAG, "Ledger subscription failed; scheduling recovery")
+                CloudSyncRuntime.recoverLedgerRealtime(appContext)
+            }
+        }
+        scope.launch {
+            channel.status.watchNotificationConnection(onConnected = {
+                CloudSyncRuntime.ledgerRealtimeConnected()
+                // Catch anything committed before a successful join or during a reconnect.
+                scope.launch {
+                    try { pullRemoteNow() }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (error: Exception) { Log.w(TAG, "Ledger catch-up deferred after join") }
                 }
+            }, onLost = { CloudSyncRuntime.recoverLedgerRealtime(appContext) })
         }
 
         scope.launch {
@@ -241,15 +246,6 @@ class CloudSyncEngine(context: Context) {
                 }
             }
         }.flush()
-    }
-
-    private suspend fun registerPushTokenBestEffort(profile: CloudProfileRow, userId: String) {
-        try { registerPushToken(profile, userId) }
-        catch (cancelled: CancellationException) { throw cancelled }
-        catch (error: Exception) {
-            Log.w(TAG, "Push registration deferred; financial upload continues", error)
-            CloudPushRegistrationWorker.enqueue(appContext)
-        }
     }
 
     private suspend fun registerDevice(profile: CloudProfileRow, userId: String) {
@@ -372,7 +368,7 @@ class CloudSyncEngine(context: Context) {
                 com.radwan.raadpharmacy.customer.CustomerPhotoStore(appContext).remove(row.id)
         } else {
             dao.applyCloudCustomer(row.id, row.toLocal())
-            runCatching { mediaStore.syncCustomerPhoto(row) }
+            CloudLedgerMediaRuntime.enqueue(appContext, listOf(row))
         }
     }
 
@@ -469,6 +465,9 @@ class CloudSyncEngine(context: Context) {
     companion object {
         private const val TAG = "CloudSyncEngine"
         private val globalSyncMutex = Mutex()
+        private suspend fun <T> ledgerOperation(block: suspend () -> T): T = globalSyncMutex.withLock {
+            withTimeout(30_000L) { block() }
+        }
         suspend fun <T> withLedgerSyncLock(block: suspend () -> T): T = globalSyncMutex.withLock { block() }
         private val pushRegistrationMutex = Mutex()
         private val tokenRegistrationMutex = Mutex()

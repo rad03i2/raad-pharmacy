@@ -1,6 +1,7 @@
 package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.radwan.raadpharmacy.customer.CustomerPhotoStore
@@ -47,12 +48,13 @@ class CloudMediaStore(context: Context) {
             .forEach { row ->
                 val remote = row.photoPath
                 val local = customerPhotos.file(row.id)
-                when {
-                    !remote.isNullOrBlank() -> runCatching { syncCustomerPhoto(row) }
-                    local?.isFile == true -> runCatching {
-                        uploadCustomerPhoto(row.id, local)
+                try {
+                    when {
+                        !remote.isNullOrBlank() -> syncCustomerPhoto(row)
+                        local?.isFile == true -> uploadCustomerPhoto(row.id, local)
                     }
-                }
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* Optional media retries on the next refresh. */ }
             }
     }
 
