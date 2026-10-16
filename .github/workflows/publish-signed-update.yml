@@ -191,7 +191,7 @@ jobs:
             echo "VersionCode: $code"
             echo "SigningCertificateSHA256: $signer"
             echo
-            echo "تحديث 3.3.22.10: العودة إلى إرسال كشوف الحساب يدويًا فقط، وتحسين تسجيل الدخول واستقرار قائمة حسابات فريق الصيدلية."
+            echo "تحديث 3.3.22.11: تأكيد حفظ الرسائل والتنبيهات، تسجيل جهاز الحساب قبل الإرسال، واستعادة الاشتراكات اللحظية وتحديث الشارات دون انتظار شاشة الإعدادات."
           } > "$RUNNER_TEMP/release-notes.txt"
           echo "RAAD_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           echo "RAAD_RELEASE_NOTES=$RUNNER_TEMP/release-notes.txt" >> "$GITHUB_ENV"

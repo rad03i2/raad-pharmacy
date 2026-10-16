@@ -9,6 +9,8 @@ import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import com.radwan.raadpharmacy.security.AppSecurityStore
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.launch
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -37,6 +39,24 @@ class BackgroundPushDeliveryTest {
         manager.cancelAll()
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         AppSecurityStore(context).setHideAmounts(false)
+    }
+
+    @Test fun foregroundFcmUpdatesInboxAndEmitsOneBannerForDuplicateDelivery() = runTest {
+        val banners = mutableListOf<CloudUiEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            CloudUiEvents.events.collect { banners += it }
+        }
+        CloudUiEvents.setAppForeground(true)
+        try {
+            val row = event.copy(id = "live-message-79", actorUserId = "sender", eventType = "TEAM_MESSAGE",
+                recipientUserId = "recipient", messageBody = "اختبار")
+            val inbox = CloudNotificationInbox(context)
+            inbox.deliverPushImmediately(row)
+            inbox.deliverPushImmediately(row)
+            assertEquals(1, banners.size)
+            assertEquals(1, CloudTeamMessageCache.get(context).current("recipient").count { it.id == row.id })
+            assertEquals(1, manager.activeNotifications.size)
+        } finally { CloudUiEvents.setAppForeground(false) }
     }
 
     @Test fun serverCustomerSnapshotAndVerifiedBalanceAppearInFullNotification() = runTest {
