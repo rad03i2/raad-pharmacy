@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.22.13",
+  "tag_name": "v3.3.22.15",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 81\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.13: إعادة رفع العمليات المالية المعلقة تلقائيا، فصل تحميل الصور عن قفل الدفتر، وإظهار حالة الحفظ السحابي مع الحفاظ على توافق النسخ السابقة.",
+  "body": "VersionCode: 83\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.15: إصلاح توقف المزامنة بعد المهلة، منع تداخل استعادة الجلسة، وإضافة فحص اتصال آمن وتشخيص واضح مع الحفاظ على العمليات المعلقة.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.22.13.apk",
-      "size": 5499514,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.13/Raad-Pharmacy-v3.3.22.13.apk"
+      "name": "Raad-Pharmacy-v3.3.22.15.apk",
+      "size": 5515814,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.15/Raad-Pharmacy-v3.3.22.15.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.22.13.apk.sha256",
+      "name": "Raad-Pharmacy-v3.3.22.15.apk.sha256",
       "size": 95,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.13/Raad-Pharmacy-v3.3.22.13.apk.sha256"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.15/Raad-Pharmacy-v3.3.22.15.apk.sha256"
     }
   ]
 }
