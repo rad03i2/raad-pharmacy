@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,6 +74,7 @@ internal fun CloudAccountPanelV330() {
     val updates = remember(store) { store.snapshots() }
     val snapshot by updates.collectAsStateWithLifecycle(initialValue = store.cachedSnapshot())
     var loading by remember { mutableStateOf(true) }
+    var teamError by remember { mutableStateOf<String?>(null) }
     var uploading by remember { mutableStateOf(false) }
     var avatarTargetId by remember { mutableStateOf<String?>(null) }
     var sendingTo by remember { mutableStateOf(emptySet<String>()) }
@@ -92,10 +94,15 @@ internal fun CloudAccountPanelV330() {
     val lifecycleOwner = LocalLifecycleOwner.current
 
     suspend fun refresh(force: Boolean = false) {
-        try { withContext(Dispatchers.IO) { store.load(force) } }
-        catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { /* Keep the last successful snapshot while offline. */ }
-        finally { loading = false }
+        try {
+            withContext(Dispatchers.IO) { store.load(force) }
+            teamError = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Show previously saved accounts and allow an explicit retry.
+            teamError = "تعذر تحديث الحسابات من الخادم. ستبقى الأسماء المحفوظة ظاهرة، ويمكن إعادة المحاولة."
+        } finally { loading = false }
     }
 
     val picker = rememberLauncherForActivityResult(
@@ -256,6 +263,23 @@ internal fun CloudAccountPanelV330() {
                         )
                     }
                 }
+            }
+
+            if (teamError != null) {
+                Text(teamError!!, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error)
+                OutlinedButton(enabled = !loading, onClick = {
+                    loading = true
+                    scope.launch { refresh(force = true) }
+                }) { Text("إعادة تحميل حسابات الفريق") }
+            }
+            if (!loading && snapshot.current == null && teamError == null) {
+                Text("لم تظهر بيانات الحساب بعد. استخدم إعادة التحميل عند استعادة الاتصال.",
+                    style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = {
+                    loading = true
+                    scope.launch { refresh(force = true) }
+                }) { Text("تحديث الحسابات") }
             }
 
             if (loading && snapshot.current == null) {
