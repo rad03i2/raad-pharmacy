@@ -2,6 +2,8 @@ package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
+import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.postgrest.from
@@ -19,9 +21,35 @@ import java.util.UUID
 /** Registration is deliberately independent of ledger locks, uploads and FCM token availability. */
 internal object CloudDeviceRegistration {
     private val mutex = Mutex()
-    suspend fun register(context: Context, profile: CloudProfileRow, owner: String): String = mutex.withLock {
-        val client = SupabaseProvider.client
+    private data class Receipt(val owner: String, val pharmacy: String, val device: String, val at: Long)
+    @Volatile private var receipt: Receipt? = null
+
+    fun invalidate() { receipt = null }
+
+    suspend fun register(context: Context, profile: CloudProfileRow, owner: String,
+        client: SupabaseClient = SupabaseProvider.client): String = mutex.withLock {
+        registerLocked(context, profile, owner, client)
+    }
+
+    suspend fun ensure(context: Context, owner: String, force: Boolean = false,
+        client: SupabaseClient = SupabaseProvider.client): String = mutex.withLock {
         check(client.auth.currentSessionOrNull()?.user?.id == owner) { "AUTH_SESSION_CHANGED" }
+        val store = CloudDeviceStore(context)
+        val saved = receipt
+        if (!force && saved != null && saved.owner == owner && store.pushUserId() == owner &&
+            saved.pharmacy == store.pushPharmacyId() && saved.device == store.deviceId() &&
+            SystemClock.elapsedRealtime() - saved.at in 0L..60_000L) {
+            return@withLock saved.device
+        }
+        val profile = client.from("profiles").select { filter { eq("id", owner) } }.decodeSingle<CloudProfileRow>()
+        registerLocked(context, profile, owner, client)
+    }
+
+    private suspend fun registerLocked(context: Context, profile: CloudProfileRow, owner: String,
+        client: SupabaseClient): String {
+        check(client.auth.currentSessionOrNull()?.user?.id == owner) { "AUTH_SESSION_CHANGED" }
+        check(profile.id == owner) { "AUTH_SESSION_CHANGED" }
+        receipt = null
         val store = CloudDeviceStore(context)
         store.savePushIdentity(owner, profile.pharmacyId)
         val id = store.deviceId()
@@ -29,7 +57,10 @@ internal object CloudDeviceRegistration {
             listOf(Build.MANUFACTURER, Build.MODEL).filter(String::isNotBlank).joinToString(" ").ifBlank { "Android" },
             lastSeenAt = Instant.now().toString())) { onConflict = "id" }
         check(client.auth.currentSessionOrNull()?.user?.id == owner) { "AUTH_SESSION_CHANGED" }
-        id
+        // Only a server-confirmed registration is reusable, briefly and in this process.
+        // Every message RPC still checks the current account, role and device on the server.
+        receipt = Receipt(owner, profile.pharmacyId, id, SystemClock.elapsedRealtime())
+        return id
     }
 }
 
@@ -57,11 +88,11 @@ internal class CloudMessagingSender(context: Context) {
         val type = if (body == null) "TEAM_ALERT" else "TEAM_MESSAGE"
         try {
             confirmedCloudSend(id, write = {
-                suspend fun attempt(): String = withTimeout(20_000L) {
+                suspend fun attempt(forceRegistration: Boolean = false): String {
                     // Postgrest requireValidSession renews expired credentials before requests.
-                    val profile = client.from("profiles").select { filter { eq("id", owner) } }.decodeSingle<CloudProfileRow>()
-                    val device = CloudDeviceRegistration.register(app, profile, owner)
-                    client.postgrest.rpc(if (body == null) "send_user_alert" else "send_team_message", buildJsonObject {
+                    // Keep per-request deadlines: a cold registration needs several requests.
+                    val device = CloudDeviceRegistration.ensure(app, owner, forceRegistration)
+                    return client.postgrest.rpc(if (body == null) "send_user_alert" else "send_team_message", buildJsonObject {
                         put("target_user_id", recipient); put("sender_device_id", device)
                         put(if (body == null) "alert_id" else "message_id", id)
                         body?.let { put("message_text", it) }
@@ -71,10 +102,19 @@ internal class CloudMessagingSender(context: Context) {
                 }
                 try { attempt() }
                 catch (failure: RestException) {
-                    if (failure.statusCode != 401 || client.auth.currentSessionOrNull()?.user?.id != owner) throw failure
-                    withTimeout(10_000L) { client.auth.refreshCurrentSession() }
-                    check(client.auth.currentSessionOrNull()?.user?.id == owner) { "AUTH_SESSION_CHANGED" }
-                    attempt() // exactly one renewal retry, preserving the same event UUID
+                    if (client.auth.currentSessionOrNull()?.user?.id != owner) throw failure
+                    when {
+                        failure.statusCode == 401 -> {
+                            withTimeout(10_000L) { client.auth.refreshCurrentSession() }
+                            check(client.auth.currentSessionOrNull()?.user?.id == owner) { "AUTH_SESSION_CHANGED" }
+                            attempt()
+                        }
+                        failure.message.orEmpty().let { "MESSAGE_DEVICE_INVALID" in it || "ALERT_DEVICE_INVALID" in it } -> {
+                            CloudDeviceRegistration.invalidate()
+                            attempt(forceRegistration = true)
+                        }
+                        else -> throw failure
+                    } // At most one repair retry, always preserving the original event UUID.
                 }
             }, saved = {
                 withTimeout(5_000L) {

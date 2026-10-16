@@ -1,5 +1,7 @@
 package com.radwan.raadpharmacy.cloud
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import com.radwan.raadpharmacy.BuildConfig
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
@@ -10,6 +12,7 @@ import io.github.jan.supabase.auth.MemorySessionManager
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
 import io.ktor.client.statement.bodyAsText
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
@@ -18,6 +21,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -27,6 +32,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowSystemClock
+import java.time.Duration
 
 /** Real sockets and the production Supabase/CIO client, not a mocked upload function.
  * The only server is an isolated localhost fixture; no production account or money is touched. */
@@ -39,8 +46,10 @@ class CloudHttpIntegrationTest {
     private val clients = mutableListOf<SupabaseClient>()
     private val rows = ConcurrentHashMap<String, String>()
     private val agents = CopyOnWriteArrayList<String>()
+    private val paths = CopyOnWriteArrayList<String>()
     private val loseResponse = AtomicBoolean(false)
     private val rejectLogin = AtomicBoolean(false)
+    private val rejectDevice = AtomicBoolean(false)
     private val owner = "00000000-0000-4000-8000-000000000001"
     private val pharmacy = "00000000-0000-4000-8000-000000000002"
     private val customer = "00000000-0000-4000-8000-000000000003"
@@ -49,10 +58,12 @@ class CloudHttpIntegrationTest {
     private val url get() = "http://127.0.0.1:${server.address.port}"
 
     @Before fun start() {
+        CloudDeviceRegistration.invalidate()
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.executor = executor
         server.createContext("/") { exchange ->
             agents += exchange.requestHeaders.getFirst("User-Agent").orEmpty()
+            paths += exchange.requestURI.path
             when (exchange.requestURI.path) {
                 "/slow" -> { Thread.sleep(350); runCatching { reply(exchange, 200, "{}") } }
                 "/auth/v1/token" -> if (rejectLogin.get()) reply(exchange, 400,
@@ -62,6 +73,12 @@ class CloudHttpIntegrationTest {
                     .put("user", JSONObject().put("id", owner).put("aud", "authenticated").put("role", "authenticated")
                         .put("email", "fixture@example.invalid").put("created_at", instant)).toString())
                 "/rest/v1/profiles" -> reply(exchange, 200, """[{"id":"$owner","pharmacy_id":"$pharmacy","display_name":"fixture","role":"MANAGER"}]""")
+                "/rest/v1/devices" -> if (rejectDevice.get()) reply(exchange, 503,
+                    """{"code":"PGRST000","message":"fixture unavailable"}""") else reply(exchange, 201, "")
+                "/rest/v1/rpc/send_team_message" -> {
+                    val data = JSONObject(exchange.requestBody.bufferedReader().use { it.readText() })
+                    reply(exchange, 200, JSONObject.quote(data.getString("message_id")))
+                }
                 "/rest/v1/transactions" -> if (exchange.requestMethod == "GET")
                     reply(exchange, 200, JSONArray(rows.values.map(::JSONObject)).toString())
                 else {
@@ -92,6 +109,7 @@ class CloudHttpIntegrationTest {
     private fun debt(amount: Long = 7000) = CloudTransactionWrite(entry, pharmacy, customer, entry,
         "DEBT", amount, occurredAt = instant, createdAt = instant)
     @After fun close() = runBlocking {
+        CloudDeviceRegistration.invalidate()
         clients.forEach { it.close() }; server.stop(0); executor.shutdownNow(); Unit
     }
 
@@ -134,5 +152,49 @@ class CloudHttpIntegrationTest {
         val error = runCatching { login(client) }.exceptionOrNull()!!
         assertTrue(CloudLoginFeedback.forFailure(error).contains("بيانات الدخول"))
         assertEquals(CloudFailureCode.HTTP, CloudConnectionDiagnostics.classify(error).code)
+    }
+
+    @Test fun aConfirmedLedgerRegistrationLetsEachWarmMessageUseOnlyOneHttpRequest() = runBlocking {
+        val client = client(); login(client)
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val profile = client.from("profiles").select().decodeList<CloudProfileRow>().single()
+        val device = CloudDeviceRegistration.register(app, profile, owner, client)
+        paths.clear()
+        repeat(2) {
+            val ready = CloudDeviceRegistration.ensure(app, owner, client = client)
+            assertEquals(device, ready)
+            val id = java.util.UUID.randomUUID().toString()
+            assertEquals(id, client.postgrest.rpc("send_team_message", buildJsonObject {
+                put("target_user_id", customer); put("sender_device_id", ready)
+                put("message_id", id); put("message_text", "fixture")
+            }).decodeAs<String>())
+        }
+        assertEquals(listOf("/rest/v1/rpc/send_team_message", "/rest/v1/rpc/send_team_message"), paths.toList())
+    }
+
+    @Test fun aFailedDeviceRegistrationIsNeverAcceptedAsConfirmed() = runBlocking {
+        val client = client(); login(client)
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        rejectDevice.set(true)
+        assertTrue(runCatching { CloudDeviceRegistration.ensure(app, owner, client = client) }.isFailure)
+        rejectDevice.set(false); paths.clear()
+        val device = CloudDeviceRegistration.ensure(app, owner, client = client)
+        assertEquals(CloudDeviceStore(app).deviceId(), device)
+        assertEquals(listOf("/rest/v1/profiles", "/rest/v1/devices"), paths.toList())
+    }
+
+    @Test fun registrationIsScopedToTheActiveOwnerAndRevalidatedAfterInvalidationOrExpiry() = runBlocking {
+        val client = client(); login(client)
+        val app = ApplicationProvider.getApplicationContext<Context>()
+        val device = CloudDeviceRegistration.ensure(app, owner, client = client)
+        paths.clear()
+        assertTrue(runCatching { CloudDeviceRegistration.ensure(app, customer, client = client) }.isFailure)
+        assertTrue(paths.isEmpty())
+        CloudDeviceRegistration.invalidate()
+        assertEquals(device, CloudDeviceRegistration.ensure(app, owner, client = client))
+        assertEquals(listOf("/rest/v1/profiles", "/rest/v1/devices"), paths.toList())
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(61)); paths.clear()
+        assertEquals(device, CloudDeviceRegistration.ensure(app, owner, client = client))
+        assertEquals(listOf("/rest/v1/profiles", "/rest/v1/devices"), paths.toList())
     }
 }

@@ -136,6 +136,7 @@ object CloudSyncRuntime {
         runCatching { CloudSyncEngine(app).unregisterPushToken() }
         resetRealtime()
         SupabaseProvider.client.auth.signOut()
+        CloudDeviceRegistration.invalidate()
         CloudTeamCache.get(app).clear()
         CloudTeamMessageCache.get(app).clear()
         CloudDeviceStore(app).clearPushIdentity()
