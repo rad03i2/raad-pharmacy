@@ -27,6 +27,7 @@ object CloudSyncRuntime {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val dataRealtimeStarted = AtomicBoolean(false)
     private val notificationRealtimeStarted = AtomicBoolean(false)
+    private val teamRealtimeStarted = AtomicBoolean(false)
     private val authObserverStarted = AtomicBoolean(false)
     private val presenceLoopStarted = AtomicBoolean(false)
     private val connectivityObserverStarted = AtomicBoolean(false)
@@ -47,6 +48,7 @@ object CloudSyncRuntime {
         val app = context.applicationContext
         CloudNotificationCenter.ensureChannels(app)
         CloudSyncScheduler.enable(app)
+        CloudTeamRuntime.start(app)
         if (!runtimeStarted.compareAndSet(false, true)) return
         CloudDeviceStore(app).refreshFcmToken(app)
         PixabaySoundAssets.prefetch(app)
@@ -54,8 +56,6 @@ object CloudSyncRuntime {
         startConnectivityObserver(app)
         startForegroundDeltaLoop(app)
         scope.launch { runCatching { CloudTeamMessageStore(app).refresh() }.onFailure { reportFailure(it) } }
-        // Warm saved accounts independently of financial sync and the settings screen.
-        scope.launch { runCatching { CloudTeamStore(app).load() }.onFailure { reportFailure(it) } }
 
         scope.launch {
             startRealtimeIfPossible(app)
@@ -69,7 +69,6 @@ object CloudSyncRuntime {
                 auth.sessionStatus.collect { status ->
                     if (status is SessionStatus.Authenticated) {
                         scope.launch { runCatching { CloudTeamMessageStore(app).refresh() }.onFailure { reportFailure(it) } }
-                        scope.launch { runCatching { CloudTeamStore(app).load() }.onFailure { reportFailure(it) } }
                         CloudSyncScheduler.enable(app)
                         startRealtimeIfPossible(app)
                         fullSyncAndCatchUp(app)
@@ -117,6 +116,7 @@ object CloudSyncRuntime {
     fun onAppForegrounded(context: Context) {
         val app = context.applicationContext
         CloudUiEvents.setAppForeground(true)
+        CloudTeamRuntime.request(app, recoverSession = true)
         CloudContinuousListening.startFromVisibleApp(app)
         val backgroundDuration = System.currentTimeMillis() - lastBackgroundAt.get()
 
@@ -178,6 +178,7 @@ object CloudSyncRuntime {
         runCatching { SupabaseProvider.client.realtime.removeAllChannels() }
         dataRealtimeStarted.set(false)
         notificationRealtimeStarted.set(false)
+        teamRealtimeStarted.set(false)
     }
 
     /** Recover a lost ledger subscription instead of leaving dataRealtimeStarted stuck true.
@@ -228,6 +229,7 @@ object CloudSyncRuntime {
             SupabaseProvider.client.realtime.removeAllChannels()
             dataRealtimeStarted.set(false)
             notificationRealtimeStarted.set(false)
+            teamRealtimeStarted.set(false)
         }
         realtimeOwner = owner
         val job = realtimeJob ?: SupervisorJob(scope.coroutineContext[Job]).also { realtimeJob = it }
@@ -236,6 +238,9 @@ object CloudSyncRuntime {
         if (!notificationRealtimeStarted.get()) {
             val inbox = CloudNotificationInbox(context.applicationContext)
             if (inbox.startRealtime(realtimeScope)) notificationRealtimeStarted.set(true)
+        }
+        if (!teamRealtimeStarted.get()) {
+            if (CloudTeamStore(context).startRealtime(realtimeScope)) teamRealtimeStarted.set(true)
         }
         if (includeLedger && !dataRealtimeStarted.get()) {
             val engine = CloudSyncEngine(context.applicationContext)
@@ -250,6 +255,7 @@ object CloudSyncRuntime {
         manager.registerDefaultNetworkCallback(
             object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
+                    CloudTeamRuntime.request(context, recoverSession = true)
                     scope.launch {
                         resetRealtime()
                         startRealtimeIfPossible(context)

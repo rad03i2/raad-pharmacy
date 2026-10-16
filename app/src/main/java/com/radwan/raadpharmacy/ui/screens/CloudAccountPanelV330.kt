@@ -1,6 +1,8 @@
 package com.radwan.raadpharmacy.ui.screens
 
 import android.graphics.Bitmap
+import com.radwan.raadpharmacy.cloud.CloudTeamRuntime
+import com.radwan.raadpharmacy.cloud.TeamLoadingState
 import com.radwan.raadpharmacy.cloud.CloudTeamAvatars
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.produceState
@@ -32,7 +34,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -75,8 +76,8 @@ internal fun CloudAccountPanelV330() {
     val store = remember(context) { CloudTeamStore(context) }
     val updates = remember(store) { store.snapshots() }
     val snapshot by updates.collectAsStateWithLifecycle(initialValue = store.cachedSnapshot())
-    var loading by remember { mutableStateOf(true) }
-    var teamError by remember { mutableStateOf<String?>(null) }
+    val automatic = remember(context) { CloudTeamRuntime.start(context) }
+    val teamState by automatic.state.collectAsStateWithLifecycle()
     var uploading by remember { mutableStateOf(false) }
     var avatarTargetId by remember { mutableStateOf<String?>(null) }
     var sendingTo by remember { mutableStateOf(emptySet<String>()) }
@@ -95,18 +96,6 @@ internal fun CloudAccountPanelV330() {
     val lastSent = remember { mutableMapOf<String, Long>() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    suspend fun refresh(force: Boolean = false) {
-        try {
-            withContext(Dispatchers.IO) { store.load(force) }
-            teamError = null
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            // Show previously saved accounts and allow an explicit retry.
-            teamError = "تعذر تحديث الحسابات من الخادم. ستبقى الأسماء المحفوظة ظاهرة، ويمكن إعادة المحاولة."
-        } finally { loading = false }
-    }
-
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
@@ -120,7 +109,7 @@ internal fun CloudAccountPanelV330() {
                     } ?: error("تعذر قراءة الصورة")
                     withContext(Dispatchers.IO) { store.uploadAvatar(targetId, bytes) }
                     alertMessage = "تم تغيير صورة المستخدم بنجاح."
-                    refresh(force = true)
+                    withContext(Dispatchers.IO) { store.load(force = true) }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -137,8 +126,7 @@ internal fun CloudAccountPanelV330() {
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            refresh()
-            while (true) { delay(30_000L); refresh() }
+            CloudTeamRuntime.request(context)
         }
     }
 
@@ -264,30 +252,8 @@ internal fun CloudAccountPanelV330() {
                 }
             }
 
-            if (teamError != null) {
-                Text(teamError!!, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error)
-                OutlinedButton(enabled = !loading, onClick = {
-                    loading = true
-                    scope.launch { refresh(force = true) }
-                }) { Text("إعادة تحميل حسابات الفريق") }
-            }
-            if (!loading && snapshot.current == null && teamError == null) {
-                Text("لم تظهر بيانات الحساب بعد. استخدم إعادة التحميل عند استعادة الاتصال.",
-                    style = MaterialTheme.typography.bodySmall)
-                OutlinedButton(onClick = {
-                    loading = true
-                    scope.launch { refresh(force = true) }
-                }) { Text("تحديث الحسابات") }
-            }
-
-            if (loading && snapshot.current == null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                }
+            if (snapshot.current == null) {
+                TeamAutomaticLoading(teamState)
             }
 
             if (snapshot.others.isNotEmpty()) {
@@ -338,6 +304,22 @@ internal fun CloudAccountPanelV330() {
             alertMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary) }
         }
+    }
+}
+
+@Composable
+internal fun TeamAutomaticLoading(state: TeamLoadingState) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (state == TeamLoadingState.LOADING) {
+            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+        }
+        Text(when (state) {
+            TeamLoadingState.WAITING_FOR_SESSION -> "تجري استعادة جلسة الحساب تلقائيا…"
+            TeamLoadingState.RETRYING -> "تجري إعادة الاتصال بالحسابات تلقائيا…"
+            else -> "جاري تحميل الحسابات تلقائيا…"
+        }, style = MaterialTheme.typography.bodySmall)
     }
 }
 

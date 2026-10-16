@@ -81,6 +81,7 @@ fun CloudAuthGate(content: @Composable () -> Unit) {
                 prefs.edit().putBoolean(KEY_HAS_OFFLINE_SESSION, true).apply()
                 lifecycle.withStarted {
                     CloudSyncScheduler.enable(context)
+                    CloudTeamRuntime.request(context, recoverSession = true)
                     CloudContinuousListening.startFromVisibleApp(context)
                     FollowupNotificationScheduler.ensure(context)
                 }
