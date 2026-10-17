@@ -19,6 +19,7 @@ import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.ktor.client.statement.bodyAsText
 import java.net.InetSocketAddress
+import java.net.URLDecoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
@@ -54,7 +55,11 @@ class CloudHttpIntegrationTest {
     private val postPaths = CopyOnWriteArrayList<String>()
     private val agents = CopyOnWriteArrayList<String>()
     private val paths = CopyOnWriteArrayList<String>()
+    private val patches = CopyOnWriteArrayList<JSONObject>()
+    private val rejectWrites = AtomicBoolean(false)
+    private val wrongAcknowledgement = AtomicBoolean(false)
     private val loseResponse = AtomicBoolean(false)
+    private val loseInsertResponse = AtomicBoolean(false)
     private val rejectLogin = AtomicBoolean(false)
     private val rejectDevice = AtomicBoolean(false)
     private val owner = "00000000-0000-4000-8000-000000000001"
@@ -88,20 +93,48 @@ class CloudHttpIntegrationTest {
                 }
                 "/rest/v1/transactions", "/rest/v1/customers" -> {
                     val table = if (exchange.requestURI.path.endsWith("customers")) customerRows else rows
-                    if (exchange.requestMethod == "GET") {
-                        val id = exchange.requestURI.rawQuery.orEmpty().split('&').firstOrNull { it.startsWith("id=eq.") }?.substringAfter("id=eq.")
-                        reply(exchange, 200, JSONArray(table.values.map(::JSONObject).filter { id == null || it.getString("id") == id }).toString())
-                    } else {
-                    postPaths += exchange.requestURI.path
+                    val filters = exchange.requestURI.rawQuery.orEmpty().split('&').mapNotNull {
+                        val pair = it.split('=', limit = 2)
+                        if (pair.size == 2) URLDecoder.decode(pair[0], "UTF-8") to URLDecoder.decode(pair[1], "UTF-8") else null
+                    }.toMap()
+                    fun matches(row: JSONObject) = filters.all { (key, value) -> when {
+                        value.startsWith("eq.") -> row.optString(key) == value.removePrefix("eq.")
+                        value == "is.null" -> row.isNull(key)
+                        else -> true
+                    } }
+                    if (exchange.requestMethod == "GET") reply(exchange, 200,
+                        JSONArray(table.values.map(::JSONObject).filter(::matches)).toString())
+                    else if (rejectWrites.get()) reply(exchange, 503, """{"code":"PGRST000","message":"fixture offline"}""")
+                    else {
                     val preference = exchange.requestHeaders.getFirst("Prefer").orEmpty()
                     writePreferences += preference
                     val body = exchange.requestBody.bufferedReader().use { it.readText() }
                     val data = if (body.trimStart().startsWith("[")) JSONArray(body).getJSONObject(0) else JSONObject(body)
-                    if (table.containsKey(data.getString("id")) && "merge-duplicates" !in preference)
+                    val immutable = if (table === customerRows) listOf("id", "pharmacy_id", "created_at")
+                        else listOf("id", "pharmacy_id", "customer_id", "operation_id", "created_at", "created_by", "created_device_id")
+                    if (exchange.requestMethod == "PATCH") {
+                        patches += JSONObject(data.toString())
+                        val changed = table.values.map(::JSONObject).filter(::matches)
+                        if (changed.any { old -> immutable.any { data.has(it) && data.opt(it) != old.opt(it) } })
+                            reply(exchange, 400, """{"code":"P0001","message":"immutable identity fields cannot be changed"}""")
+                        else {
+                            changed.forEach { old -> data.keys().forEach { old.put(it, data.get(it)) }; table[old.getString("id")] = old.toString() }
+                            if (wrongAcknowledgement.get()) changed.forEach { it.put("amount", -1).put("name", "wrong acknowledgement") }
+                            if (loseResponse.compareAndSet(true, false)) exchange.close()
+                            else reply(exchange, 200, JSONArray(changed).toString())
+                        }
+                    } else {
+                    postPaths += exchange.requestURI.path
+                    val previous = table[data.getString("id")]?.let(::JSONObject)
+                    if (previous != null && "merge-duplicates" !in preference)
                         reply(exchange, 409, """{"code":"23505","message":"fixture duplicate key"}""")
+                    else if (previous != null && immutable.any { data.has(it) && data.opt(it) != previous.opt(it) })
+                        reply(exchange, 400, """{"code":"P0001","message":"immutable customer identity fields cannot be changed"}""")
                     else {
                     data.put("updated_at", instant); table[data.getString("id")] = data.toString()
-                    if (loseResponse.compareAndSet(true, false)) exchange.close() else reply(exchange, 201, "")
+                    if (loseResponse.compareAndSet(true, false) || loseInsertResponse.compareAndSet(true, false)) exchange.close()
+                    else reply(exchange, 201, if ("return=representation" in preference) JSONArray().put(data).toString() else "")
+                    }
                     }
                     }
                 }
@@ -251,6 +284,144 @@ class CloudHttpIntegrationTest {
             assertEquals(1, rows.size)
             assertTrue(db.dao().recoveryEntries().isEmpty())
             assertTrue(writePreferences.none { "merge-duplicates" in it })
+        } finally { db.close() }
+    }
+
+    private val preciseCreation = "2026-10-17T00:00:00.000123Z"
+    private fun customerWrite() = CloudCustomerWrite(customer, pharmacy, "fixture", phone = "07000000000",
+        openingDebt = 0, createdByName = "original creator", createdAt = instant)
+    private fun seed(value: CloudCustomerWrite) {
+        customerRows[value.id] = JSONObject(kotlinx.serialization.json.Json.encodeToString(CloudCustomerWrite.serializer(), value))
+            .put("created_at", preciseCreation).put("updated_at", instant).toString()
+    }
+    private fun seed(value: CloudTransactionWrite) {
+        rows[value.id] = JSONObject(kotlinx.serialization.json.Json.encodeToString(CloudTransactionWrite.serializer(), value))
+            .put("created_at", preciseCreation).put("updated_at", instant).put("created_by", owner)
+            .put("created_device_id", "00000000-0000-4000-8000-000000000099").toString()
+    }
+
+    @Test fun thePublishedUpsertReproducesHttp400WhenAMillisecondTimestampReplacesProtectedMicroseconds() = runBlocking {
+        val client = client(); login(client); seed(customerWrite())
+        val failure = runCatching { client.from("customers").upsert(customerWrite()) { onConflict = "id" } }.exceptionOrNull()
+        assertNotNull(failure)
+        assertEquals(400, (failure as io.github.jan.supabase.exceptions.RestException).statusCode)
+        assertEquals(preciseCreation, JSONObject(customerRows.getValue(customer)).getString("created_at"))
+    }
+
+    @Test fun customerEditsUseOneConfirmedPatchAndPreserveTheServersExactCreationAndAuthor() = runBlocking {
+        val client = client(); login(client); seed(customerWrite())
+        val writer = CloudLedgerWriter(client, pharmacy)
+        val value = customerWrite().copy(name = "edited", phone = null, notes = "updated notes", createdByName = "different local author")
+        paths.clear(); writer.save(value)
+        val saved = JSONObject(customerRows.getValue(customer))
+        assertEquals(listOf("/rest/v1/customers"), paths.toList())
+        assertTrue(postPaths.isEmpty())
+        assertEquals(preciseCreation, saved.getString("created_at"))
+        assertEquals("original creator", saved.getString("created_by_name"))
+        assertTrue(saved.isNull("phone")); assertEquals("edited", saved.getString("name"))
+        assertFalse(patches.single().has("created_at")); assertFalse(patches.single().has("pharmacy_id"))
+        assertFalse(patches.single().has("id")); assertTrue(writePreferences.single().contains("return=representation"))
+    }
+
+    @Test fun financialEditsPreserveCreationActorOperationAndParentIdentities() = runBlocking {
+        val client = client(); login(client); seed(debt())
+        val oldOperation = "00000000-0000-4000-8000-000000000055"
+        rows[entry] = JSONObject(rows.getValue(entry)).put("operation_id", oldOperation).toString()
+        CloudLedgerWriter(client, pharmacy).save(debt(9000))
+        val saved = JSONObject(rows.getValue(entry))
+        assertEquals(9000L, saved.getLong("amount")); assertEquals(preciseCreation, saved.getString("created_at"))
+        assertEquals(owner, saved.getString("created_by")); assertEquals(oldOperation, saved.getString("operation_id"))
+        assertEquals(customer, saved.getString("customer_id"))
+        assertEquals("00000000-0000-4000-8000-000000000099", saved.getString("created_device_id"))
+        assertTrue(postPaths.isEmpty())
+        assertTrue(listOf("created_at", "created_by", "created_device_id", "operation_id", "customer_id", "pharmacy_id", "id")
+            .none { patches.single().has(it) })
+    }
+
+    @Test fun oneHundredFortyNineOldQueuedRowsDrainWithoutRewritingIdentityOrDuplicatingMoney() = runBlocking {
+        val client = client(); login(client); val writer = CloudLedgerWriter(client, pharmacy)
+        val db = Room.inMemoryDatabaseBuilder<PharmacyLedgerDatabase>(ApplicationProvider.getApplicationContext<Context>())
+            .setDriver(AndroidSQLiteDriver()).build()
+        try {
+            val time = java.time.Instant.parse(instant).toEpochMilli()
+            val c = CustomerEntity(customer, "fixture", "07000000000", "", "", 0, "", time, "original creator")
+            db.dao().insertCustomer(c); seed(customerWrite())
+            repeat(148) { index ->
+                val id = "00000000-0000-4000-8000-" + (index + 1000).toString().padStart(12, '0')
+                db.dao().insertEntry(LedgerEntryEntity(id, customer, "DEBT", 7000, null, null, "", time))
+                seed(debt().copy(id = id, operationId = id))
+            }
+            assertEquals(149, db.dao().cloudOutbox().size)
+            DurableCloudDrain(db.dao()) { row ->
+                if (row.kind == "CUSTOMER") writer.save(customerWrite())
+                else writer.save(debt().copy(id = row.entityId, operationId = row.entityId))
+            }.flush()
+            assertTrue(db.dao().cloudOutbox().isEmpty()); assertEquals(148, rows.size)
+            assertEquals(148 * 7000L, rows.values.sumOf { JSONObject(it).getLong("amount") })
+            assertTrue(rows.values.all { JSONObject(it).getString("created_at") == preciseCreation })
+            assertEquals(149, patches.size); assertTrue(postPaths.isEmpty())
+        } finally { db.close() }
+    }
+
+    @Test fun lostInsertReplyAndOfflineRetryKeepTheOriginalQueueRevisionAndOnlyOneServerRow() = runBlocking {
+        val client = client(); login(client); val writer = CloudLedgerWriter(client, pharmacy)
+        val db = Room.inMemoryDatabaseBuilder<PharmacyLedgerDatabase>(ApplicationProvider.getApplicationContext<Context>())
+            .setDriver(AndroidSQLiteDriver()).build()
+        try {
+            val time = java.time.Instant.parse(instant).toEpochMilli()
+            db.dao().insertCustomer(CustomerEntity(customer, "fixture", null, "", "", 0, "", time), "REMOTE")
+            db.dao().insertEntry(LedgerEntryEntity(entry, customer, "DEBT", 7000, null, null, "", time))
+            val original = db.dao().cloudOutbox()
+            rejectWrites.set(true)
+            assertTrue(runCatching { DurableCloudDrain(db.dao()) { writer.save(debt()) }.flush() }.isFailure)
+            assertEquals(original, db.dao().cloudOutbox()); assertTrue(rows.isEmpty())
+            rejectWrites.set(false); loseInsertResponse.set(true)
+            assertTrue(runCatching { DurableCloudDrain(db.dao()) { writer.save(debt()) }.flush() }.isFailure)
+            assertEquals(original, db.dao().cloudOutbox())
+            DurableCloudDrain(db.dao()) { writer.save(debt()) }.flush()
+            assertTrue(db.dao().cloudOutbox().isEmpty()); assertEquals(1, rows.size)
+            assertEquals(1, postPaths.size)
+        } finally { db.close() }
+    }
+
+    @Test fun aSoftDeletedOrDifferentParentRecordIsNeverResurrectedOrMoved() = runBlocking {
+        val client = client(); login(client); val writer = CloudLedgerWriter(client, pharmacy)
+        seed(debt())
+        rows[entry] = JSONObject(rows.getValue(entry)).put("customer_id", owner).toString()
+        val original = rows.getValue(entry)
+        assertTrue(runCatching { writer.save(debt(9000)) }.isFailure)
+        assertEquals(original, rows.getValue(entry))
+        seed(customerWrite())
+        customerRows[customer] = JSONObject(customerRows.getValue(customer)).put("deleted_at", instant).toString()
+        val deleted = customerRows.getValue(customer)
+        assertTrue(runCatching { writer.save(customerWrite()) }.isFailure)
+        assertEquals(deleted, customerRows.getValue(customer))
+    }
+
+    @Test fun bootstrapCreationRacesReadBackInsteadOfOverwritingAnotherDevicesFinancialValues() = runBlocking {
+        val client = client(); login(client); val writer = CloudLedgerWriter(client, pharmacy)
+        seed(debt())
+        writer.save(debt(), createFirst = true)
+        assertTrue(patches.isEmpty())
+        val original = rows.getValue(entry)
+        assertTrue(runCatching { writer.save(debt(9000), createFirst = true) }.isFailure)
+        assertEquals(original, rows.getValue(entry)); assertTrue(patches.isEmpty())
+    }
+
+    @Test fun aSuccessfulHttpStatusWithDifferentReturnedFinancialValuesCannotAcknowledgeTheQueue() = runBlocking {
+        val client = client(); login(client); val writer = CloudLedgerWriter(client, pharmacy); seed(debt())
+        val db = Room.inMemoryDatabaseBuilder<PharmacyLedgerDatabase>(ApplicationProvider.getApplicationContext<Context>())
+            .setDriver(AndroidSQLiteDriver()).build()
+        try {
+            val time = java.time.Instant.parse(instant).toEpochMilli()
+            db.dao().insertCustomer(CustomerEntity(customer, "fixture", null, "", "", 0, "", time), "REMOTE")
+            db.dao().insertEntry(LedgerEntryEntity(entry, customer, "DEBT", 7000, null, null, "", time))
+            val original = db.dao().cloudOutbox(); wrongAcknowledgement.set(true)
+            assertTrue(runCatching { DurableCloudDrain(db.dao()) { writer.save(debt()) }.flush() }.isFailure)
+            assertEquals(original, db.dao().cloudOutbox())
+            wrongAcknowledgement.set(false)
+            DurableCloudDrain(db.dao()) { writer.save(debt()) }.flush()
+            assertTrue(db.dao().cloudOutbox().isEmpty()); assertEquals(1, rows.size)
         } finally { db.close() }
     }
 }

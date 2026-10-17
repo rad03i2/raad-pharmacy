@@ -194,29 +194,27 @@ class CloudSyncEngine(context: Context) {
         val protectedCustomers = dao.recoveryCustomers().toSet()
         val protectedEntries = dao.recoveryEntries().toSet()
         val missingCustomers = localCustomers.filter { it.id !in knownRemoteCustomerIds && it.id !in protectedCustomers }
+        val writer = CloudLedgerWriter(client, profile.pharmacyId)
         if (missingCustomers.isNotEmpty()) {
-            client.from("customers").upsert(
-                missingCustomers.map { it.toCloud(profile.pharmacyId) }
-            ) { onConflict = "id" }
+            missingCustomers.forEach { writer.save(it.toCloud(profile.pharmacyId), createFirst = true) }
         }
 
         val knownRemoteTransactionIds = remoteTransactions.mapTo(hashSetOf()) { it.id }
         val missingTransactions = localEntries.filter { it.id !in knownRemoteTransactionIds && it.id !in protectedEntries && it.customerId !in protectedCustomers }
         if (missingTransactions.isNotEmpty()) {
-            client.from("transactions").upsert(
-                missingTransactions.map { it.toCloud(profile.pharmacyId) }
-            ) { onConflict = "id" }
+            missingTransactions.forEach { writer.save(it.toCloud(profile.pharmacyId), createFirst = true) }
         }
 
     }
 
     private suspend fun pushPending(profile: CloudProfileRow) {
+        val writer = CloudLedgerWriter(client, profile.pharmacyId)
         DurableCloudDrain(dao) { row ->
             val id = row.entityId
             when {
                 row.kind == "CUSTOMER" && row.action == "UPSERT" -> {
                     val local = BackupJson.parse(row.payload).customers.single().toEntity()
-                    client.from("customers").upsert(local.toCloud(profile.pharmacyId)) { onConflict = "id" }
+                    writer.save(local.toCloud(profile.pharmacyId))
                     // The server trigger uses the new customer's UUID as its idempotent
                     // notification event ID. Fast FCM dispatch is a best effort; the
                     // server's durable due-event worker remains the offline fallback.
@@ -226,7 +224,7 @@ class CloudSyncEngine(context: Context) {
                 }
                 row.kind == "ENTRY" && row.action == "UPSERT" -> {
                     val local = BackupJson.parse(row.payload).entries.single().toEntity()
-                    client.from("transactions").upsert(local.toCloud(profile.pharmacyId)) { onConflict = "id" }
+                    writer.save(local.toCloud(profile.pharmacyId))
                     // Schedule durable delivery before acknowledging this upload. A retry
                     // reuses the transaction id; the server ignores identical financial updates.
                     CloudPushDispatcher.request(appContext, id)
@@ -248,6 +246,7 @@ class CloudSyncEngine(context: Context) {
                 }
             }
         }.flush()
+        if (dao.cloudOutbox().isEmpty()) CloudConnectionDiagnostics.ledgerConfirmed()
     }
 
     private suspend fun registerDevice(profile: CloudProfileRow, userId: String) {

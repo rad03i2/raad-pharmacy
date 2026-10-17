@@ -34,4 +34,6 @@ jobs:
         run: python -m unittest tools.cloud_backup.test_cloud_backup -v
       - name: Real PostgreSQL17/Age isolated fixture roundtrip and RLS
         run: python -m tools.cloud_backup.integration_test
+      - name: Reproduce immutable identity rejection and verify mutable-only financial updates
+        run: psql "$FIXTURE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/immutable-sync-identity.sql
       # No production credentials, real financial fixtures or backup artifacts.

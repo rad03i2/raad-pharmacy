@@ -7,6 +7,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CloudConnectionDiagnosticsTest {
+    @Test fun confirmingTheLedgerClearsOnlyItsOwnStaleFailure() {
+        CloudConnectionDiagnostics.record("financial_upload", UnknownHostException())
+        assertEquals("ledger", CloudConnectionDiagnostics.failure.value?.path)
+        CloudConnectionDiagnostics.ledgerConfirmed()
+        assertNull(CloudConnectionDiagnostics.failure.value)
+        CloudConnectionDiagnostics.record("auth/session", UnknownHostException())
+        CloudConnectionDiagnostics.ledgerConfirmed()
+        assertEquals("auth", CloudConnectionDiagnostics.failure.value?.path)
+    }
     @Test fun dnsTlsAndConnectionFailuresHaveDifferentCodes() {
         assertEquals(CloudFailureCode.DNS, CloudConnectionDiagnostics.classify(UnknownHostException()).code)
         assertEquals(CloudFailureCode.TLS, CloudConnectionDiagnostics.classify(SSLHandshakeException("fixture")).code)
