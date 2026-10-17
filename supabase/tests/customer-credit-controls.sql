@@ -39,7 +39,7 @@ end $$;
 select public.request_customer_credit('00000000-0000-4000-8000-000000000021',false,'00000000-0000-4000-8000-000000000051','00000000-0000-4000-8000-000000000031');
 select public.request_customer_credit('00000000-0000-4000-8000-000000000021',false,'00000000-0000-4000-8000-000000000051','00000000-0000-4000-8000-000000000031');
 do $$ begin
- if (select count(*) from notification_events where credit_request_id='00000000-0000-4000-8000-000000000051')<>1 then raise exception 'Duplicate request notification'; end if;
+ if (select count(*) from notification_events where id='00000000-0000-4000-8000-000000000051')<>1 then raise exception 'Duplicate request notification'; end if;
  begin perform public.resolve_credit_request('00000000-0000-4000-8000-000000000051',false); raise exception 'Requester resolved own request'; exception when insufficient_privilege then null; end;
  begin perform public.request_customer_credit('00000000-0000-4000-8000-000000000022',true,gen_random_uuid(),'00000000-0000-4000-8000-000000000031'); raise exception 'Cross tenant request accepted'; exception when insufficient_privilege then null; end;
 end $$;

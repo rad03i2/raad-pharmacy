@@ -42,8 +42,6 @@ create index customer_credit_requests_customer on public.customer_credit_request
 create index customer_credit_requests_requester on public.customer_credit_requests(requested_by);
 create index customer_credit_requests_resolver on public.customer_credit_requests(resolved_by);
 create index customer_credit_controls_actor on public.customer_credit_controls(updated_by);
-alter table public.notification_events add column credit_request_id uuid references public.customer_credit_requests(id);
-create index notification_events_credit_request on public.notification_events(credit_request_id) where credit_request_id is not null;
 alter table public.customer_credit_controls enable row level security;
 alter table public.customer_credit_requests enable row level security;
 revoke all on public.customer_credit_controls, public.customer_credit_requests from public, anon, authenticated;
@@ -121,8 +119,6 @@ begin
   -- Use the existing directed team-message/FCM pipeline; do not alter ordinary notification delivery.
   perform raad_private.send_team_message(target,sender_device_id,request_id,
     (case when make_blocked then 'طلب حجب الزبون: ' else 'طلب رفع حجب الزبون: ' end)||left(customer_label,300));
-  update public.notification_events set credit_request_id=request_id
-    where id=request_id and actor_user_id=actor and recipient_user_id=target and event_type='TEAM_MESSAGE';
   return request_id;
 end $$;
 create function public.request_customer_credit(target_customer uuid, make_blocked boolean, request_id uuid, sender_device_id uuid)

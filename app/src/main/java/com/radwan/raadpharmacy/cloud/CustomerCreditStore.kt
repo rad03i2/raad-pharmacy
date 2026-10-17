@@ -118,9 +118,10 @@ internal class CustomerCreditStore private constructor(context: Context) {
         } }
         withTimeout(15_000L) {
             val device=CloudDeviceRegistration.ensure(app,user)
-            client.postgrest.rpc("request_customer_credit",buildJsonObject {
+            val receipt = client.postgrest.rpc("request_customer_credit",buildJsonObject {
                 put("target_customer",customer); put("make_blocked",block); put("request_id",id); put("sender_device_id",device)
-            })
+            }).decodeAs<String>()
+            check(receipt == id) { "CREDIT_REQUEST_RECEIPT_MISMATCH" }
         }
         check(client.auth.currentSessionOrNull()?.user?.id==user) { "AUTH_SESSION_CHANGED" }
         check(prefs.edit().remove(key).commit())
