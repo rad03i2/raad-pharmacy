@@ -37,6 +37,7 @@ create table public.customer_credit_requests (
   resolved_blocked boolean
 );
 create index customer_credit_requests_pending on public.customer_credit_requests(pharmacy_id,created_at) where resolved_at is null;
+create index customer_credit_requests_pharmacy on public.customer_credit_requests(pharmacy_id);
 create index customer_credit_requests_customer on public.customer_credit_requests(customer_id);
 create index customer_credit_requests_requester on public.customer_credit_requests(requested_by);
 create index customer_credit_requests_resolver on public.customer_credit_requests(resolved_by);

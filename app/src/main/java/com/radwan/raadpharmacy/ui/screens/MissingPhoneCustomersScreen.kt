@@ -67,7 +67,10 @@ fun MissingPhoneCustomersScreen(
 internal fun MissingPhoneCustomersList(
     customers: List<Customer>, hideAmounts: Boolean, balance: (Customer) -> Long,
     savePhone: suspend (String, String) -> MutationResult,
-    onBack: () -> Unit, onCustomer: (String) -> Unit
+    onBack: () -> Unit, onCustomer: (String) -> Unit,
+    contactPicker: @Composable ((String) -> Unit, () -> Unit) -> Unit = { selected, dismissed ->
+        ContactPhonePickerV3211(onSelected = selected, onDismiss = dismissed)
+    }
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -96,7 +99,7 @@ internal fun MissingPhoneCustomersList(
         }
     }
     pickingId?.let { id ->
-        ContactPhonePickerV3211(onSelected = { phone ->
+        contactPicker({ phone ->
             if (!saving) {
                 saving = true
                 scope.launch {
@@ -109,7 +112,7 @@ internal fun MissingPhoneCustomersList(
                     finally { saving = false }
                 }
             }
-        }, onDismiss = { if (!saving) pickingId = null })
+        }, { if (!saving) pickingId = null })
     }
     message?.let { text -> AlertDialog(onDismissRequest = { message = null }, text = { Text(text) },
         confirmButton = { TextButton(onClick = { message = null }) { Text("حسنًا") } }) }
