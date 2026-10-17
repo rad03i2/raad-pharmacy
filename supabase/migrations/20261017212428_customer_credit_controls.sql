@@ -110,7 +110,7 @@ begin
   select * into previous from public.customer_credit_requests where id=request_id;
   if found then
     if previous.requested_by=actor and previous.customer_id=target_customer and previous.pharmacy_id=pharmacy
-      and previous.requested_action=case when make_blocked then 'BLOCK' else 'UNBLOCK' end then return request_id; end if;
+      and previous.requested_action=(case when make_blocked then 'BLOCK' else 'UNBLOCK' end) then return request_id; end if;
     raise exception 'CREDIT_REQUEST_ID_CONFLICT';
   end if;
   select name into customer_label from public.customers where id=target_customer and pharmacy_id=pharmacy and deleted_at is null;

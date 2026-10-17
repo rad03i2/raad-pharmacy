@@ -243,6 +243,20 @@ class OfflineLedgerTest {
             assertTrue(disk.dao().cloudOutbox().isEmpty())
         } finally { disk.close(); app.deleteDatabase(name) }
     }
+    @Test fun severalBlockedDebtsRemainDurableWhileAnUnrelatedReceiptStillUploads() = runTest {
+        dao.insertCustomer(customer, "REMOTE")
+        repeat(5) { dao.insertEntry(debt(id = "blocked-$it")) }
+        dao.insertEntry(LedgerEntryEntity("receipt", "c1", "PAYMENT", 1000, null, null, "", 3000))
+        val expected=dao.cloudOutbox().filter { it.entityId.startsWith("blocked-") }
+        val sent=mutableListOf<String>()
+        val result=runCatching { DurableCloudDrain(dao) { row ->
+            if(row.entityId.startsWith("blocked-")) throw IllegalStateException("CUSTOMER_CREDIT_BLOCKED")
+            sent+=row.entityId
+        }.flush() }
+        assertTrue(result.isFailure);assertEquals(listOf("receipt"),sent)
+        assertEquals(expected,dao.cloudOutbox())
+        DurableCloudDrain(dao) {}.flush();assertTrue(dao.cloudOutbox().isEmpty())
+    }
     @Test fun failedOfflineUploadStaysQueuedAndReconnectDrainsInDependencyOrder() = runTest {
         dao.insertCustomer(customer); dao.insertEntry(debt())
         assertThrows(IOException::class.java) { runBlocking { DurableCloudDrain(dao) { throw IOException("offline") }.flush() } }

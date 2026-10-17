@@ -36,12 +36,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.radwan.raadpharmacy.data.Customer
+import com.radwan.raadpharmacy.data.MutationResult
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
 import com.radwan.raadpharmacy.ui.components.CustomerAvatar
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
@@ -57,6 +60,15 @@ fun MissingPhoneCustomersScreen(
 ) {
     val customers by vm.customers.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
+    MissingPhoneCustomersList(customers, security.hideAmounts, { vm.balance(it) }, vm::addMissingPhone, onBack, onCustomer)
+}
+
+@Composable
+internal fun MissingPhoneCustomersList(
+    customers: List<Customer>, hideAmounts: Boolean, balance: (Customer) -> Long,
+    savePhone: suspend (String, String) -> MutationResult,
+    onBack: () -> Unit, onCustomer: (String) -> Unit
+) {
     var query by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -89,7 +101,7 @@ fun MissingPhoneCustomersScreen(
                 saving = true
                 scope.launch {
                     try {
-                        val result = vm.addMissingPhone(id, phone)
+                        val result = savePhone(id, phone)
                         pickingId = null
                         if (result.success) restorePosition = true else message = result.message
                     } catch (cancelled: CancellationException) { throw cancelled }
@@ -105,7 +117,7 @@ fun MissingPhoneCustomersScreen(
     Scaffold(topBar = { ScreenTopBar("زبائن ليس لديهم رقم هاتف", onBack) }) { padding ->
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding).testTag("missing-phone-list"),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
@@ -145,7 +157,7 @@ fun MissingPhoneCustomersScreen(
             } else {
                 items(visible, key = { it.id }) { customer ->
                     Surface(
-                        modifier = Modifier.fillMaxWidth().clickable { onCustomer(customer.id) },
+                        modifier = Modifier.fillMaxWidth().testTag("missing-phone:${customer.id}").clickable { onCustomer(customer.id) },
                         shape = MaterialTheme.shapes.large,
                         color = MaterialTheme.colorScheme.surface,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
@@ -188,7 +200,7 @@ fun MissingPhoneCustomersScreen(
                             Spacer(Modifier.size(2.dp))
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    if (security.hideAmounts) "•••• د.ع" else formatMoney(vm.balance(customer)),
+                                    if (hideAmounts) "•••• د.ع" else formatMoney(balance(customer)),
                                     style = MaterialTheme.typography.titleSmall
                                 )
                                 Text(
