@@ -89,6 +89,12 @@ internal object CloudConnectionDiagnostics {
         probeResult.value?.let { append("\n$it") }
     }
 
+    @Synchronized fun ledgerConfirmed() {
+        if (mutableFailure.value?.path != "ledger") return
+        mutableFailure.value = null
+        preferences?.edit()?.remove("failure")?.apply()
+    }
+
     /** Two read-only health requests. No account change, financial write or automatic message. */
     @OptIn(SupabaseInternal::class)
     suspend fun probe() = withContext(Dispatchers.IO) {
