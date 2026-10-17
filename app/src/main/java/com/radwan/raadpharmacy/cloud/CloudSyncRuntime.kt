@@ -49,6 +49,7 @@ object CloudSyncRuntime {
         CloudSyncScheduler.enable(app)
         CloudTeamRuntime.start(app)
         CloudFinancialSyncRuntime.start(app)
+        com.radwan.raadpharmacy.backup.RecoveryScheduler.resume(app)
         if (!runtimeStarted.compareAndSet(false, true)) return
         CloudDeviceStore(app).refreshFcmToken(app)
         PixabaySoundAssets.prefetch(app)

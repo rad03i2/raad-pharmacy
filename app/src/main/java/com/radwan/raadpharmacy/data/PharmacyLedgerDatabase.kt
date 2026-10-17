@@ -335,14 +335,18 @@ interface PharmacyLedgerDao {
     }
     @Query("SELECT COUNT(*) FROM cloud_outbox o JOIN ledger_entries e ON o.entityId = e.id WHERE o.kind = 'ENTRY' AND e.customer_id = :id")
     suspend fun pendingCloudEntriesForCustomer(id: String): Int
+    @Query("SELECT COUNT(*) FROM cloud_outbox o JOIN ledger_entries e ON o.entityId = e.id WHERE o.kind = 'ENTRY' AND e.customer_id = :id AND NOT EXISTS (SELECT 1 FROM backup_control c WHERE c.id = ('restore21:guard:ENTRY:' || o.entityId))")
+    suspend fun pendingUnprotectedCloudEntriesForCustomer(id: String): Int
     @Transaction
     suspend fun applyCloudCustomer(id: String, customer: CustomerEntity?) {
+        if (recoveryValue(RecoveryKeys.guard("CUSTOMER", id)) != null || (customer == null && recoveryChildren(id) > 0)) return
         if (restoreHold() == "1" || cloudPending("CUSTOMER", id) != 0) return
         if (customer != null) insertCustomer(customer, "REMOTE")
         else if (pendingCloudEntriesForCustomer(id) == 0) deleteCustomerById(id, "REMOTE")
     }
     @Transaction
     suspend fun applyCloudEntry(id: String, entry: LedgerEntryEntity?) {
+        if (recoveryValue(RecoveryKeys.guard("ENTRY", id)) != null) return
         if (restoreHold() == "1" || cloudPending("ENTRY", id) != 0) return
         if (entry == null) deleteEntryById(id, "REMOTE")
         else if (getCustomerById(entry.customerId) != null) insertEntry(entry, "REMOTE")
@@ -353,6 +357,11 @@ interface PharmacyLedgerDao {
         val pending = cloudOutbox()
         val customerMap = customers.associateBy { it.id }.toMutableMap()
         val entryMap = entries.associateBy { it.id }.toMutableMap()
+        recoveryCustomers().forEach { id -> getCustomerById(id)?.let { customerMap[id] = it } }
+        recoveryEntries().forEach { id -> getEntryById(id)?.let {
+            entryMap[id] = it
+            getCustomerById(it.customerId)?.let { parent -> customerMap[parent.id] = parent }
+        } }
         for (row in pending) {
             if (row.kind == "CUSTOMER") {
                 if (row.action == "DELETE") customerMap.remove(row.entityId)
@@ -396,8 +405,65 @@ interface PharmacyLedgerDao {
     @Query("SELECT value FROM backup_control WHERE id = 'restore_hold'")
     suspend fun restoreHold(): String?
 
+    @Query("SELECT * FROM backup_control WHERE id LIKE 'restore21:%' ORDER BY id")
+    suspend fun recoveryControls(): List<BackupControlEntity>
+    @Query("SELECT * FROM backup_control WHERE id LIKE 'restore21:%' ORDER BY id")
+    fun observeRecoveryControls(): Flow<List<BackupControlEntity>>
+    @Query("SELECT value FROM backup_control WHERE id = :id")
+    suspend fun recoveryValue(id: String): String?
+    @Query("DELETE FROM backup_control WHERE id = :id")
+    suspend fun removeRecoveryControl(id: String)
+    @Transaction
+    suspend fun finishRecovery(key: String, expected: String, value: String, guard: String?) {
+        if (recoveryValue(key) != expected) return
+        saveBackupControl(BackupControlEntity(key, value))
+        if (guard != null) {
+            val verified = RecoveryRecord.parse(value)
+            check(verified.state == "VERIFIED" && guard == RecoveryKeys.guard(verified.kind, verified.id))
+            // A real server read confirmed this immutable payload. Acknowledge only
+            // an identical ordinary UPSERT, never a newer edit or pending deletion.
+            for (row in cloudOutbox().filter { it.kind == verified.kind && it.entityId == verified.id && it.action == "UPSERT" }) {
+                val matches = runCatching {
+                    val sent = BackupJson.parse(row.payload)
+                    val checked = BackupJson.parse(verified.payload)
+                    if (verified.kind == "CUSTOMER") sent.customers.single().toEntity() == checked.customers.single().toEntity()
+                    else sent.entries.single().toEntity() == checked.entries.single().toEntity()
+                }.getOrDefault(false)
+                if (matches) acknowledgeCloudMutation(row.key, row.revision)
+            }
+            removeRecoveryControl(guard)
+            val owner = org.json.JSONObject(value).getString("owner")
+            saveBackupControl(BackupControlEntity("restore21:refresh:" + owner, owner))
+        }
+    }
+    @Query("SELECT value FROM backup_control WHERE id LIKE 'restore21:guard:CUSTOMER:%'")
+    suspend fun recoveryCustomers(): List<String>
+    @Query("SELECT value FROM backup_control WHERE id LIKE 'restore21:guard:ENTRY:%'")
+    suspend fun recoveryEntries(): List<String>
+    @Query("SELECT COUNT(*) FROM backup_control c JOIN ledger_entries e ON c.value = e.id WHERE c.id LIKE 'restore21:guard:ENTRY:%' AND e.customer_id = :id")
+    suspend fun recoveryChildren(id: String): Int
+    @Query("SELECT value FROM backup_control WHERE id LIKE ('restore21:item:%:ENTRY:' || :id) OR id LIKE ('restore21:item:%:ENTRY:' || :id || ':held')")
+    suspend fun recoveryEntryRecords(id: String): List<String>
+
+    @Transaction
+    suspend fun mergeRecovery(expectedSequence: Long, customers: List<CustomerEntity>,
+        entries: List<LedgerEntryEntity>, photos: List<BackupPhotoEntity>, controls: List<BackupControlEntity>) {
+        check(latestBackupSequence() == expectedSequence) { "تغيرت بيانات الهاتف أثناء المعاينة؛ أعد المقارنة قبل التأكيد." }
+        customers.forEach { check(getCustomerById(it.id) == null); insertCustomer(it, "RESTORE21") }
+        entries.forEach { check(getEntryById(it.id) == null); insertEntry(it, "RESTORE21") }
+        photos.forEach { if (backupPhoto(it.customerId) == null) setBackupPhoto(it.customerId, it.bytes, "RESTORE21") }
+        controls.forEach { saveBackupControl(it) }
+        // If recovering a previously held local snapshot, every current record is now
+        // protected by a verification guard before the old global hold is released.
+        saveBackupControl(BackupControlEntity("restore_hold", "0"))
+    }
+
     @Transaction
     suspend fun insertCustomer(customer: CustomerEntity, origin: String = "LOCAL") {
+        if (origin == "LOCAL") {
+            check(recoveryValue(RecoveryKeys.guard("CUSTOMER", customer.id)) == null) { "هذا الزبون قيد التحقق بعد الاسترداد؛ راجع شاشة الاسترداد." }
+            check(getCustomerById(customer.id)?.openingDebt == customer.openingDebt || recoveryChildren(customer.id) == 0) { "يُراجع الرصيد الافتتاحي بعد تحقق الحركات المستردة." }
+        }
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
         val old = getCustomerById(customer.id)
         if (old == customer) return
@@ -414,11 +480,24 @@ interface PharmacyLedgerDao {
     }
     @Transaction
     suspend fun insertEntry(entry: LedgerEntryEntity, origin: String = "LOCAL") {
+        if (origin == "LOCAL") {
+            check(recoveryValue(RecoveryKeys.guard("ENTRY", entry.id)) == null &&
+                recoveryValue(RecoveryKeys.guard("CUSTOMER", entry.customerId)) == null && recoveryChildren(entry.customerId) == 0) {
+                "للزبون بيانات مستردة قيد التحقق؛ راجع شاشة الاسترداد قبل تعديل حركاته."
+            }
+        }
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
         val existing = getEntryById(entry.id)
-        if (existing == entry) return
-        if (existing == null) insertEntryRow(entry) else updateEntryRow(entry)
-        appendBackupChange(BackupChangeEntity.entry(entry, origin))
+        // The server wire has no bottle columns. Preserve restored local metadata
+        // only when all financial wire fields still match a verified recovery.
+        val incoming = if (origin == "REMOTE" && existing?.bottles != null && entry.bottles == null &&
+            existing.customerId == entry.customerId && existing.type == entry.type && existing.amount == entry.amount &&
+            existing.createdAt == entry.createdAt && existing.details == entry.details &&
+            recoveryEntryRecords(entry.id).any { RecoveryRecord.parse(it).let { r -> r.id == entry.id && r.state == "VERIFIED" } })
+            entry.copy(bottles = existing.bottles, bottlePrice = existing.bottlePrice) else entry
+        if (existing == incoming) return
+        if (existing == null) insertEntryRow(incoming) else updateEntryRow(incoming)
+        appendBackupChange(BackupChangeEntity.entry(incoming, origin))
     }
     @Transaction
     suspend fun updateEntry(entry: LedgerEntryEntity, origin: String = "LOCAL") {
@@ -434,6 +513,13 @@ interface PharmacyLedgerDao {
     }
     @Transaction
     suspend fun deleteEntryById(entryId: String, origin: String = "LOCAL") {
+        if (origin == "LOCAL") {
+            val parent = getEntryById(entryId)?.customerId
+            check(recoveryValue(RecoveryKeys.guard("ENTRY", entryId)) == null &&
+                (parent == null || (recoveryValue(RecoveryKeys.guard("CUSTOMER", parent)) == null && recoveryChildren(parent) == 0))) {
+                "للزبون بيانات مستردة قيد التحقق؛ لم تُحذف الحركة."
+            }
+        }
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
         if (getEntryById(entryId) == null) return
         deleteEntryRow(entryId)
@@ -441,6 +527,7 @@ interface PharmacyLedgerDao {
     }
     @Transaction
     suspend fun deleteCustomerById(customerId: String, origin: String = "LOCAL") {
+        check(origin != "LOCAL" || (recoveryValue(RecoveryKeys.guard("CUSTOMER", customerId)) == null && recoveryChildren(customerId) == 0)) { "للزبون بيانات مستردة قيد التحقق؛ لم يُحذف." }
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
         if (getCustomerById(customerId) == null) return
         getEntriesForCustomer(customerId).forEach { deleteEntryById(it.id, origin) }

@@ -191,7 +191,9 @@ class CloudSyncEngine(context: Context) {
         val localEntries = dao.getEntries()
 
         val knownRemoteCustomerIds = remoteCustomers.mapTo(hashSetOf()) { it.id }
-        val missingCustomers = localCustomers.filter { it.id !in knownRemoteCustomerIds }
+        val protectedCustomers = dao.recoveryCustomers().toSet()
+        val protectedEntries = dao.recoveryEntries().toSet()
+        val missingCustomers = localCustomers.filter { it.id !in knownRemoteCustomerIds && it.id !in protectedCustomers }
         if (missingCustomers.isNotEmpty()) {
             client.from("customers").upsert(
                 missingCustomers.map { it.toCloud(profile.pharmacyId) }
@@ -199,7 +201,7 @@ class CloudSyncEngine(context: Context) {
         }
 
         val knownRemoteTransactionIds = remoteTransactions.mapTo(hashSetOf()) { it.id }
-        val missingTransactions = localEntries.filter { it.id !in knownRemoteTransactionIds }
+        val missingTransactions = localEntries.filter { it.id !in knownRemoteTransactionIds && it.id !in protectedEntries && it.customerId !in protectedCustomers }
         if (missingTransactions.isNotEmpty()) {
             client.from("transactions").upsert(
                 missingTransactions.map { it.toCloud(profile.pharmacyId) }

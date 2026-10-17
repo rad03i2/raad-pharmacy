@@ -309,11 +309,12 @@ class LocalBackupEngine private constructor(context: Context, daoOverride: Pharm
         require(uri.authority == "com.android.externalstorage.documents") { "اختر مجلد نسخ محليًا." }
         loadRepository(TreeBackupStorage(app, uri), BackupCrypto.parseCode(code))
     }
-    suspend fun previewFile(uri: Uri, code: String): RestoredArchive = withContext(Dispatchers.IO) {
+    suspend fun previewFile(uri: Uri, code: String = ""): RestoredArchive = withContext(Dispatchers.IO) {
         val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBackupBytes() } ?: error("تعذر قراءة الملف.")
         if (PortableBackup.isPortable(bytes)) PortableBackup.decode(bytes)
         else if (BackupCrypto.isEncrypted(bytes)) {
-            val doc = JSONObject(String(BackupCrypto.open(bytes, BackupCrypto.parseCode(code)), Charsets.UTF_8))
+            val doc = JSONObject(String(BackupCrypto.open(bytes,
+                if (code.isBlank()) activeKey() else BackupCrypto.parseCode(code)), Charsets.UTF_8))
             BackupArchive.restore(doc) // Single full file is a standalone point; folder import applies subsequent segments.
         } else RestoredArchive(BackupValidator.parseValid(String(bytes, Charsets.UTF_8)), emptyList(), JSONObject(), 0)
     }

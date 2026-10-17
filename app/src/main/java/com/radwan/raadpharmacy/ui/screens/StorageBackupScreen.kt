@@ -175,7 +175,8 @@ internal fun LegacyBackupRestoreScreen(onBack: () -> Unit) {
                             if (state.enabled) "تم إيقاف النسخ إلى البطاقة. النسخ السابقة باقية." else destinationResult(LocalBackupEngine.SD)
                         }
                     }
-                    BackupAction.IMPORT_FOLDER, BackupAction.IMPORT_FILE -> {
+                    BackupAction.IMPORT_FILE -> BackupRecoveryActivity.open(context, pick = true)
+                    BackupAction.IMPORT_FOLDER -> {
                         importCode = ""; importError = null; importFromOtherPhone = false
                         importMode = if (action == BackupAction.IMPORT_FOLDER) "folder" else "file"
                     }
@@ -245,12 +246,15 @@ internal fun LegacyBackupRestoreScreen(onBack: () -> Unit) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("${archive.ledger.customers.size} زبون • ${archive.ledger.entries.size} حركة")
                 Text("تاريخ النسخة: ${backupTime(archive.ledger.createdAt)}")
-                Text("ستستبدل النسخة بيانات هذا الهاتف. تُحفظ نسخة أمان أولًا، وتُوقف المزامنة والتعديل حتى مراجعة البيانات.")
-                Text("لن تُرفع الديون القديمة إلى الحساب المركزي تلقائيًا.", style = MaterialTheme.typography.bodySmall)
+                Text("ستفتح مقارنة السجلات الفعلية. تبقى بيانات الهاتف الحالية ولا تُستبدل الحركات المختلفة تلقائيًا.")
+                Text("بعد الدمج، يُتحقق من وجود السجلات على الخادم قبل رفع الناقص فقط.", style = MaterialTheme.typography.bodySmall)
             }
         }, confirmButton = { TextButton(enabled = !working, onClick = {
-            preview = null; importCode = ""; act { engine.restore(archive).message }
-        }) { Text("استعادة على هذا الهاتف") } },
+            preview = null; importCode = ""; act {
+                withContext(Dispatchers.IO) { RecoverySession.get(context).stage(archive) }
+                BackupRecoveryActivity.open(context); null
+            }
+        }) { Text("مقارنة البيانات واستردادها") } },
         dismissButton = { TextButton(enabled = !working, onClick = { preview = null; importCode = "" }) { Text("إلغاء") } }
     ) }
     if (reconcileConfirm) AlertDialog(onDismissRequest = { reconcileConfirm = false }, title = { Text("العودة إلى البيانات الحالية؟") },
