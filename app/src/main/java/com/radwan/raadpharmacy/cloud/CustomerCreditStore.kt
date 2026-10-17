@@ -33,10 +33,11 @@ internal class CustomerCreditStore private constructor(context: Context) {
     private val started = AtomicBoolean(false)
     private val mutex = Mutex()
     private fun owner(): String? {
-        client.auth.currentSessionOrNull()?.user?.id?.let { return it }
+        val auth = SupabaseProvider.initializedClientOrNull()?.auth
+        auth?.currentSessionOrNull()?.user?.id?.let { return it }
         val offline = app.getSharedPreferences("raad_cloud_auth", Context.MODE_PRIVATE).getBoolean("has_offline_session",false)
-        val state = client.auth.sessionStatus.value
-        return if (offline && (state is io.github.jan.supabase.auth.status.SessionStatus.Initializing ||
+        val state = auth?.sessionStatus?.value
+        return if (offline && (auth == null || state is io.github.jan.supabase.auth.status.SessionStatus.Initializing ||
                 state is io.github.jan.supabase.auth.status.SessionStatus.RefreshFailure)) CloudDeviceStore(app).pushUserId() else null
     }
     fun current(): CreditSnapshot {
@@ -71,7 +72,8 @@ internal class CustomerCreditStore private constructor(context: Context) {
     }
     fun requestRefresh() { scope.launch { refreshQuietly() } }
     private suspend fun refreshQuietly() {
-        try { refresh() } catch (cancelled: CancellationException) { throw cancelled }
+        try { refresh() } catch (_: TimeoutCancellationException) { /* A request deadline does not stop future polls. */ }
+        catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { /* Cached block state remains; next foreground/realtime/poll retries independently. */ }
     }
     suspend fun refresh(): CreditSnapshot = mutex.withLock {

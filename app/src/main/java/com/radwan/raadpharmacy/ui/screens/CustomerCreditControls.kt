@@ -48,7 +48,8 @@ internal fun CustomerCreditControlLine(customerId: String, name: String) {
                 withContext(Dispatchers.IO) { if(state.canManage) CustomerCreditStore.get(context).setBlocked(customerId,!blocked)
                     else CustomerCreditStore.get(context).request(customerId,!blocked) }
                 confirm=false;message=if(state.canManage) "تم تأكيد التغيير على الخادم." else "تم إرسال الطلب إلى رعد."
-            } catch(cancelled:CancellationException){throw cancelled}
+            } catch(timeout:TimeoutCancellationException){message=CloudMessagingFeedback.forFailure(context,timeout)}
+            catch(cancelled:CancellationException){throw cancelled}
             catch(error:Exception){message=CloudMessagingFeedback.forFailure(context,error)}
             finally{busy=false}
         }}){Text("تأكيد")}},dismissButton={TextButton(enabled=!busy,onClick={confirm=false}){Text("إلغاء")}})
@@ -76,6 +77,7 @@ internal fun CreditRequestActions(requestId: String) {
         text={Text("${request.customerName} • طلب من ${request.requestedByName}\nسيُحفظ القرار على الخادم، ويبقى التحصيل متاحاً.")},
         confirmButton={TextButton(enabled=!busy,onClick={busy=true;scope.launch {
             try { withContext(Dispatchers.IO){CustomerCreditStore.get(context).setBlocked(request.customerId,block,request.id)};decision=null }
+            catch(timeout:TimeoutCancellationException){error=CloudMessagingFeedback.forFailure(context,timeout)}
             catch(cancelled:CancellationException){throw cancelled}
             catch(failure:Exception){error=CloudMessagingFeedback.forFailure(context,failure)}
             finally{busy=false}

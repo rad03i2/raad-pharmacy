@@ -187,7 +187,7 @@ private fun LedgerNavigationButton(item: LedgerNavigationItem, index: Int, selec
                         val measured = measurer.measure(item.label, style = style).size.width.coerceAtLeast(1)
                         val available = with(LocalDensity.current) { maxWidth.toPx() }
                         Text(item.label, color = tint, style = style.copy(fontSize = style.fontSize *
-                            (available / measured).coerceIn(0.4f, 1f)), textAlign = TextAlign.Center,
+                            ((available - with(LocalDensity.current) { 3.dp.toPx() }).coerceAtLeast(1f) / measured).coerceIn(0.25f, 1f)), textAlign = TextAlign.Center,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }

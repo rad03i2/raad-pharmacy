@@ -17,6 +17,9 @@ $$;
 grant usage on schema auth,raad_private to authenticated;
 grant select,insert,update,delete on customers,transactions to authenticated;
 grant select on profiles,notification_events to authenticated;
+create policy notification_events_read_same_pharmacy on notification_events for select to authenticated
+ using(pharmacy_id=(select raad_private.current_pharmacy()) and
+ (recipient_user_id is null or recipient_user_id=(select auth.uid()) or actor_user_id=(select auth.uid())));
 alter table customers enable row level security;
 alter table transactions enable row level security;
 create policy tenant on customers to authenticated using(pharmacy_id=(select raad_private.current_pharmacy())) with check(pharmacy_id=(select raad_private.current_pharmacy()));

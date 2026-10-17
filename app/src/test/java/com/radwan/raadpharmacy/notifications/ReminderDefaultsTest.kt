@@ -11,6 +11,17 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[35])
 class ReminderDefaultsTest {
+    @Test fun shortRemindersStartOffAndDoNotAlterOrdinaryReminderPreferences() {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("raad_short_reminders_v23",Context.MODE_PRIVATE).edit().clear().commit()
+        val ordinary=ReminderStore(context)
+        ordinary.setEnabled(true);ordinary.setFrequency(ReminderFrequency.WEEKLY)
+        val before=ordinary.state()
+        val short=ShortReminderStore(context)
+        assertFalse(short.enabled());short.setEnabled(true)
+        assertTrue(ShortReminderStore(context).enabled());assertEquals(before,ordinary.state())
+        short.setEnabled(false);assertFalse(short.enabled());assertEquals(before,ordinary.state())
+    }
     @Test fun weeklyDefaultIsAppliedOnceAndLaterChoiceIsPreserved() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("gas_ledger_reminders",Context.MODE_PRIVATE).edit().clear()

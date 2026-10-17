@@ -59,6 +59,8 @@ object ShortReminderScheduler {
 class ShortReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val store = ShortReminderStore(applicationContext)
+        if (!applicationContext.getSharedPreferences("raad_cloud_auth", Context.MODE_PRIVATE)
+                .getBoolean("has_offline_session", false)) return Result.success()
         val key = inputData.getString("key") ?: return Result.success()
         if (!store.enabled() || store.notified(key)) return Result.success()
         return try {
