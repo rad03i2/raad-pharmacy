@@ -58,6 +58,7 @@ class CloudHttpIntegrationTest {
     private val patches = CopyOnWriteArrayList<JSONObject>()
     private val rejectWrites = AtomicBoolean(false)
     private val wrongAcknowledgement = AtomicBoolean(false)
+    private val canonicalOffsetReply = AtomicBoolean(false)
     private val loseResponse = AtomicBoolean(false)
     private val loseInsertResponse = AtomicBoolean(false)
     private val rejectLogin = AtomicBoolean(false)
@@ -119,6 +120,10 @@ class CloudHttpIntegrationTest {
                             reply(exchange, 400, """{"code":"P0001","message":"immutable identity fields cannot be changed"}""")
                         else {
                             changed.forEach { old -> data.keys().forEach { old.put(it, data.get(it)) }; table[old.getString("id")] = old.toString() }
+                            if (canonicalOffsetReply.get()) changed.forEach { old ->
+                                old.put("occurred_at", "2026-10-17T00:00:00.000000+00:00")
+                                table[old.getString("id")] = old.toString()
+                            }
                             if (wrongAcknowledgement.get()) changed.forEach { it.put("amount", -1).put("name", "wrong acknowledgement") }
                             if (loseResponse.compareAndSet(true, false)) exchange.close()
                             else reply(exchange, 200, JSONArray(changed).toString())
@@ -336,6 +341,15 @@ class CloudHttpIntegrationTest {
         assertTrue(postPaths.isEmpty())
         assertTrue(listOf("created_at", "created_by", "created_device_id", "operation_id", "customer_id", "pharmacy_id", "id")
             .none { patches.single().has(it) })
+    }
+
+    @Test @Config(sdk = [26, 35])
+    fun serverOffsetAcknowledgementsWorkOnOldAndNewSupportedAndroidVersions() = runBlocking {
+        val client = client(); login(client); seed(debt()); canonicalOffsetReply.set(true)
+        CloudLedgerWriter(client, pharmacy).save(debt(9000))
+        assertEquals("2026-10-17T00:00:00.000000+00:00", JSONObject(rows.getValue(entry)).getString("occurred_at"))
+        assertEquals(9000L, JSONObject(rows.getValue(entry)).getLong("amount"))
+        assertEquals(preciseCreation, JSONObject(rows.getValue(entry)).getString("created_at"))
     }
 
     @Test fun oneHundredFortyNineOldQueuedRowsDrainWithoutRewritingIdentityOrDuplicatingMoney() = runBlocking {

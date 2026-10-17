@@ -5,7 +5,7 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.postgrest.from
 import kotlinx.serialization.json.*
-import java.time.Instant
+import java.time.OffsetDateTime
 
 internal class CloudLedgerWriteConflict : IllegalStateException("تعذر تأكيد السجل؛ هويته أو حالته على الخادم تحتاج مراجعة. بقي الطلب محفوظًا.")
 
@@ -14,7 +14,8 @@ internal class CloudLedgerWriteConflict : IllegalStateException("تعذر تأك
 internal class CloudLedgerWriter(private val client: SupabaseClient, private val pharmacy: String) {
     private val owner = requireCloudSyncOwner(client.auth.currentSessionOrNull()?.user?.id)
     private fun guard() { check(client.auth.currentSessionOrNull()?.user?.id == owner) { "تغير حساب المزامنة؛ الطلب محفوظ." } }
-    private fun time(value: String) = runCatching { Instant.parse(value).toEpochMilli() }.getOrNull()
+    // Older Android Instant parsers accept only Z; PostgREST also returns +00:00.
+    private fun time(value: String) = runCatching { OffsetDateTime.parse(value).toInstant().toEpochMilli() }.getOrNull()
 
     private suspend fun <T> persist(createFirst: Boolean, patch: suspend () -> List<T>,
         insert: suspend () -> List<T>, read: suspend () -> List<T>, verify: (T) -> Boolean) {
