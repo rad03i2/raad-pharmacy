@@ -103,6 +103,14 @@ class RecoveryTest {
         assertEquals(2, twins.conflicts); assertEquals(0, twins.additions)
         assertEquals(5_000_000L, dao.getEntryById(id(2))!!.amount)
     }
+    @Test fun renamedCustomerWithTheSameNormalizedPhoneIsAnIdentityConflictNotANewAccount() = runBlocking {
+        val renamed = customer.copy(id = id(8), name = "اسم مختلف", phone = "٠٧٠٠٠٠٠٠٠٠٠")
+        val input = archive(listOf(debt(3, 9000).copy(customerId = renamed.id)), listOf(renamed))
+        val plan = importer().compare(input)
+        assertEquals(0, plan.additions)
+        assertEquals(2, plan.conflicts)
+        assertEquals(1, dao.customerCount())
+    }
 
     @Test fun serverAliasIsQuarantinedInsteadOfCreatingAnotherOperation() = runBlocking {
         val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))

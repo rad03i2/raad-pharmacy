@@ -137,7 +137,9 @@ internal class RecoveryCloudVerifier(private val dao: PharmacyLedgerDao, private
                     else if (row == null && previouslyExisted) conflict = "اختفى الزبون من الخادم أثناء الفحص؛ لم يُعد إنشاؤه."
                     else if (row != null && !same(c, row)) conflict = "الخادم يحتوي بيانات مختلفة أو سجلًا محذوفًا؛ لم يُستبدل."
                     else if (row == null) {
-                        if (customers.values.any { it.name.trim().equals(c.name.trim(), true) }) conflict = "اسم الزبون موجود على الخادم بمعرّف آخر."
+                        if (customers.values.any { normalizeCustomerName(it.name) == normalizeCustomerName(c.name) ||
+                                (c.phone?.isNotBlank() == true && normalizeCustomerPhoneForDuplicate(it.phone.orEmpty()) == normalizeCustomerPhoneForDuplicate(c.phone.orEmpty())) })
+                            conflict = "اسم الزبون أو هاتفه موجود على الخادم بمعرّف آخر."
                         else {
                             try { remote.insert(c) } catch (e: RestException) { if (e.statusCode != 409) throw e }
                             val confirmed = remote.customer(c.id) ?: error("لم يتأكد حفظ الزبون على الخادم.")

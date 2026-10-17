@@ -52,7 +52,10 @@ internal data class RecoveryPlan(val sequence: Long, val current: RecoveryTotals
             var identical = 0
             fun customerPayload(c: CustomerEntity) = BackupJson.encode(listOf(c.toModel()), emptyList(), "3.3.22.21")
             fun entryPayload(e: LedgerEntryEntity) = BackupJson.encode(emptyList(), listOf(e.toModel()), "3.3.22.21")
-            val names = current.customers.groupBy { it.name.trim().lowercase() }
+            val names = current.customers.groupBy { normalizeCustomerName(it.name) }
+            val phones = current.customers.filter { !it.phone.isNullOrBlank() }.groupBy { normalizeCustomerPhoneForDuplicate(it.phone.orEmpty()) }
+            val incomingNames = incomingCustomers.groupBy { normalizeCustomerName(it.name) }
+            val incomingPhones = incomingCustomers.filter { !it.phone.isNullOrBlank() }.groupBy { normalizeCustomerPhoneForDuplicate(it.phone.orEmpty()) }
             for (c in incomingCustomers) {
                 val old = originalCustomers[c.id]
                 val reason = when {
@@ -60,8 +63,12 @@ internal data class RecoveryPlan(val sequence: Long, val current: RecoveryTotals
                     !RecoveryRecord.uuid(c.id) -> "معرّف قديم لا يمكن مطابقته بأمان مع معرّف الخادم."
                     old != null && old != c -> "المعرّف موجود ببيانات مختلفة؛ الرصيد الافتتاحي الحالي " +
                         old.openingDebt + " والنسخة " + c.openingDebt + ". احتُفظ بالحالي."
-                    old == null && names[c.name.trim().lowercase()].orEmpty().isNotEmpty() ->
-                        "يوجد زبون بالاسم نفسه بمعرّف آخر؛ يلزم التحقق من الهوية."
+                    old == null && (names[normalizeCustomerName(c.name)].orEmpty().isNotEmpty() ||
+                        (c.phone?.isNotBlank() == true && phones[normalizeCustomerPhoneForDuplicate(c.phone.orEmpty())].orEmpty().isNotEmpty())) ->
+                        "يوجد زبون باسم أو رقم هاتف مماثل بمعرّف آخر؛ يلزم التحقق من الهوية."
+                    old == null && (incomingNames[normalizeCustomerName(c.name)].orEmpty().size > 1 ||
+                        (c.phone?.isNotBlank() == true && incomingPhones[normalizeCustomerPhoneForDuplicate(c.phone.orEmpty())].orEmpty().size > 1)) ->
+                        "توجد هويات زبائن مماثلة داخل النسخة؛ لم تُدمج تلقائيًا."
                     else -> ""
                 }
                 if (reason.isNotEmpty() && (old == null || old.openingDebt != c.openingDebt)) blocked += c.id
