@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -50,6 +51,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -119,13 +121,19 @@ fun SmartDebtFollowupV316(
 
     var today by remember { mutableStateOf(LocalDate.now(DebtFollowupEngine.IRAQ_ZONE)) }
     var refreshTick by remember { mutableIntStateOf(0) }
-    var filter by remember { mutableStateOf(if (initialShowAll) FollowupFilter.ALL else FollowupFilter.DAYS_30) }
-    var sort by remember { mutableStateOf<FollowupSort?>(null) }
-    var showSort by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    var showSearch by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    var filter by rememberSaveable { mutableStateOf(if (initialShowAll) FollowupFilter.ALL else FollowupFilter.DAYS_30) }
+    var sort by rememberSaveable { mutableStateOf<FollowupSort?>(null) }
+    var showSort by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var showSearch by rememberSaveable { mutableStateOf(false) }
+    var returnKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var returnIndex by rememberSaveable { mutableIntStateOf(0) }
+    var returnOffset by rememberSaveable { mutableIntStateOf(0) }
+    var restoreReturn by rememberSaveable { mutableStateOf(false) }
+    var returnAway by rememberSaveable { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
-    var records by remember { mutableStateOf<List<DebtFollowupEngine.Account>>(emptyList()) }
+    var records by remember { mutableStateOf(DebtFollowupEngine.build(customers, movements)) }
     var sharing by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var missingPhoneFor by remember { mutableStateOf<String?>(null) }
@@ -143,11 +151,18 @@ fun SmartDebtFollowupV316(
             delay(ChronoUnit.MILLIS.between(now, next).coerceAtLeast(1000L) + 1000L)
         }
     }
+    LaunchedEffect(Unit) {
+        if (com.radwan.raadpharmacy.notifications.ShortReminderStore(context).enabled()) {
+            while (true) { delay(30_000L); refreshTick++ }
+        }
+    }
     DisposableEffect(lifecycleOwner, reminderStore) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 today = LocalDate.now(DebtFollowupEngine.IRAQ_ZONE)
                 reminderRevision++
+                refreshTick++
+                if (returnAway) { restoreReturn = true; returnAway = false }
                 reminderConfirmation = reminderStore.confirmation()
             } else if (event == Lifecycle.Event.ON_PAUSE) {
                 runCatching { reminderStore.departed() }.onFailure {
@@ -159,7 +174,9 @@ fun SmartDebtFollowupV316(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(customers, movements, today, refreshTick) {
-        loading = true
+        // Keep existing keyed rows mounted during recalculation, including a
+        // return from WhatsApp. Removing them clamps the saved scroll to zero.
+        loading = records.isEmpty()
         records = withContext(Dispatchers.Default) {
             DebtFollowupEngine.build(customers, movements, today)
         }
@@ -213,6 +230,18 @@ fun SmartDebtFollowupV316(
         }
     }
 
+    LaunchedEffect(shown.map { it.customer.id }, restoreReturn, loading) {
+        if (restoreReturn && !loading && shown.isNotEmpty()) {
+            // Header count varies with search/sort; use the actual laid-out stable key when available.
+            val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == returnKey }
+            val customerIndex = shown.indexOfFirst { it.customer.id == returnKey }
+            val headerCount = 3 + (if (showSearch) 1 else 0) + (if (showSort) 1 else 0)
+            listState.scrollToItem(item?.index ?: if (customerIndex >= 0) customerIndex + headerCount
+                else returnIndex.coerceAtMost((shown.size + headerCount - 1).coerceAtLeast(0)), returnOffset)
+            restoreReturn = false
+        }
+    }
+
     fun share(id: String, useSystemChooser: Boolean = false) {
         if (sharing != null) return
         val record = records.firstOrNull { it.customer.id == id } ?: return
@@ -223,6 +252,10 @@ fun SmartDebtFollowupV316(
             return
         }
         // Double taps are blocked synchronously before launching work.
+        returnIndex = listState.firstVisibleItemIndex
+        returnOffset = listState.firstVisibleItemScrollOffset
+        returnKey = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key as? String
+        returnAway = true
         sharing = id
         lastSharedId = id
         // Capture one consistent account and template before asynchronous rendering.
@@ -261,6 +294,7 @@ fun SmartDebtFollowupV316(
                 pending?.let { runCatching { reminderStore.discard(it.token) } }
                 throw cancelled
             } catch (error: Exception) {
+                returnAway = false
                 pending?.let { runCatching { reminderStore.discard(it.token) } }
                 statusMessage = "تعذرت المشاركة. جرّب المشاركة البديلة بالصورة والنص."
             } finally {
@@ -323,12 +357,13 @@ fun SmartDebtFollowupV316(
 
     Scaffold(topBar = { ScreenTopBar("متابعة الحسابات", onBack) }) { padding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize().padding(padding),
             flingBehavior = rememberLedgerFlingBehavior(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(13.dp)
         ) {
-            item {
+            item(key = "followup-title") {
                 Surface(
                     shape = MaterialTheme.shapes.extraLarge,
                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -456,7 +491,7 @@ fun SmartDebtFollowupV316(
                     }
                 }
             }
-            if (loading) {
+            if (loading && records.isEmpty()) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -668,9 +703,9 @@ private fun FollowupAccountCard(
                 ) {
                     if (isSharing) CircularProgressIndicator(
                         modifier = Modifier.size(16.dp), strokeWidth = 2.dp
-                    ) else Icon(Icons.Rounded.Send, null, modifier = Modifier.size(17.dp))
+                    ) else Icon(if (remindedAt != null) Icons.Rounded.CheckCircle else Icons.Rounded.Send, null, modifier = Modifier.size(17.dp))
                     Spacer(Modifier.size(6.dp))
-                    Text("إرسال كشف الحساب", maxLines = 1)
+                    Text(if (remindedAt != null) "تم الإرسال • إعادة إرسال" else "إرسال كشف الحساب", maxLines = 1)
                 }
                 OutlinedButton(onClick = onOpen) {
                     Text("عرض الحساب")

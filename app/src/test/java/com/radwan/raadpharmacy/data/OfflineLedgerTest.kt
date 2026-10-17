@@ -243,6 +243,42 @@ class OfflineLedgerTest {
             assertTrue(disk.dao().cloudOutbox().isEmpty())
         } finally { disk.close(); app.deleteDatabase(name) }
     }
+    @Test fun cachedBlockPreventsNewDebtOfflineButAllowsReceiptsAndRaadOverride() = runTest {
+        dao.insertCustomer(customer,"REMOTE");dao.insertEntry(debt(),"REMOTE")
+        val owner="fixture-owner";val pharmacy="fixture-pharmacy"
+        app.getSharedPreferences("raad_cloud_auth",Context.MODE_PRIVATE).edit().putBoolean("has_offline_session",true).commit()
+        CloudDeviceStore(app).savePushIdentity(owner,pharmacy)
+        val prefs=app.getSharedPreferences("raad_customer_credit_v23",Context.MODE_PRIVATE)
+        fun cache(manager:Boolean) { prefs.edit().putString("$owner:$pharmacy",
+            kotlinx.serialization.json.Json.encodeToString(CreditSnapshot(owner,pharmacy,manager,setOf(customer.id)))).commit() }
+        cache(false)
+        assertTrue(runCatching { repository.addDebt(customer.id,2000,null,null) }.exceptionOrNull()!!.isCreditBlockedFailure())
+        assertEquals(1,dao.entryCount())
+        repository.addPayment(customer.id,1000)
+        assertEquals(2,dao.entryCount())
+        assertFalse(repository.updateEntry("d1",6000,null,null,"").success)
+        cache(true)
+        assertTrue(repository.addDebt(customer.id,2000,null,null) is DebtCreateResult.Created)
+        assertEquals(3,dao.entryCount())
+        assertNull("Local save must not create an auth/network client",SupabaseProvider.initializedClientOrNull())
+        // A different account must not inherit Raad's cached capability.
+        CloudDeviceStore(app).savePushIdentity("other-account",pharmacy)
+        assertFalse(CustomerCreditStore.get(app).current().canManage)
+    }
+    @Test fun severalBlockedDebtsRemainDurableWhileAnUnrelatedReceiptStillUploads() = runTest {
+        dao.insertCustomer(customer, "REMOTE")
+        repeat(5) { dao.insertEntry(debt(id = "blocked-$it")) }
+        dao.insertEntry(LedgerEntryEntity("receipt", "c1", "PAYMENT", 1000, null, null, "", 3000))
+        val expected=dao.cloudOutbox().filter { it.entityId.startsWith("blocked-") }
+        val sent=mutableListOf<String>()
+        val result=runCatching { DurableCloudDrain(dao) { row ->
+            if(row.entityId.startsWith("blocked-")) throw IllegalStateException("CUSTOMER_CREDIT_BLOCKED")
+            sent+=row.entityId
+        }.flush() }
+        assertTrue(result.isFailure);assertEquals(listOf("receipt"),sent)
+        assertEquals(expected,dao.cloudOutbox())
+        DurableCloudDrain(dao) {}.flush();assertTrue(dao.cloudOutbox().isEmpty())
+    }
     @Test fun failedOfflineUploadStaysQueuedAndReconnectDrainsInDependencyOrder() = runTest {
         dao.insertCustomer(customer); dao.insertEntry(debt())
         assertThrows(IOException::class.java) { runBlocking { DurableCloudDrain(dao) { throw IOException("offline") }.flush() } }

@@ -147,7 +147,8 @@ fun AddDebtScreenV12(
     val restoredDraft = remember(context, customerId) { FormDraftStore.loadDebtDraft(context, customerId) }
     var amountText by rememberSaveable { mutableStateOf(restoredDraft?.amount.orEmpty()) }
     var detailsText by rememberSaveable { mutableStateOf(restoredDraft?.details.orEmpty()) }
-    var repaymentDays by rememberSaveable { mutableStateOf(restoredDraft?.repaymentDays) }
+    val shortRemindersEnabled = remember(context) { com.radwan.raadpharmacy.notifications.ShortReminderStore(context).enabled() }
+    var repaymentDays by rememberSaveable { mutableStateOf(restoredDraft?.repaymentDays?.takeIf { shortRemindersEnabled || it !in RepaymentTerms.shortChoices }) }
     var operationId by rememberSaveable {
         mutableStateOf(restoredDraft?.operationId ?: UUID.randomUUID().toString())
     }
@@ -180,7 +181,8 @@ fun AddDebtScreenV12(
     var voiceError by remember { mutableStateOf<String?>(null) }
 
     val amount = amountText.toLongOrNull() ?: 0L
-    val canSubmit = amount > 0L && !isSaving && !voiceListening
+    val credit = rememberCreditSnapshot()
+    val canSubmit = amount > 0L && !isSaving && !voiceListening && !credit.preventsDebt(customerId)
 
     fun applyVoiceResult(parsed: SpeechAmountParseResult, heard: String?) {
         heard?.takeIf { it.isNotBlank() }?.let { voiceTranscript = it }
@@ -345,6 +347,7 @@ fun AddDebtScreenV12(
 
     fun submit() {
         if (isSaving) return
+        if (credit.preventsDebt(customerId)) { errorText = com.radwan.raadpharmacy.cloud.CustomerCreditStore.BLOCKED_MESSAGE; return }
         if (amount <= 0L) {
             errorText = "أدخل مبلغًا صحيحًا."
             return
@@ -455,6 +458,7 @@ fun AddDebtScreenV12(
         val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding).padding(14.dp, 6.dp)) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(if (maxHeight < 430.dp) 6.dp else 10.dp)) {
+                if (credit.preventsDebt(customerId)) Text(com.radwan.raadpharmacy.cloud.CustomerCreditStore.BLOCKED_MESSAGE, color = MaterialTheme.colorScheme.error)
                 if (!keyboardVisible) CompactFinanceHeader(customer.id, customer.name, previousBalance)
                 V12AmountInput(value = amountText, onValueChange = {
                     amountText = it.filter(Char::isDigit).take(12)
@@ -488,7 +492,7 @@ fun AddDebtScreenV12(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        listOf(null, 1, 2, 7, 14).forEach { days ->
+                        RepaymentTerms.visibleChoices(shortRemindersEnabled).forEach { days ->
                             FilterChip(
                                 selected = repaymentDays == days,
                                 onClick = { repaymentDays = days },

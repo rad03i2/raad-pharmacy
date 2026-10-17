@@ -15,8 +15,8 @@ android {
         applicationId = "com.radwan.raadpharmacy"
         minSdk = 26
         targetSdk = 37
-        versionCode = 90
-        versionName = "3.3.22.22"
+        versionCode = 91
+        versionName = "3.3.22.23"
         buildConfigField("String", "SUPABASE_URL", "\"https://gsyrjhqkbfomxqacexle.supabase.co\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_dEvMmAVvoihNljWjLAutRg_lkAD934q\"")
         manifestPlaceholders["debtVoicePermission"] =
@@ -108,6 +108,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
+    testImplementation("androidx.work:work-testing:2.11.2")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     testImplementation("org.robolectric:robolectric:4.17")

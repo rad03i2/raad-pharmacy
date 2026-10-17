@@ -11,7 +11,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 internal class CloudSessionNotReady : IllegalStateException("CLOUD_SESSION_NOT_READY")
 internal fun requireCloudSyncOwner(owner: String?): String = owner?.takeIf(String::isNotBlank) ?: throw CloudSessionNotReady()
-internal enum class FinancialUploadState { IDLE, UPLOADING, WAITING_FOR_SESSION, RETRYING }
+internal enum class FinancialUploadState { IDLE, UPLOADING, WAITING_FOR_SESSION, WAITING_FOR_CREDIT_REVIEW, RETRYING }
 
 /** The durable outbox is the source of truth. A missing session is never a successful upload. */
 internal class AutomaticFinancialUpload(scope: CoroutineScope,
@@ -36,8 +36,11 @@ internal class AutomaticFinancialUpload(scope: CoroutineScope,
                         failures = 0
                     } catch (error: Exception) {
                         if (error is CancellationException && error !is TimeoutCancellationException) throw error
-                        mutableState.value = if (error is CloudSessionNotReady)
-                            FinancialUploadState.WAITING_FOR_SESSION else FinancialUploadState.RETRYING
+                        mutableState.value = when {
+                            error is CloudSessionNotReady -> FinancialUploadState.WAITING_FOR_SESSION
+                            error.isCreditBlockedFailure() -> FinancialUploadState.WAITING_FOR_CREDIT_REVIEW
+                            else -> FinancialUploadState.RETRYING
+                        }
                         failed(error)
                     }
                     val delay = (1_000L * (1L shl failures.coerceAtMost(5))).coerceAtMost(30_000L)

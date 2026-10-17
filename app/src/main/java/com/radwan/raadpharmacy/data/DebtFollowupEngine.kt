@@ -26,19 +26,21 @@ object DebtFollowupEngine {
         val hasUnknownDates: Boolean,
         val specialOverdueAmount: Long = 0L,
         val specialReminderDays: Int? = null,
-        val specialDueAt: LocalDate? = null
+        val specialDueAt: LocalDate? = null,
+        val unpaidEntryIds: Set<String> = emptySet()
     )
 
-    private data class Tranche(val createdAt: Long, var remaining: Long, val repaymentDays: Int? = null)
+    private data class Tranche(val createdAt: Long, var remaining: Long, val repaymentDays: Int? = null, val entryId: String? = null)
 
     fun build(
         customers: List<Customer>,
         entries: List<LedgerEntry>,
-        today: LocalDate = LocalDate.now(IRAQ_ZONE)
+        today: LocalDate = LocalDate.now(IRAQ_ZONE),
+        nowMillis: Long = System.currentTimeMillis()
     ): List<Account> {
         val grouped = entries.groupBy { it.customerId }
         return customers.mapNotNull { customer ->
-            calculate(customer, grouped[customer.id].orEmpty(), today)
+            calculate(customer, grouped[customer.id].orEmpty(), today, nowMillis)
                 .takeIf { it.balance > 0 }
         }
     }
@@ -46,7 +48,8 @@ object DebtFollowupEngine {
     fun calculate(
         customer: Customer,
         entries: List<LedgerEntry>,
-        today: LocalDate = LocalDate.now(IRAQ_ZONE)
+        today: LocalDate = LocalDate.now(IRAQ_ZONE),
+        nowMillis: Long = System.currentTimeMillis()
     ): Account {
         val tranches = ArrayList<Tranche>(entries.size + 1)
         val ordered = entries.filter { it.customerId == customer.id }
@@ -66,7 +69,7 @@ object DebtFollowupEngine {
                     val consumed = minOf(credit, entry.amount)
                     credit -= consumed
                     val owing = entry.amount - consumed
-                    if (owing > 0L) tranches += Tranche(entry.createdAt, owing, entry.repaymentDays)
+                    if (owing > 0L) tranches += Tranche(entry.createdAt, owing, entry.repaymentDays, entry.id)
                 }
                 EntryType.PAYMENT -> {
                     lastPaymentAt = maxOf(lastPaymentAt ?: entry.createdAt, entry.createdAt)
@@ -114,8 +117,13 @@ object DebtFollowupEngine {
             if (lot.remaining <= 0L || lot.createdAt <= 0L) return@mapNotNull null
             val date = runCatching { Instant.ofEpochMilli(lot.createdAt).atZone(IRAQ_ZONE).toLocalDate() }.getOrNull()
                 ?: return@mapNotNull null
-            val due = date.plusDays(days.toLong())
-            if (today.isAfter(due)) lot to due else null
+            if (days in RepaymentTerms.shortChoices) {
+                val dueMillis = Math.addExact(lot.createdAt, -days.toLong() * 60_000L)
+                if (nowMillis >= dueMillis) lot to Instant.ofEpochMilli(dueMillis).atZone(IRAQ_ZONE).toLocalDate() else null
+            } else {
+                val due = date.plusDays(days.toLong())
+                if (today.isAfter(due)) lot to due else null
+            }
         }
         val specialOverdueAmount = specialDue.sumOf { it.first.remaining }
         val earliestSpecial = specialDue.minByOrNull { it.second }
@@ -134,6 +142,7 @@ object DebtFollowupEngine {
             if (hasUnknownDates) null else oldest, lastPaymentAt, bucket, hasUnknownDates,
             specialOverdueAmount = specialOverdueAmount,
             specialReminderDays = earliestSpecial?.first?.repaymentDays,
-            specialDueAt = earliestSpecial?.second)
+            specialDueAt = earliestSpecial?.second,
+            unpaidEntryIds = unpaid.mapNotNull { it.entryId }.toSet())
     }
 }

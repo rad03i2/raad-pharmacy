@@ -98,6 +98,7 @@ fun CustomerProfileScreenV6(
     val entries by vm.entries.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
     val customer = customers.firstOrNull { it.id == customerId }
+    val credit = rememberCreditSnapshot()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -216,12 +217,13 @@ fun CustomerProfileScreenV6(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item { V6AccountHero(customer, balance, security.hideAmounts) }
+            item { CustomerCreditControlLine(customer.id, customer.name) }
 
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     V6AccountAction(
                         "إضافة دين", Icons.Rounded.Add, onAddDebt,
-                        Modifier.weight(1f), false
+                        Modifier.weight(1f), false, !credit.preventsDebt(customer.id)
                     )
                     V6AccountAction(
                         "تحصيل", Icons.Rounded.Wallet, onPayment,

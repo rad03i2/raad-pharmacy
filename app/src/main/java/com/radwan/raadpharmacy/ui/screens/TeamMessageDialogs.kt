@@ -92,6 +92,7 @@ internal fun ComposeTeamMessageDialog(name: String, text: String, sending: Boole
 @Composable
 internal fun ReadTeamMessagesDialog(name: String, messages: List<CloudNotificationEventRow>, reading: Boolean,
     onDismiss: () -> Unit, onRead: () -> Unit) {
+    val pendingCreditIds = rememberCreditSnapshot().requests.map { it.id }.toSet()
     AlertDialog(onDismissRequest = { if (!reading) onDismiss() }, title = { Text("رسائل من $name") },
         text = {
             LazyColumn(modifier = Modifier.heightIn(max = 320.dp), flingBehavior = rememberLedgerFlingBehavior(),
@@ -99,6 +100,7 @@ internal fun ReadTeamMessagesDialog(name: String, messages: List<CloudNotificati
                 items(messages, key = { it.id }, contentType = { "message" }) { message ->
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(message.messageBody.orEmpty(), style = MaterialTheme.typography.bodyLarge)
+                        if (message.id in pendingCreditIds) CreditRequestActions(message.id)
                         Text(formatDate(messageTimestamp(message)) + " • " + formatTime(messageTimestamp(message)),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

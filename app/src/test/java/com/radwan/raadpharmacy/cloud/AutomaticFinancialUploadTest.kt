@@ -25,6 +25,17 @@ class AutomaticFinancialUploadTest {
         assertEquals(0L, testScheduler.currentTime)
     }
 
+    @Test fun blockedFinancialOperationIsKeptAndIdentifiedAsRaadReviewInsteadOfNetworkFailure() = runTest {
+        var blocked=true;var pending=true
+        val pump=AutomaticFinancialUpload(backgroundScope,{true},{pending},{
+            if(blocked)throw IllegalStateException("CUSTOMER_CREDIT_BLOCKED")
+            pending=false
+        })
+        pump.request();runCurrent()
+        assertTrue(pending);assertEquals(FinancialUploadState.WAITING_FOR_CREDIT_REVIEW,pump.state.value)
+        blocked=false;pump.request();runCurrent()
+        assertFalse(pending);assertEquals(FinancialUploadState.IDLE,pump.state.value)
+    }
     @Test fun failedUploadRetriesWhileAppRemainsOpenAndStopsAfterConfirmation() = runTest {
         var pending = true; var attempts = 0
         val pump = AutomaticFinancialUpload(backgroundScope, { true }, { pending }, {

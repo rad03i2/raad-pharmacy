@@ -15,9 +15,11 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.encodedPath
 
 object SupabaseProvider {
-    val client by lazy {
+    private val clientDelegate = lazy {
         createCloudClient(BuildConfig.SUPABASE_URL, BuildConfig.SUPABASE_PUBLISHABLE_KEY)
     }
+    val client: SupabaseClient get() = clientDelegate.value
+    internal fun initializedClientOrNull(): SupabaseClient? = if (clientDelegate.isInitialized()) clientDelegate.value else null
 }
 
 /** Shared by production and real HTTP integration tests; no alternative auth or ledger protocol. */

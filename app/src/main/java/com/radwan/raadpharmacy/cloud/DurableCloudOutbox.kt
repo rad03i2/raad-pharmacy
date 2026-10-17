@@ -65,7 +65,7 @@ internal class DurableCloudDrain(private val dao: PharmacyLedgerDao,
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 if (firstFailure == null) firstFailure = error
-                if (++failures >= 3) break // Bound repeated failures during a shared outage.
+                if (!error.isCreditBlockedFailure() && ++failures >= 3) break // Bound repeated failures during a shared outage.
             }
         }
         firstFailure?.let { throw it }

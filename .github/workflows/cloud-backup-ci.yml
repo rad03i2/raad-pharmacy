@@ -36,4 +36,13 @@ jobs:
         run: python -m tools.cloud_backup.integration_test
       - name: Reproduce immutable identity rejection and verify mutable-only financial updates
         run: psql "$FIXTURE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/immutable-sync-identity.sql
+      - name: Verify customer credit permissions and request actions in a separate disposable database
+        run: |
+          psql "$FIXTURE_DB_URL" -v ON_ERROR_STOP=1 -c 'create database raad_credit_fixture'
+          export CREDIT_FIXTURE_URL="${FIXTURE_DB_URL%/postgres}/raad_credit_fixture"
+          psql "$CREDIT_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/credit-control-fixture.sql
+          psql "$CREDIT_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/team-messages.sql
+          psql "$CREDIT_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261017212428_customer_credit_controls.sql
+          psql "$CREDIT_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/customer-credit-controls.sql
+          python supabase/tests/credit-concurrency.py
       # No production credentials, real financial fixtures or backup artifacts.

@@ -9,8 +9,14 @@ package com.radwan.raadpharmacy.data
  * All 3.3.21 UI reads decoded LedgerEntry.details, not the internal suffix.
  */
 object RepaymentTerms {
-    val choices = listOf(1, 2, 7, 14)
-    private val suffix = Regex("\\n\\[\\[RAAD_REPAY_V1:(1|2|7|14)\\]\\]$")
+    val ordinaryChoices = listOf(1, 2, 7, 14, 21, 28, 60)
+    // Negative values encode minutes; positive values retain the original days protocol.
+    val shortChoices = listOf(-5, -30, -60, -120)
+    val choices = ordinaryChoices + shortChoices
+    fun visibleChoices(shortEnabled: Boolean): List<Int?> = listOf(null) + ordinaryChoices + if (shortEnabled) shortChoices else emptyList()
+    fun shortDueAt(entry: LedgerEntry): Long? = if (entry.type == EntryType.DEBT && entry.repaymentDays in shortChoices && entry.createdAt > 0L)
+        Math.addExact(entry.createdAt, -entry.repaymentDays!!.toLong() * 60_000L) else null
+    private val suffix = Regex("\\n\\[\\[RAAD_REPAY_V1:(1|2|7|14|21|28|60|-5|-30|-60|-120)\\]\\]$")
 
     fun unpack(stored: String): Pair<String, Int?> {
         val match = suffix.find(stored) ?: return stored to null
@@ -28,6 +34,13 @@ object RepaymentTerms {
         2 -> "يومان"
         7 -> "أسبوع"
         14 -> "أسبوعان"
+        21 -> "ثلاثة أسابيع"
+        28 -> "أربعة أسابيع"
+        60 -> "60 يومًا"
+        -5 -> "5 دقائق"
+        -30 -> "نصف ساعة"
+        -60 -> "ساعة"
+        -120 -> "ساعتان"
         else -> "30 يومًا"
     }
 }
