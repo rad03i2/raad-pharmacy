@@ -126,7 +126,8 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             customersCache = customersCache.map { if (it.id == customerId) updated else it }
             afterLocalCommit()
             MutationResult(true, "تمت إضافة رقم الهاتف.")
-        } catch (error: IllegalStateException) { MutationResult(false, error.message.orEmpty()) }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: IllegalStateException) { MutationResult(false, error.message.orEmpty()) }
     }
 
     private fun creditBlocked(customerId: String) = com.radwan.raadpharmacy.cloud.CustomerCreditStore.get(appContext).current().preventsDebt(customerId)
