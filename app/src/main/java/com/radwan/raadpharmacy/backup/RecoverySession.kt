@@ -11,6 +11,8 @@ import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.FileOutputStream
 import org.json.JSONObject
@@ -26,6 +28,7 @@ internal class RecoverySession private constructor(context: Context, daoOverride
     private val folder = File(app.filesDir, "restore21").apply { mkdirs() }
     private val selected = File(folder, "selected.backup")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val operations = Mutex()
     private val mutable = MutableStateFlow(RecoveryUiState())
     val state = mutable.asStateFlow()
     private var archive: RestoredArchive? = null
@@ -48,26 +51,30 @@ internal class RecoverySession private constructor(context: Context, daoOverride
     fun pickerPending() = prefs.getBoolean("picker", false)
     fun cancelPicker() { picker(false) }
     fun problem(message: String) { mutable.value = mutable.value.copy(message = message) }
-    private fun launch(block: suspend () -> Unit) {
-        if (mutable.value.busy) return
+    private fun launch(force: Boolean = false, block: suspend () -> Unit) {
+        if (mutable.value.busy && !force) return
         mutable.value = mutable.value.copy(busy = true, message = null)
         scope.launch {
+            operations.withLock {
+            mutable.value = mutable.value.copy(busy = true)
             try { block() }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) { mutable.value = mutable.value.copy(message = backupErrorMessage(error)) }
             catch (_: OutOfMemoryError) { mutable.value = mutable.value.copy(message = "النسخة أكبر من ذاكرة الهاتف الآمنة. بقيت البيانات الحالية سليمة؛ اختر نسخة أصغر أو هاتفًا بذاكرة أكبر.") }
             finally { mutable.value = mutable.value.copy(busy = false, progress = "") }
+            }
         }
     }
     fun accept(uri: Uri) {
-        if (mutable.value.busy) return
         picker(false)
         runCatching { app.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         val name = runCatching { app.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null
         } }.getOrNull() ?: uri.lastPathSegment.orEmpty().takeLast(80)
-        check(prefs.edit().putString("uri", uri.toString()).putString("name", name).putBoolean("completed", false).commit())
-        launch {
+        val selection = java.util.UUID.randomUUID().toString()
+        check(prefs.edit().putString("uri", uri.toString()).putString("name", name).putString("selection", selection).putBoolean("completed", false).commit())
+        mutable.value = RecoveryUiState(busy = true, progress = "تجهيز الملف المختار…")
+        launch(force = true) {
             archive = null
             mutable.value = RecoveryUiState(busy = true, progress = "نسخ الملف المختار إلى مساحة الاسترداد الآمنة…")
             val temporary = File(folder, "selected.tmp")
@@ -84,6 +91,7 @@ internal class RecoverySession private constructor(context: Context, daoOverride
                     require(total > 0) { "ملف النسخة فارغ." }
                     output.fd.sync()
                 } }
+                if (prefs.getString("selection", null) != selection) return@launch
                 check(temporary.renameTo(selected)) { "تعذر تثبيت ملف الاسترداد؛ تحقق من مساحة الهاتف." }
                 prefs.edit().remove("uri").commit()
                 runCatching { app.contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -95,8 +103,9 @@ internal class RecoverySession private constructor(context: Context, daoOverride
         check(!prefs.contains("uri")) { "لم يكتمل نسخ الملف المختار؛ أعد اختيار الملف. لم تُغيّر بيانات الهاتف." }
         mutable.value = mutable.value.copy(progress = "فحص الملف ومقارنة السجلات الفعلية…")
         require(selected.length() <= Runtime.getRuntime().maxMemory() / 8) { "حجم النسخة أكبر من ذاكرة المعالجة الآمنة على هذا الهاتف." }
-        val key = code.ifBlank { LocalBackupEngine.get(app).recoveryCode() }
-        val decoded = LocalBackupEngine.get(app).previewFile(Uri.fromFile(selected), key)
+        // Portable and legacy JSON files never depend on a device encryption key.
+        val decoded = LocalBackupEngine.get(app).previewFile(Uri.fromFile(selected), code)
+        if (prefs.contains("uri")) return // a newly delivered URI owns the next preview
         archive = decoded
         val result = dao.recoveryValue(RecoveryKeys.SESSION)?.let(::JSONObject)?.takeIf { it.optString("source") == fingerprint() }
         mutable.value = RecoveryUiState(busy = true, plan = importer.compare(decoded),
@@ -121,15 +130,18 @@ internal class RecoverySession private constructor(context: Context, daoOverride
         runCatching { CustomerPhotoStore(app).rebuildFromBackup(dao.backupPhotos()) }
         AutomaticBackupEngine.get(app).wake()
     }
-    suspend fun stage(archive: RestoredArchive) {
+    suspend fun stage(archive: RestoredArchive) = operations.withLock {
         check(!mutable.value.busy) { "تجري معالجة نسخة أخرى." }
         mutable.value = RecoveryUiState(busy = true, progress = "تجهيز المعاينة الآمنة…")
+        val selection = java.util.UUID.randomUUID().toString()
+        prefs.edit().putString("selection", selection).putString("name", "نسخة من سجل الحماية").commit()
         try {
         val capture = BackupCapture(archive.ledger.customers.map { it.toEntity() }, archive.ledger.entries.map { it.toEntity() },
             archive.photos, archive.sequence, false)
         val bytes = PortableBackup.encode(capture, archive.pendingCloud, archive.ledger.createdAt)
         val temporary = File(folder, "selected.tmp")
         FileOutputStream(temporary).use { it.write(bytes); it.fd.sync() }
+        check(prefs.getString("selection", null) == selection) { "وصل اختيار ملف آخر؛ ستظهر معاينته." }
         check(temporary.renameTo(selected))
         prefs.edit().remove("uri").putBoolean("completed", false).commit()
         read("")

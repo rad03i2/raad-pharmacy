@@ -39,7 +39,7 @@ class RecoveryActivityTest {
             val recreated = controller.get()
             assertTrue(recreated.activityResultRegistry.dispatchResult(request.requestCode, Activity.RESULT_OK, Intent().setData(Uri.fromFile(input))))
             val state = withTimeout(10000) { RecoverySession.get(app).state.first { !it.busy && (it.plan != null || it.message != null) } }
-            assertNotNull(state.plan)
+            assertNotNull(state.message, state.plan)
             assertFalse(recreated.isFinishing)
             assertEquals(BackupRecoveryActivity::class.java, recreated.javaClass)
         } finally {

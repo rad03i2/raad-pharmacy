@@ -39,7 +39,7 @@ internal data class RecoveryPlan(val sequence: Long, val current: RecoveryTotals
     val additions get() = customers.size + entries.size
     val checking get() = records.count { it.state == "PENDING" }
     companion object {
-        fun build(current: BackupCapture, archive: RestoredArchive): RecoveryPlan {
+        fun build(current: BackupCapture, archive: RestoredArchive, deleted: Set<Pair<String, String>> = emptySet()): RecoveryPlan {
             BackupValidator.validate(archive.ledger)
             val originalCustomers = current.customers.associateBy { it.id }
             val originalEntries = current.entries.associateBy { it.id }
@@ -56,6 +56,7 @@ internal data class RecoveryPlan(val sequence: Long, val current: RecoveryTotals
             for (c in incomingCustomers) {
                 val old = originalCustomers[c.id]
                 val reason = when {
+                    ("CUSTOMER" to c.id) in deleted -> "للزبون طلب حذف محلي معلق؛ لم تُعد إضافته."
                     !RecoveryRecord.uuid(c.id) -> "معرّف قديم لا يمكن مطابقته بأمان مع معرّف الخادم."
                     old != null && old != c -> "المعرّف موجود ببيانات مختلفة؛ احتُفظ ببيانات الهاتف الحالية."
                     old == null && names[c.name.trim().lowercase()].orEmpty().isNotEmpty() ->
@@ -74,6 +75,7 @@ internal data class RecoveryPlan(val sequence: Long, val current: RecoveryTotals
             for (e in incomingEntries) {
                 val old = originalEntries[e.id]
                 val reason = when {
+                    ("ENTRY" to e.id) in deleted -> "للحركة طلب حذف محلي معلق؛ لم تُعد إضافتها."
                     !RecoveryRecord.uuid(e.id) || !RecoveryRecord.uuid(e.customerId) -> "هوية الحركة القديمة غير كافية للمزامنة الآمنة."
                     e.amount > 9_007_199_254_740_991L -> "قيمة الحركة تتجاوز حد المطابقة العددية الآمنة مع الخادم."
                     e.customerId in blocked -> "هوية الزبون أو رصيده الافتتاحي متعارضان."

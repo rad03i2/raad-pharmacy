@@ -39,7 +39,7 @@ class RecoverySessionTest {
     @Test fun selectedLegacyFileSurvivesProcessLossAndLossOfItsOriginalProvider() = runBlocking {
         val file = source(BackupJson.encode(listOf(customer), emptyList(), "old").toByteArray())
         val first = session(); first.accept(file)
-        assertNotNull(finished(first).plan)
+        val firstResult = finished(first); assertNotNull(firstResult.message, firstResult.plan)
         first.closeForTesting(); File(checkNotNull(file.path)).delete()
         val restarted = session()
         assertEquals(1, finished(restarted).plan!!.incoming.customers)
@@ -47,10 +47,11 @@ class RecoverySessionTest {
     }
     @Test fun invalidTruncatedAndFutureFormatFilesRemainErrorsWithoutChangingLedger() = runBlocking {
         val good = BackupJson.encode(listOf(customer), emptyList(), "old")
+        val s = session()
         for ((i, text) in listOf("", "{broken", good.replace("\"schemaVersion\": 1", "\"schemaVersion\": 99")).withIndex()) {
-            val s = session(); s.accept(source(text.toByteArray(), "invalid-" + i))
+            s.accept(source(text.toByteArray(), "invalid-" + i))
             val result = finished(s)
-            assertNull(result.plan); assertNotNull(result.message); s.closeForTesting()
+            assertNull(result.plan); assertNotNull(result.message)
         }
         assertEquals(0, db.dao().customerCount())
     }
@@ -60,8 +61,9 @@ class RecoverySessionTest {
         val corrupt = JSONObject(String(portable)).put("sha256", "wrong").toString().toByteArray()
         val broken = session(); broken.accept(source(corrupt)); assertNull(finished(broken).plan); broken.closeForTesting()
         val big = BackupJson.encode(listOf(customer.copy(notes = "x".repeat(2 * 1024 * 1024))), emptyList(), "legacy")
-        val large = session(); large.accept(source(big.toByteArray(), "large.json"))
-        assertEquals(1, finished(large).plan!!.incoming.customers)
+        val large = session(); finished(large); large.accept(source(big.toByteArray(), "large.json"))
+        val result = finished(large); assertNotNull(result.message, result.plan)
+        assertEquals(1, result.plan!!.incoming.customers)
     }
     @Test fun failedNewSelectionNeverFallsBackToThePreviousBackup() = runBlocking {
         val first = session(); first.accept(source(BackupJson.encode(listOf(customer), emptyList(), "old").toByteArray()))
@@ -73,5 +75,14 @@ class RecoverySessionTest {
         val restart = session()
         assertNull(finished(restart).plan)
         assertEquals(0, db.dao().customerCount())
+    }
+    @Test fun aDeliveredDocumentWaitsForAnInProgressSavedPreviewInsteadOfBeingDropped() = runBlocking {
+        val old = session(); old.accept(source(BackupJson.encode(listOf(customer), emptyList(), "old").toByteArray()))
+        finished(old); old.closeForTesting()
+        val restarting = session() // automatically reading the previous selection
+        val next = source(BackupJson.encode(listOf(customer, customer.copy(id = "00000000-0000-4000-8000-000000000002", name = "ثان")), emptyList(), "next").toByteArray(), "next.json")
+        restarting.accept(next) // deliberately deliver before waiting for the old read
+        val result = withTimeout(10000) { restarting.state.first { !it.busy && it.plan?.incoming?.customers == 2 } }
+        assertEquals(2, result.plan!!.incoming.customers)
     }
 }

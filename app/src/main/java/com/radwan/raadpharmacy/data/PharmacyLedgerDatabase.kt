@@ -415,7 +415,11 @@ interface PharmacyLedgerDao {
     suspend fun finishRecovery(key: String, expected: String, value: String, guard: String?) {
         if (recoveryValue(key) != expected) return
         saveBackupControl(BackupControlEntity(key, value))
-        if (guard != null) removeRecoveryControl(guard)
+        if (guard != null) {
+            removeRecoveryControl(guard)
+            val owner = org.json.JSONObject(value).getString("owner")
+            saveBackupControl(BackupControlEntity("restore21:refresh:" + owner, owner))
+        }
     }
     @Query("SELECT value FROM backup_control WHERE id LIKE 'restore21:guard:CUSTOMER:%'")
     suspend fun recoveryCustomers(): List<String>
@@ -423,6 +427,8 @@ interface PharmacyLedgerDao {
     suspend fun recoveryEntries(): List<String>
     @Query("SELECT COUNT(*) FROM backup_control c JOIN ledger_entries e ON c.value = e.id WHERE c.id LIKE 'restore21:guard:ENTRY:%' AND e.customer_id = :id")
     suspend fun recoveryChildren(id: String): Int
+    @Query("SELECT value FROM backup_control WHERE id LIKE ('restore21:item:%:ENTRY:' || :id) OR id LIKE ('restore21:item:%:ENTRY:' || :id || ':held')")
+    suspend fun recoveryEntryRecords(id: String): List<String>
 
     @Transaction
     suspend fun mergeRecovery(expectedSequence: Long, customers: List<CustomerEntity>,
@@ -462,9 +468,16 @@ interface PharmacyLedgerDao {
         check(origin != "LOCAL" || recoveryValue(RecoveryKeys.guard("ENTRY", entry.id)) == null) { "هذه الحركة المستردة قيد التحقق؛ راجع شاشة الاسترداد." }
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
         val existing = getEntryById(entry.id)
-        if (existing == entry) return
-        if (existing == null) insertEntryRow(entry) else updateEntryRow(entry)
-        appendBackupChange(BackupChangeEntity.entry(entry, origin))
+        // The server wire has no bottle columns. Preserve restored local metadata
+        // only when all financial wire fields still match a verified recovery.
+        val incoming = if (origin == "REMOTE" && existing?.bottles != null && entry.bottles == null &&
+            existing.customerId == entry.customerId && existing.type == entry.type && existing.amount == entry.amount &&
+            existing.createdAt == entry.createdAt && existing.details == entry.details &&
+            recoveryEntryRecords(entry.id).any { RecoveryRecord.parse(it).let { r -> r.id == entry.id && r.state == "VERIFIED" } })
+            entry.copy(bottles = existing.bottles, bottlePrice = existing.bottlePrice) else entry
+        if (existing == incoming) return
+        if (existing == null) insertEntryRow(incoming) else updateEntryRow(incoming)
+        appendBackupChange(BackupChangeEntity.entry(incoming, origin))
     }
     @Transaction
     suspend fun updateEntry(entry: LedgerEntryEntity, origin: String = "LOCAL") {

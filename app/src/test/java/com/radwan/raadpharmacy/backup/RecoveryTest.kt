@@ -116,6 +116,15 @@ class RecoveryTest {
         assertTrue(records().any { it.id == id(3) && it.state == "CONFLICT" })
     }
 
+    @Test fun aNewRepaymentCannotOverdrawTheActualServerLedgerWhenAnOldDebtHasChanged() = runBlocking {
+        val input = archive(listOf(debt(2, 5_000_000), debt(4, 4_000_000).copy(type = "PAYMENT")))
+        importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        val remote = FakeRemote().apply { cs += customer.remote(); es += debt(2, 1_000_000).remote() }
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        assertTrue(remote.sent.isEmpty())
+        assertTrue(records().any { it.id == id(4) && it.state == "CONFLICT" })
+    }
+
     @Test fun missingNetworkLeavesDurableProtectedRowsForTheNextAttempt() = runBlocking {
         val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
         importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
@@ -182,6 +191,58 @@ class RecoveryTest {
         importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
         assertEquals(queue, dao.cloudOutbox())
         assertNotNull(dao.getEntryById(id(7)))
+    }
+    @Test fun verifiedRestoredBottleMetadataSurvivesTheServerCatchUpWithoutChangingAmounts() = runBlocking {
+        val entry = debt(3, 3000).copy(bottles = 3, bottlePrice = 1000)
+        val input = archive(listOf(debt(2, 5_000_000), entry))
+        importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        val remote = FakeRemote().apply { cs += customer.remote(); es += debt(2, 5_000_000).remote() }
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        dao.applyCloudSnapshot(listOf(customer), listOf(debt(2, 5_000_000), entry.copy(bottles = null, bottlePrice = null)))
+        assertEquals(entry, dao.getEntryById(entry.id))
+    }
+
+    @Test fun aPendingLocalDeletionIsNotResurrectedByAnOlderBackup() = runBlocking {
+        dao.deleteEntryById(id(2))
+        val input = archive(listOf(debt(2, 5_000_000)))
+        val queue = dao.cloudOutbox()
+        val plan = importer().compare(input)
+        assertEquals(1, plan.conflicts); assertTrue(plan.entries.isEmpty())
+        importer().confirm(input, plan.sequence, owner, pharmacy)
+        assertNull(dao.getEntryById(id(2))); assertEquals(queue, dao.cloudOutbox())
+    }
+
+    @Test fun aCommittedMergeAndItsGuardsResumeAfterClosingAndReopeningTheDatabase() = runBlocking {
+        val name = "recovery-fixture-only.db"
+        app.deleteDatabase(name)
+        fun open() = Room.databaseBuilder<PharmacyLedgerDatabase>(app, name).setDriver(AndroidSQLiteDriver()).build()
+        var disk = open()
+        try {
+            disk.dao().insertCustomer(customer, "REMOTE")
+            disk.dao().insertEntry(debt(2, 5_000_000), "REMOTE")
+            val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
+            val service = RecoveryImporter(disk.dao()) {}
+            service.confirm(input, service.compare(input).sequence, owner, pharmacy)
+            disk.close(); disk = open()
+            assertEquals(2, disk.dao().entryCount())
+            assertEquals(listOf(id(3)), disk.dao().recoveryEntries())
+            val remote = FakeRemote().apply { cs += customer.remote(); es += debt(2, 5_000_000).remote() }
+            RecoveryCloudVerifier(disk.dao(), remote).run(owner, pharmacy)
+            assertEquals(listOf(id(3)), remote.sent)
+            assertEquals(owner, disk.dao().recoveryValue("restore21:refresh:" + owner))
+        } finally { disk.close(); app.deleteDatabase(name) }
+    }
+
+    @Test fun theSafetyPointIsAnActualEncryptedReadableArchiveOfThePreviousLedger() = runBlocking {
+        val key = BackupCrypto.newKey()
+        val directory = java.io.File(app.filesDir, "local_backups_v2").apply { deleteRecursively() }
+        val backup = LocalBackupEngine.forTesting(app, dao, key)
+        val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
+        importer { backup.protectCurrentBeforeReconciliation() }.confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        val point = checkNotNull(directory.walkTopDown().firstOrNull { it.extension == "rpb" })
+        val decoded = BackupArchive.restore(JSONObject(String(BackupCrypto.open(point.readBytes(), key))))
+        assertEquals(1, decoded.ledger.entries.size)
+        assertEquals(5_000_000L, decoded.ledger.entries.single().amount)
     }
 
     private suspend fun records() = dao.recoveryControls().filter { it.id.startsWith(RecoveryKeys.ITEM) }.map { RecoveryRecord.parse(it.value) }

@@ -7,7 +7,8 @@ import java.util.UUID
 
 internal class RecoveryImporter(private val dao: PharmacyLedgerDao,
     private val safety: suspend () -> Unit) {
-    suspend fun compare(archive: RestoredArchive) = RecoveryPlan.build(dao.captureBackup(), archive)
+    private suspend fun deletes() = dao.cloudOutbox().filter { it.action == "DELETE" }.map { it.kind to it.entityId }.toSet()
+    suspend fun compare(archive: RestoredArchive) = RecoveryPlan.build(dao.captureBackup(), archive, deletes())
 
     suspend fun confirm(archive: RestoredArchive, expectedSequence: Long, owner: String, pharmacy: String, source: String = "") =
         CloudSyncEngine.withLedgerSyncLock {
@@ -18,7 +19,7 @@ internal class RecoveryImporter(private val dao: PharmacyLedgerDao,
                 "يوجد استرداد معلق لصيدلية أخرى؛ أكمله في حسابه قبل بدء استرداد جديد."
             }
             check(current.sequence == expectedSequence) { "تغيرت البيانات أثناء المعاينة؛ أعد المقارنة قبل التأكيد." }
-            val plan = RecoveryPlan.build(current, archive)
+            val plan = RecoveryPlan.build(current, archive, deletes())
             // Verified durable protection must finish before the single Room merge transaction begins.
             safety()
             val controls = mutableListOf<BackupControlEntity>()
