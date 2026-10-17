@@ -143,7 +143,7 @@ fun StorageBackupScreen(onBack: () -> Unit) {
                 AutoBackupAction.GOOGLE_CONNECT -> connectGoogle()
                 AutoBackupAction.GOOGLE_DISCONNECT -> act { engine.disconnectDrive() }
                 AutoBackupAction.GOOGLE_RETRY -> act { engine.process(); engine.retryDrive() }
-                AutoBackupAction.IMPORT -> { picker = true; filePicker.launch(arrayOf("*/*")) }
+                AutoBackupAction.IMPORT -> BackupRecoveryActivity.open(context, pick = true)
                 AutoBackupAction.EXPORT -> { picker = true; export.launch("RaadPharmacy-${System.currentTimeMillis()}.raadbackup") }
                 AutoBackupAction.CLOUD_HISTORY -> act {
                     try { history = engine.history(includeDrive = true) }
@@ -159,12 +159,12 @@ fun StorageBackupScreen(onBack: () -> Unit) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("${archive.ledger.customers.size} زبون • ${archive.ledger.entries.size} حركة")
                 Text("تاريخ النسخة: ${backupTime(archive.ledger.createdAt)}")
-                Text("ستستبدل بيانات هذا الهاتف. تُحفظ نسخة أمان قبل الاستعادة، وتُوقف المزامنة والتعديل حتى مراجعتها.")
+                Text("ستفتح مقارنة السجلات قبل الدمج الآمن. تبقى البيانات الحالية وتُراجع التعارضات دون استبدال تلقائي.")
             }
         }, confirmButton = { TextButton(enabled = !working, onClick = {
             preview = null
-            act { message = legacy.restore(archive).message; engine.wake() }
-        }) { Text("استعادة النسخة") } }, dismissButton = { TextButton(enabled = !working, onClick = { preview = null }) { Text("إلغاء") } }) }
+            act { withContext(Dispatchers.IO) { RecoverySession.get(context).stage(archive) }; BackupRecoveryActivity.open(context) }
+        }) { Text("مقارنة البيانات واستردادها") } }, dismissButton = { TextButton(enabled = !working, onClick = { preview = null }) { Text("إلغاء") } }) }
     if (reconcile) AlertDialog(onDismissRequest = { reconcile = false }, title = { Text("العودة إلى بيانات الصيدلية الحالية؟") },
         text = { Text("تُحفظ نسخة أمان ثم تُحمّل البيانات الحالية من الحساب المركزي وتعود المزامنة.") },
         confirmButton = { TextButton(enabled = !working, onClick = {

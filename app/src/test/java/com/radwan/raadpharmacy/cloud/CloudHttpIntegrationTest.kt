@@ -1,7 +1,11 @@
 package com.radwan.raadpharmacy.cloud
 
 import android.content.Context
+import androidx.room3.Room
+import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
+import com.radwan.raadpharmacy.backup.*
+import com.radwan.raadpharmacy.data.*
 import com.radwan.raadpharmacy.BuildConfig
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
@@ -45,6 +49,9 @@ class CloudHttpIntegrationTest {
     private val executor = Executors.newCachedThreadPool { r -> Thread(r, "fixture-http").apply { isDaemon = true } }
     private val clients = mutableListOf<SupabaseClient>()
     private val rows = ConcurrentHashMap<String, String>()
+    private val customerRows = ConcurrentHashMap<String, String>()
+    private val writePreferences = CopyOnWriteArrayList<String>()
+    private val postPaths = CopyOnWriteArrayList<String>()
     private val agents = CopyOnWriteArrayList<String>()
     private val paths = CopyOnWriteArrayList<String>()
     private val loseResponse = AtomicBoolean(false)
@@ -79,13 +86,24 @@ class CloudHttpIntegrationTest {
                     val data = JSONObject(exchange.requestBody.bufferedReader().use { it.readText() })
                     reply(exchange, 200, JSONObject.quote(data.getString("message_id")))
                 }
-                "/rest/v1/transactions" -> if (exchange.requestMethod == "GET")
-                    reply(exchange, 200, JSONArray(rows.values.map(::JSONObject)).toString())
-                else {
+                "/rest/v1/transactions", "/rest/v1/customers" -> {
+                    val table = if (exchange.requestURI.path.endsWith("customers")) customerRows else rows
+                    if (exchange.requestMethod == "GET") {
+                        val id = exchange.requestURI.rawQuery.orEmpty().split('&').firstOrNull { it.startsWith("id=eq.") }?.substringAfter("id=eq.")
+                        reply(exchange, 200, JSONArray(table.values.map(::JSONObject).filter { id == null || it.getString("id") == id }).toString())
+                    } else {
+                    postPaths += exchange.requestURI.path
+                    val preference = exchange.requestHeaders.getFirst("Prefer").orEmpty()
+                    writePreferences += preference
                     val body = exchange.requestBody.bufferedReader().use { it.readText() }
                     val data = if (body.trimStart().startsWith("[")) JSONArray(body).getJSONObject(0) else JSONObject(body)
-                    data.put("updated_at", instant); rows[data.getString("id")] = data.toString()
+                    if (table.containsKey(data.getString("id")) && "merge-duplicates" !in preference)
+                        reply(exchange, 409, """{"code":"23505","message":"fixture duplicate key"}""")
+                    else {
+                    data.put("updated_at", instant); table[data.getString("id")] = data.toString()
                     if (loseResponse.compareAndSet(true, false)) exchange.close() else reply(exchange, 201, "")
+                    }
+                    }
                 }
                 else -> reply(exchange, 200, "{}")
             }
@@ -196,5 +214,43 @@ class CloudHttpIntegrationTest {
         ShadowSystemClock.advanceBy(Duration.ofSeconds(61)); paths.clear()
         assertEquals(device, CloudDeviceRegistration.ensure(app, owner, client = client))
         assertEquals(listOf("/rest/v1/profiles", "/rest/v1/devices"), paths.toList())
+    }
+
+    @Test fun recoveryUsesRealInsertRequestsAndConfirmsTheSavedRowsByReadingThemBack() = runBlocking {
+        val client = client(); login(client)
+        val time = java.time.Instant.parse(instant).toEpochMilli()
+        val c = CustomerEntity(customer, "fixture", null, "", "", 0, "", time)
+        val e = LedgerEntryEntity(entry, customer, "DEBT", 9000, null, null, "", time + 1000)
+        val remote = SupabaseRecoveryRemote(client, pharmacy, "00000000-0000-4000-8000-000000000009", owner)
+        remote.insert(c); remote.insert(e)
+        assertEquals(customer, remote.customer(customer)!!.id)
+        assertEquals(9000.0, remote.entry(entry)!!.amount, 0.0)
+        assertTrue(writePreferences.none { "merge-duplicates" in it })
+        assertEquals(listOf("/rest/v1/customers", "/rest/v1/transactions"), postPaths.toList())
+    }
+
+    @Test fun actualRecoveryClientReconcilesALostCommitReplyWithoutPostingTheAmountAgain() = runBlocking {
+        val client = client(); login(client)
+        val time = java.time.Instant.parse(instant).toEpochMilli()
+        val c = CustomerEntity(customer, "fixture", null, "", "", 0, "", time)
+        val e = LedgerEntryEntity(entry, customer, "DEBT", 9000, null, null, "", time + 1000)
+        val remote = SupabaseRecoveryRemote(client, pharmacy, "00000000-0000-4000-8000-000000000009", owner)
+        remote.insert(c); postPaths.clear(); writePreferences.clear()
+        val db = Room.inMemoryDatabaseBuilder<PharmacyLedgerDatabase>(ApplicationProvider.getApplicationContext<Context>())
+            .setDriver(AndroidSQLiteDriver()).build()
+        try {
+            db.dao().insertCustomer(c, "REMOTE")
+            val input = RestoredArchive(BackupPayload(listOf(c.toModel()), listOf(e.toModel()), time + 2000, 1), emptyList(), JSONObject(), 0)
+            val importer = RecoveryImporter(db.dao()) {}
+            importer.confirm(input, importer.compare(input).sequence, owner, pharmacy)
+            loseResponse.set(true)
+            runCatching { RecoveryCloudVerifier(db.dao(), remote).run(owner, pharmacy) }
+            val count = postPaths.size
+            RecoveryCloudVerifier(db.dao(), remote).run(owner, pharmacy)
+            assertEquals(count, postPaths.size)
+            assertEquals(1, rows.size)
+            assertTrue(db.dao().recoveryEntries().isEmpty())
+            assertTrue(writePreferences.none { "merge-duplicates" in it })
+        } finally { db.close() }
     }
 }

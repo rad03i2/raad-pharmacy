@@ -1,0 +1,206 @@
+package com.radwan.raadpharmacy.backup
+
+import android.content.Context
+import androidx.room3.Room
+import androidx.room3.useWriterConnection
+import androidx.sqlite.driver.AndroidSQLiteDriver
+import androidx.test.core.app.ApplicationProvider
+import com.radwan.raadpharmacy.cloud.*
+import com.radwan.raadpharmacy.data.*
+import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
+import org.junit.*
+import org.junit.Assert.*
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.io.IOException
+import java.time.Instant
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class RecoveryTest {
+    private lateinit var db: PharmacyLedgerDatabase
+    private lateinit var dao: PharmacyLedgerDao
+    private lateinit var app: Context
+    private val owner = id(90)
+    private val pharmacy = id(91)
+    private val customer = CustomerEntity(id(1), "زبون اختبار", "07000000000", "", "", 0, "", 1000)
+    private fun debt(n: Int, amount: Long, time: Long = n * 1000L) =
+        LedgerEntryEntity(id(n), customer.id, "DEBT", amount, null, null, "", time)
+    private fun archive(entries: List<LedgerEntryEntity>, customers: List<CustomerEntity> = listOf(customer)) =
+        RestoredArchive(BackupPayload(customers.map { it.toModel() }, entries.map { it.toModel() }, 10000, 1),
+            emptyList(), JSONObject().put("synced", true), 0)
+    private fun importer(safety: suspend () -> Unit = {}) = RecoveryImporter(dao, safety)
+    @Before fun setup() = runBlocking {
+        app = ApplicationProvider.getApplicationContext()
+        db = Room.inMemoryDatabaseBuilder<PharmacyLedgerDatabase>(app).setDriver(AndroidSQLiteDriver()).build()
+        dao = db.dao()
+        dao.insertCustomer(customer, "REMOTE")
+        dao.insertEntry(debt(2, 5_000_000), "REMOTE")
+    }
+    @After fun close() { db.close() }
+
+    @Test fun fiveToNineMillionRecoversFiveMillionDebtAndOneMillionPaymentNotAnInventedFourMillionDebt() = runBlocking {
+        val payment = debt(4, 1_000_000).copy(type = "PAYMENT")
+        val input = archive(listOf(debt(2, 5_000_000), debt(3, 5_000_000), payment))
+        val plan = importer().compare(input)
+        assertEquals(5_000_000L, plan.current.debts - plan.current.payments)
+        assertEquals(9_000_000L, plan.incoming.debts - plan.incoming.payments)
+        assertEquals(2, plan.additions)
+        var safety = 0
+        importer { safety++ }.confirm(input, plan.sequence, owner, pharmacy)
+        assertEquals(1, safety)
+        assertEquals(3, dao.entryCount())
+        assertEquals(9_000_000L, RecoveryTotals.of(dao.getCustomers(), dao.getEntries()).let { it.debts - it.payments })
+        assertTrue(dao.cloudOutbox().isEmpty()) // restoration never impersonates an ordinary financial edit
+        val remote = FakeRemote().apply { cs += customer.remote(); es += debt(2, 5_000_000).remote() }
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        assertEquals(setOf(id(3), id(4)), remote.sent.toSet())
+        assertTrue(dao.recoveryEntries().isEmpty())
+        assertEquals(4, records().count { it.state == "VERIFIED" }) // parent + all 3 actual operations checked
+    }
+
+    @Test fun repeatedRecoveryAndLostServerResponseNeverDuplicateARecord() = runBlocking {
+        val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
+        val service = importer()
+        repeat(2) { service.confirm(input, service.compare(input).sequence, owner, pharmacy) }
+        assertEquals(2, dao.entryCount())
+        val remote = FakeRemote().apply {
+            cs += customer.remote(); es += debt(2, 5_000_000).remote(); loseResponse = true
+        }
+        assertTrue(runCatching { RecoveryCloudVerifier(dao, remote).run(owner, pharmacy) }.isFailure)
+        assertTrue(records().any { it.state == "PENDING" })
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        assertEquals(listOf(id(3)), remote.sent)
+        assertEquals(2, remote.es.size)
+    }
+
+    @Test fun serverDifferenceAndSoftDeletionRemainConflictsAndAreNeverOverwritten() = runBlocking {
+        val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
+        importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        val remote = FakeRemote().apply {
+            cs += customer.remote()
+            es += debt(2, 6_000_000).remote()
+            es += debt(3, 4_000_000).remote().copy(deletedAt = Instant.ofEpochMilli(9000).toString())
+        }
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        assertEquals(2, records().count { it.state == "CONFLICT" })
+        assertTrue(remote.sent.isEmpty())
+        assertEquals(listOf(id(3)), dao.recoveryEntries())
+        dao.applyCloudSnapshot(listOf(customer), listOf(debt(2, 6_000_000)))
+        assertNotNull(dao.getEntryById(id(3)))
+        assertTrue(runCatching { dao.deleteEntryById(id(3)) }.isFailure)
+    }
+
+    @Test fun localDifferentFinancialValuesAndDifferentIdAliasesAreNotMerged() = runBlocking {
+        val altered = importer().compare(archive(listOf(debt(2, 9_000_000))))
+        assertEquals(1, altered.conflicts); assertEquals(0, altered.additions)
+        val alias = importer().compare(archive(listOf(debt(8, 5_000_000, 2000))))
+        assertEquals(1, alias.conflicts); assertEquals(0, alias.additions)
+        val twins = importer().compare(archive(listOf(debt(8, 2_000_000, 3000), debt(9, 2_000_000, 3000))))
+        assertEquals(2, twins.conflicts); assertEquals(0, twins.additions)
+        assertEquals(5_000_000L, dao.getEntryById(id(2))!!.amount)
+    }
+
+    @Test fun serverAliasIsQuarantinedInsteadOfCreatingAnotherOperation() = runBlocking {
+        val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
+        importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        val remote = FakeRemote().apply {
+            cs += customer.remote(); es += debt(2, 5_000_000).remote()
+            es += debt(8, 4_000_000, 3000).remote()
+        }
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        assertTrue(remote.sent.isEmpty())
+        assertTrue(records().any { it.id == id(3) && it.state == "CONFLICT" })
+    }
+
+    @Test fun missingNetworkLeavesDurableProtectedRowsForTheNextAttempt() = runBlocking {
+        val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
+        importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        val offline = object : RecoveryRemote by FakeRemote() {
+            override suspend fun customers(): List<CloudCustomerRow> = throw IOException("fixture offline")
+        }
+        assertTrue(runCatching { RecoveryCloudVerifier(dao, offline).run(owner, pharmacy) }.isFailure)
+        dao.applyCloudSnapshot(listOf(customer), listOf(debt(2, 5_000_000)))
+        assertEquals(4_000_000L, dao.getEntryById(id(3))!!.amount)
+        assertTrue(records().all { it.state == "PENDING" })
+    }
+
+    @Test fun safetyFailureAndDatabaseFailureRollBackWithoutDeletingExistingDebtOrOutbox() = runBlocking {
+        val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
+        val seq = dao.latestBackupSequence()
+        assertTrue(runCatching { importer { error("fixture safety failed") }.confirm(input, seq, owner, pharmacy) }.isFailure)
+        assertEquals(1, dao.entryCount()); assertTrue(dao.recoveryControls().isEmpty())
+        db.useWriterConnection { c -> c.usePrepared("CREATE TRIGGER reject_recovery BEFORE INSERT ON backup_control WHEN NEW.id LIKE 'restore21:%' BEGIN SELECT RAISE(ABORT, 'fixture full disk'); END") { it.step() } }
+        assertTrue(runCatching { importer().confirm(input, seq, owner, pharmacy) }.isFailure)
+        assertEquals(seq, dao.latestBackupSequence()); assertEquals(1, dao.entryCount())
+        assertTrue(dao.recoveryControls().isEmpty()); assertTrue(dao.cloudOutbox().isEmpty())
+    }
+
+    @Test fun stalePreviewCannotApplyAndOldIdentifiersAreReportedForReview() = runBlocking {
+        val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
+        val plan = importer().compare(input)
+        dao.insertEntry(debt(5, 1000), "REMOTE")
+        assertTrue(runCatching { importer().confirm(input, plan.sequence, owner, pharmacy) }.isFailure)
+        assertNull(dao.getEntryById(id(3)))
+        val old = archive(listOf(debt(6, 1000).copy(id = "old-id")))
+        assertEquals(1, importer().compare(old).conflicts)
+    }
+
+    @Test fun mixedRepaymentsThatOverdrawMergedBalanceAreQuarantined() = runBlocking {
+        dao.insertEntry(debt(4, 4_000_000).copy(type = "PAYMENT"), "REMOTE")
+        val input = archive(listOf(debt(2, 5_000_000), debt(5, 4_000_000).copy(type = "PAYMENT")))
+        val plan = importer().compare(input)
+        assertEquals(1, plan.conflicts); assertTrue(plan.entries.isEmpty())
+    }
+
+    @Test fun aLegacyHeldSnapshotIsRecheckedBeforeItsGlobalHoldIsReleased() = runBlocking {
+        dao.restoreLocal(listOf(customer), listOf(debt(2, 5_000_000), debt(3, 4_000_000)), emptyList())
+        val input = archive(listOf(debt(2, 5_000_000)))
+        importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        assertEquals("0", dao.restoreHold())
+        assertTrue(id(3) in dao.recoveryEntries())
+        assertEquals(2, dao.entryCount())
+    }
+
+    @Test fun aDifferentOwnerCannotDrainTheQueueAndAChangedPharmacyCannotReceiveIt() = runBlocking {
+        val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
+        importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        val remote = FakeRemote().apply { cs += customer.remote(); es += debt(2, 5_000_000).remote() }
+        RecoveryCloudVerifier(dao, remote).run(id(92), pharmacy)
+        assertTrue(remote.sent.isEmpty()); assertTrue(records().all { it.state == "PENDING" })
+        RecoveryCloudVerifier(dao, remote).run(owner, id(93))
+        assertTrue(remote.sent.isEmpty()); assertTrue(records().all { it.state == "CONFLICT" })
+    }
+
+    @Test fun normalCurrentPendingOperationsKeepTheirRevisionAndPayload() = runBlocking {
+        dao.insertEntry(debt(7, 1000))
+        val queue = dao.cloudOutbox()
+        val input = archive(listOf(debt(2, 5_000_000), debt(3, 4_000_000)))
+        importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        assertEquals(queue, dao.cloudOutbox())
+        assertNotNull(dao.getEntryById(id(7)))
+    }
+
+    private suspend fun records() = dao.recoveryControls().filter { it.id.startsWith(RecoveryKeys.ITEM) }.map { RecoveryRecord.parse(it.value) }
+    private fun CustomerEntity.remote() = CloudCustomerRow(id, pharmacy, name, phone, area, address, openingDebt,
+        notes, createdByName = createdByName, createdAt = Instant.ofEpochMilli(createdAt).toString(), updatedAt = Instant.ofEpochMilli(createdAt).toString())
+    private fun LedgerEntryEntity.remote() = CloudTransactionRow(id, pharmacy, customerId, id, type, amount.toDouble(),
+        details, occurredAt = Instant.ofEpochMilli(createdAt).toString(), createdAt = Instant.ofEpochMilli(createdAt).toString(), updatedAt = Instant.ofEpochMilli(createdAt).toString())
+    private inner class FakeRemote : RecoveryRemote {
+        val cs = mutableListOf<CloudCustomerRow>(); val es = mutableListOf<CloudTransactionRow>()
+        val sent = mutableListOf<String>(); var loseResponse = false
+        override suspend fun customers() = cs.toList()
+        override suspend fun entries() = es.toList()
+        override suspend fun customer(id: String) = cs.singleOrNull { it.id == id }
+        override suspend fun entry(id: String) = es.singleOrNull { it.id == id }
+        override suspend fun insert(customer: CustomerEntity) { check(cs.none { it.id == customer.id }); cs += customer.remote(); sent += customer.id }
+        override suspend fun insert(entry: LedgerEntryEntity) {
+            check(es.none { it.id == entry.id }); es += entry.remote(); sent += entry.id
+            if (loseResponse) { loseResponse = false; throw IOException("fixture response lost after commit") }
+        }
+    }
+    companion object { private fun id(n: Int) = "00000000-0000-4000-8000-" + n.toString().padStart(12, '0') }
+}

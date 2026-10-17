@@ -59,8 +59,9 @@ object BackupValidator {
             "توجد حركة مالية غير صالحة أو مرتبطة بزبون غير موجود."
         }
 
+        val entriesByCustomer = entries.groupBy { it.customerId }
         customers.forEach { customer ->
-            require(LedgerRules.isChronologicallyValid(customer, entries)) {
+            require(LedgerRules.isChronologicallyValid(customer, entriesByCustomer[customer.id].orEmpty())) {
                 "سجل الحساب للزبون " + customer.name +
                     " يحتوي على تحصيل أكبر من الرصيد المتاح."
             }

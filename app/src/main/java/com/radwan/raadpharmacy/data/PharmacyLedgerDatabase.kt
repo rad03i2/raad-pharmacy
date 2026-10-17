@@ -337,12 +337,14 @@ interface PharmacyLedgerDao {
     suspend fun pendingCloudEntriesForCustomer(id: String): Int
     @Transaction
     suspend fun applyCloudCustomer(id: String, customer: CustomerEntity?) {
+        if (recoveryValue(RecoveryKeys.guard("CUSTOMER", id)) != null || (customer == null && recoveryChildren(id) > 0)) return
         if (restoreHold() == "1" || cloudPending("CUSTOMER", id) != 0) return
         if (customer != null) insertCustomer(customer, "REMOTE")
         else if (pendingCloudEntriesForCustomer(id) == 0) deleteCustomerById(id, "REMOTE")
     }
     @Transaction
     suspend fun applyCloudEntry(id: String, entry: LedgerEntryEntity?) {
+        if (recoveryValue(RecoveryKeys.guard("ENTRY", id)) != null) return
         if (restoreHold() == "1" || cloudPending("ENTRY", id) != 0) return
         if (entry == null) deleteEntryById(id, "REMOTE")
         else if (getCustomerById(entry.customerId) != null) insertEntry(entry, "REMOTE")
@@ -353,6 +355,11 @@ interface PharmacyLedgerDao {
         val pending = cloudOutbox()
         val customerMap = customers.associateBy { it.id }.toMutableMap()
         val entryMap = entries.associateBy { it.id }.toMutableMap()
+        recoveryCustomers().forEach { id -> getCustomerById(id)?.let { customerMap[id] = it } }
+        recoveryEntries().forEach { id -> getEntryById(id)?.let {
+            entryMap[id] = it
+            getCustomerById(it.customerId)?.let { parent -> customerMap[parent.id] = parent }
+        } }
         for (row in pending) {
             if (row.kind == "CUSTOMER") {
                 if (row.action == "DELETE") customerMap.remove(row.entityId)
@@ -396,8 +403,46 @@ interface PharmacyLedgerDao {
     @Query("SELECT value FROM backup_control WHERE id = 'restore_hold'")
     suspend fun restoreHold(): String?
 
+    @Query("SELECT * FROM backup_control WHERE id LIKE 'restore21:%' ORDER BY id")
+    suspend fun recoveryControls(): List<BackupControlEntity>
+    @Query("SELECT * FROM backup_control WHERE id LIKE 'restore21:%' ORDER BY id")
+    fun observeRecoveryControls(): Flow<List<BackupControlEntity>>
+    @Query("SELECT value FROM backup_control WHERE id = :id")
+    suspend fun recoveryValue(id: String): String?
+    @Query("DELETE FROM backup_control WHERE id = :id")
+    suspend fun removeRecoveryControl(id: String)
+    @Transaction
+    suspend fun finishRecovery(key: String, expected: String, value: String, guard: String?) {
+        if (recoveryValue(key) != expected) return
+        saveBackupControl(BackupControlEntity(key, value))
+        if (guard != null) removeRecoveryControl(guard)
+    }
+    @Query("SELECT value FROM backup_control WHERE id LIKE 'restore21:guard:CUSTOMER:%'")
+    suspend fun recoveryCustomers(): List<String>
+    @Query("SELECT value FROM backup_control WHERE id LIKE 'restore21:guard:ENTRY:%'")
+    suspend fun recoveryEntries(): List<String>
+    @Query("SELECT COUNT(*) FROM backup_control c JOIN ledger_entries e ON c.value = e.id WHERE c.id LIKE 'restore21:guard:ENTRY:%' AND e.customer_id = :id")
+    suspend fun recoveryChildren(id: String): Int
+
+    @Transaction
+    suspend fun mergeRecovery(expectedSequence: Long, customers: List<CustomerEntity>,
+        entries: List<LedgerEntryEntity>, photos: List<BackupPhotoEntity>, controls: List<BackupControlEntity>) {
+        check(latestBackupSequence() == expectedSequence) { "تغيرت بيانات الهاتف أثناء المعاينة؛ أعد المقارنة قبل التأكيد." }
+        customers.forEach { check(getCustomerById(it.id) == null); insertCustomer(it, "RESTORE21") }
+        entries.forEach { check(getEntryById(it.id) == null); insertEntry(it, "RESTORE21") }
+        photos.forEach { if (backupPhoto(it.customerId) == null) setBackupPhoto(it.customerId, it.bytes, "RESTORE21") }
+        controls.forEach { saveBackupControl(it) }
+        // If recovering a previously held local snapshot, every current record is now
+        // protected by a verification guard before the old global hold is released.
+        saveBackupControl(BackupControlEntity("restore_hold", "0"))
+    }
+
     @Transaction
     suspend fun insertCustomer(customer: CustomerEntity, origin: String = "LOCAL") {
+        if (origin == "LOCAL") {
+            check(recoveryValue(RecoveryKeys.guard("CUSTOMER", customer.id)) == null) { "هذا الزبون قيد التحقق بعد الاسترداد؛ راجع شاشة الاسترداد." }
+            check(getCustomerById(customer.id)?.openingDebt == customer.openingDebt || recoveryChildren(customer.id) == 0) { "يُراجع الرصيد الافتتاحي بعد تحقق الحركات المستردة." }
+        }
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
         val old = getCustomerById(customer.id)
         if (old == customer) return
@@ -414,6 +459,7 @@ interface PharmacyLedgerDao {
     }
     @Transaction
     suspend fun insertEntry(entry: LedgerEntryEntity, origin: String = "LOCAL") {
+        check(origin != "LOCAL" || recoveryValue(RecoveryKeys.guard("ENTRY", entry.id)) == null) { "هذه الحركة المستردة قيد التحقق؛ راجع شاشة الاسترداد." }
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
         val existing = getEntryById(entry.id)
         if (existing == entry) return
@@ -434,6 +480,7 @@ interface PharmacyLedgerDao {
     }
     @Transaction
     suspend fun deleteEntryById(entryId: String, origin: String = "LOCAL") {
+        check(origin != "LOCAL" || recoveryValue(RecoveryKeys.guard("ENTRY", entryId)) == null) { "هذه الحركة المستردة قيد التحقق؛ لم تُحذف." }
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
         if (getEntryById(entryId) == null) return
         deleteEntryRow(entryId)
@@ -441,6 +488,7 @@ interface PharmacyLedgerDao {
     }
     @Transaction
     suspend fun deleteCustomerById(customerId: String, origin: String = "LOCAL") {
+        check(origin != "LOCAL" || (recoveryValue(RecoveryKeys.guard("CUSTOMER", customerId)) == null && recoveryChildren(customerId) == 0)) { "للزبون بيانات مستردة قيد التحقق؛ لم يُحذف." }
         check(origin != "LOCAL" || restoreHold() != "1") { "التعديل معلق بعد الاستعادة. أكمل المصالحة من التخزين والنسخ الاحتياطي." }
         if (getCustomerById(customerId) == null) return
         getEntriesForCustomer(customerId).forEach { deleteEntryById(it.id, origin) }
