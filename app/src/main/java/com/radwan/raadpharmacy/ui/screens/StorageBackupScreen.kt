@@ -175,7 +175,8 @@ internal fun LegacyBackupRestoreScreen(onBack: () -> Unit) {
                             if (state.enabled) "تم إيقاف النسخ إلى البطاقة. النسخ السابقة باقية." else destinationResult(LocalBackupEngine.SD)
                         }
                     }
-                    BackupAction.IMPORT_FOLDER, BackupAction.IMPORT_FILE -> {
+                    BackupAction.IMPORT_FILE -> BackupRecoveryActivity.open(context, pick = true)
+                    BackupAction.IMPORT_FOLDER -> {
                         importCode = ""; importError = null; importFromOtherPhone = false
                         importMode = if (action == BackupAction.IMPORT_FOLDER) "folder" else "file"
                     }

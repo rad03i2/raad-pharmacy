@@ -58,7 +58,8 @@ internal data class RecoveryPlan(val sequence: Long, val current: RecoveryTotals
                 val reason = when {
                     ("CUSTOMER" to c.id) in deleted -> "للزبون طلب حذف محلي معلق؛ لم تُعد إضافته."
                     !RecoveryRecord.uuid(c.id) -> "معرّف قديم لا يمكن مطابقته بأمان مع معرّف الخادم."
-                    old != null && old != c -> "المعرّف موجود ببيانات مختلفة؛ احتُفظ ببيانات الهاتف الحالية."
+                    old != null && old != c -> "المعرّف موجود ببيانات مختلفة؛ الرصيد الافتتاحي الحالي " +
+                        old.openingDebt + " والنسخة " + c.openingDebt + ". احتُفظ بالحالي."
                     old == null && names[c.name.trim().lowercase()].orEmpty().isNotEmpty() ->
                         "يوجد زبون بالاسم نفسه بمعرّف آخر؛ يلزم التحقق من الهوية."
                     else -> ""
@@ -79,7 +80,8 @@ internal data class RecoveryPlan(val sequence: Long, val current: RecoveryTotals
                     !RecoveryRecord.uuid(e.id) || !RecoveryRecord.uuid(e.customerId) -> "هوية الحركة القديمة غير كافية للمزامنة الآمنة."
                     e.amount > 9_007_199_254_740_991L -> "قيمة الحركة تتجاوز حد المطابقة العددية الآمنة مع الخادم."
                     e.customerId in blocked -> "هوية الزبون أو رصيده الافتتاحي متعارضان."
-                    old != null && old != e -> "الحركة موجودة بالمُعرّف نفسه وقيم مختلفة؛ لم تُستبدل."
+                    old != null && old != e -> "الحركة موجودة بالمُعرّف نفسه وبمبلغ أو تفاصيل أو تاريخ مختلف؛ الحالي " +
+                        old.type + " " + old.amount + " والنسخة " + e.type + " " + e.amount + ". لم تُستبدل."
                     old == null && fingerprints[fingerprint(e)].orEmpty().isNotEmpty() ->
                         "توجد حركة مماثلة بمعرّف مختلف؛ لم تُضف لتجنب التكرار."
                     old == null && incomingFingerprints[fingerprint(e)].orEmpty().size > 1 ->

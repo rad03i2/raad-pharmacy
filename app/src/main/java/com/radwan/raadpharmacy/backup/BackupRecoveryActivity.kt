@@ -145,11 +145,13 @@ private fun funValues(label: String, current: String, incoming: String) {
 @Composable
 private fun RecoveryConflict(record: RecoveryRecord) {
     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-        Text(record.kind + " • " + record.id, style = MaterialTheme.typography.labelSmall)
+        Text((if (record.kind == "CUSTOMER") "زبون" else "حركة مالية") + " • " + record.id, style = MaterialTheme.typography.labelSmall)
         Text(record.reason, color = MaterialTheme.colorScheme.error)
         val data = runCatching { JSONObject(record.payload) }.getOrNull()
         val row = data?.optJSONArray(if (record.kind == "CUSTOMER") "customers" else "entries")?.optJSONObject(0)
-        row?.let { Text(if (record.kind == "CUSTOMER") it.optString("name") + " • رصيد افتتاحي: " + it.optLong("openingDebt")
-            else it.optString("type") + " • مبلغ النسخة: " + it.optLong("amount") + " • تاريخ: " + backupTime(it.optLong("createdAt"))) }
+        row?.let { Text(if (record.kind == "CUSTOMER") it.optString("name") + " • رصيد افتتاحي: " +
+            NumberFormat.getIntegerInstance(Locale.US).format(it.optLong("openingDebt")) + " د.ع"
+            else (if (it.optString("type") == "DEBT") "دين" else "تسديد") + " • مبلغ النسخة: " +
+                NumberFormat.getIntegerInstance(Locale.US).format(it.optLong("amount")) + " د.ع • تاريخ: " + backupTime(it.optLong("createdAt"))) }
     } }
 }

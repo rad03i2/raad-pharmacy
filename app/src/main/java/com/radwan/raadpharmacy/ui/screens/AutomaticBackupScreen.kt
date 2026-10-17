@@ -42,7 +42,6 @@ fun StorageBackupScreen(onBack: () -> Unit) {
     var picker by rememberSaveable { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
     var history by remember { mutableStateOf(emptyList<PortableBackupItem>()) }
-    var preview by remember { mutableStateOf<RestoredArchive?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var oldScreen by rememberSaveable { mutableStateOf(false) }
     var reconcile by remember { mutableStateOf(false) }
@@ -80,13 +79,6 @@ fun StorageBackupScreen(onBack: () -> Unit) {
     val sdPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         picker = false
         if (uri != null) act { engine.configureSd(uri) }
-    }
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        picker = false
-        if (uri != null) act {
-            val key = withContext(Dispatchers.IO) { legacy.recoveryCode() }
-            preview = legacy.previewFile(uri, key)
-        }
     }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         picker = false
@@ -152,19 +144,12 @@ fun StorageBackupScreen(onBack: () -> Unit) {
                 }
                 AutoBackupAction.LEGACY -> oldScreen = true
                 AutoBackupAction.RECONCILE -> reconcile = true
-            } }, onPreview = { item -> act { preview = engine.preview(item) } })
+            } }, onPreview = { item -> act {
+                val archive = engine.preview(item)
+                withContext(Dispatchers.IO) { RecoverySession.get(context).stage(archive) }
+                BackupRecoveryActivity.open(context)
+            } })
     }
-    preview?.let { archive -> AlertDialog(onDismissRequest = { if (!working) preview = null },
-        title = { Text("تأكيد الاستعادة") }, text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("${archive.ledger.customers.size} زبون • ${archive.ledger.entries.size} حركة")
-                Text("تاريخ النسخة: ${backupTime(archive.ledger.createdAt)}")
-                Text("ستفتح مقارنة السجلات قبل الدمج الآمن. تبقى البيانات الحالية وتُراجع التعارضات دون استبدال تلقائي.")
-            }
-        }, confirmButton = { TextButton(enabled = !working, onClick = {
-            preview = null
-            act { withContext(Dispatchers.IO) { RecoverySession.get(context).stage(archive) }; BackupRecoveryActivity.open(context) }
-        }) { Text("مقارنة البيانات واستردادها") } }, dismissButton = { TextButton(enabled = !working, onClick = { preview = null }) { Text("إلغاء") } }) }
     if (reconcile) AlertDialog(onDismissRequest = { reconcile = false }, title = { Text("العودة إلى بيانات الصيدلية الحالية؟") },
         text = { Text("تُحفظ نسخة أمان ثم تُحمّل البيانات الحالية من الحساب المركزي وتعود المزامنة.") },
         confirmButton = { TextButton(enabled = !working, onClick = {
