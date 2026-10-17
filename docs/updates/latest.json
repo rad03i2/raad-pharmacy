@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.22.21",
+  "tag_name": "v3.3.22.22",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 89\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.21: استرداد آمن بمعاينة ومقارنة للسجلات، ودمج دون حذف البيانات الحالية، والتحقق من السحابة قبل رفع العمليات الناقصة فقط.",
+  "body": "VersionCode: 90\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.22: إصلاح رفض رفع العمليات HTTP400 بحماية تواريخ الإنشاء والهوية، وفصل الإدراج عن التعديل مع تأكيد الحفظ قبل إقرار المزامنة، دون حذف الطابور المالي.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.22.21.apk",
-      "size": 5548602,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.21/Raad-Pharmacy-v3.3.22.21.apk"
+      "name": "Raad-Pharmacy-v3.3.22.22.apk",
+      "size": 5548598,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.22/Raad-Pharmacy-v3.3.22.22.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.22.21.apk.sha256",
+      "name": "Raad-Pharmacy-v3.3.22.22.apk.sha256",
       "size": 95,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.21/Raad-Pharmacy-v3.3.22.21.apk.sha256"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.22/Raad-Pharmacy-v3.3.22.22.apk.sha256"
     }
   ]
 }
