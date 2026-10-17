@@ -32,4 +32,8 @@ A distinct chart tab sits between Reports and Settings. Months are generated con
 
 ## Validation
 
-Pending final Android/Room/Compose, reminder-worker, release lint and signed APK build verification. Isolated PostgreSQL permission, idempotency, inbox/decision and two-connection concurrency tests passed; final results and release links will be recorded before merge/publication.
+Validation covers Android/Room/Compose regressions, exact month boundaries, native RTL navigation at 320/360dp, real short-reminder worker delivery/deduplication and paid/disabled/edited exclusions, offline credit-cache checks, and continued unrelated outbox uploads. The missing-phone UI regression exercises the list/picker callback boundary using a controlled picker; handset runtime contact permission is the existing Android flow and has not been exercised on a physical device in this session.
+
+PostgreSQL CI creates a separate disposable database and tests exact Raad capability binding, debt and receipt-edit guards, ordinary payment/identical-retry compatibility, tenant isolation, request receipts and lost-response idempotency, pending actions after reading messages, functional decisions and two-connection block/debt races. No production financial records or real test messages are used.
+
+[PR 42 and checks](https://github.com/rad03i2/raad-pharmacy/pull/42) are the source of completed validation results. The release publisher independently requires all unit tests, release lint, optimized APK build, signature/certificate continuity and a higher versionCode before it can publish. The final signed APK is attached to [v3.3.22.23](https://github.com/rad03i2/raad-pharmacy/releases/tag/v3.3.22.23) only after that workflow succeeds. QA artifacts are not release APKs.
