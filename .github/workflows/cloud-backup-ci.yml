@@ -44,4 +44,5 @@ jobs:
           psql "$CREDIT_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/team-messages.sql
           psql "$CREDIT_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261017212428_customer_credit_controls.sql
           psql "$CREDIT_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/customer-credit-controls.sql
+          python supabase/tests/credit-concurrency.py
       # No production credentials, real financial fixtures or backup artifacts.

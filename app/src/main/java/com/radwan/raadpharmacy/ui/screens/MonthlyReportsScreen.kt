@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.radwan.raadpharmacy.PharmacyLedgerViewModel
+import com.radwan.raadpharmacy.data.LedgerEntry
 import com.radwan.raadpharmacy.data.MonthlyReports
 import com.radwan.raadpharmacy.ui.components.ScreenTopBar
 import com.radwan.raadpharmacy.util.formatMoney
@@ -24,20 +25,40 @@ import kotlinx.coroutines.withContext
 fun MonthlyReportsScreen(vm: PharmacyLedgerViewModel) {
     val entries by vm.entries.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
+    MonthlyReportsContent(entries, security.hideAmounts)
+}
+
+@Composable
+internal fun MonthlyReportsContent(entries: List<LedgerEntry>, hideAmounts: Boolean,
+    today: LocalDate = LocalDate.now(MonthlyReports.zone)) {
     val context = LocalContext.current
-    val current = YearMonth.now(MonthlyReports.zone)
+    val followsClock = remember { today == LocalDate.now(MonthlyReports.zone) }
+    var current by remember { mutableStateOf(YearMonth.from(today)) }
     var selected by rememberSaveable { mutableStateOf(current.toString()) }
     var custom by rememberSaveable { mutableStateOf(false) }
     var from by rememberSaveable { mutableStateOf(current.atDay(1).toString()) }
-    var through by rememberSaveable { mutableStateOf(LocalDate.now(MonthlyReports.zone).toString()) }
+    var through by rememberSaveable { mutableStateOf(today.toString()) }
     var showMonths by rememberSaveable { mutableStateOf(false) }
     val period = remember(selected, custom, from, through) {
         if (custom) MonthlyReports.Period(LocalDate.parse(from), LocalDate.parse(through))
         else MonthlyReports.month(YearMonth.parse(selected))
     }
-    var totals by remember { mutableStateOf<MonthlyReports.Totals?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val next = YearMonth.now(MonthlyReports.zone)
+            if (next != current && followsClock) {
+                if (!custom && selected == current.toString()) selected = next.toString()
+                current = next
+            }
+            val now = java.time.ZonedDateTime.now(MonthlyReports.zone)
+            val midnight = now.toLocalDate().plusDays(1).atStartOfDay(MonthlyReports.zone)
+            kotlinx.coroutines.delay(java.time.Duration.between(now, midnight).toMillis().coerceAtLeast(1_000L))
+        }
+    }
+    var calculation by remember { mutableStateOf<Pair<MonthlyReports.Period, MonthlyReports.Totals>?>(null) }
+    val totals = calculation?.takeIf { it.first == period }?.second
     LaunchedEffect(entries, period) {
-        totals = withContext(Dispatchers.Default) { MonthlyReports.totals(entries, period) }
+        calculation = period to withContext(Dispatchers.Default) { MonthlyReports.totals(entries, period) }
     }
     fun pickDate(start: Boolean) {
         val date = LocalDate.parse(if (start) from else through)
@@ -75,7 +96,10 @@ fun MonthlyReportsScreen(vm: PharmacyLedgerViewModel) {
                 OutlinedButton(onClick = { selected = current.minusMonths(1).toString(); custom = false },
                     enabled = current.minusMonths(1) >= MonthlyReports.firstMonth, modifier = Modifier.weight(1f)) { Text("الشهر السابق") }
             } }
-            item { OutlinedButton(onClick = { custom = !custom }, modifier = Modifier.fillMaxWidth()) { Text("تحديد فترة زمنية") } }
+            item { OutlinedButton(onClick = {
+                if (!custom) { val month = YearMonth.parse(selected); from = month.atDay(1).toString(); through = month.atEndOfMonth().toString() }
+                custom = !custom
+            }, modifier = Modifier.fillMaxWidth()) { Text(if (custom) "العودة إلى الشهر المحدد" else "تحديد فترة زمنية") } }
             if (custom) item { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { pickDate(true) }, modifier = Modifier.fillMaxWidth()) { Text("من يوم: $from") }
                 OutlinedButton(onClick = { pickDate(false) }, modifier = Modifier.fillMaxWidth()) { Text("إلى يوم: $through") }
@@ -84,12 +108,12 @@ fun MonthlyReportsScreen(vm: PharmacyLedgerViewModel) {
                 style = MaterialTheme.typography.bodySmall) }
             item { val value = totals
                 if (value == null) CircularProgressIndicator() else Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MonthlyMetric("الديون المسجلة في الفترة", value.debts, value.debtCount, security.hideAmounts)
-                    MonthlyMetric("التحصيلات المسجلة في الفترة", value.payments, value.paymentCount, security.hideAmounts)
+                    MonthlyMetric("الديون المسجلة في الفترة", value.debts, value.debtCount, hideAmounts)
+                    MonthlyMetric("التحصيلات المسجلة في الفترة", value.payments, value.paymentCount, hideAmounts)
                     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                         Column(Modifier.fillMaxWidth().padding(18.dp)) {
                             Text("صافي حركات الفترة (ديون − تحصيلات)")
-                            Text(if (security.hideAmounts) "•••• د.ع" else formatMoney(value.debts - value.payments),
+                            Text(if (hideAmounts) "•••• د.ع" else formatMoney(value.debts - value.payments),
                                 style = MaterialTheme.typography.titleLarge)
                             Text("هذا الفرق ليس الرصيد المتبقي لجميع حسابات الصيدلية.", style = MaterialTheme.typography.bodySmall)
                         }
