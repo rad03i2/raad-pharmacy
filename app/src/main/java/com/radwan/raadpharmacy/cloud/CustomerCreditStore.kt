@@ -32,6 +32,7 @@ internal class CustomerCreditStore private constructor(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
     private val mutex = Mutex()
+    @Volatile private var decoded: Pair<String, CreditSnapshot>? = null
     private fun owner(): String? {
         val auth = SupabaseProvider.initializedClientOrNull()?.auth
         auth?.currentSessionOrNull()?.user?.id?.let { return it }
@@ -43,8 +44,12 @@ internal class CustomerCreditStore private constructor(context: Context) {
     fun current(): CreditSnapshot {
         val user = owner() ?: return CreditSnapshot()
         val pharmacy = CloudDeviceStore(app).pushPharmacyId() ?: return CreditSnapshot()
-        return runCatching { prefs.getString("$user:$pharmacy",null)?.let { json.decodeFromString<CreditSnapshot>(it) } }
-            .getOrNull()?.takeIf { it.owner==user && it.pharmacy==pharmacy } ?: CreditSnapshot()
+        val raw = prefs.getString("$user:$pharmacy", null) ?: return CreditSnapshot()
+        val saved = decoded
+        val snapshot = if (saved != null && saved.first == raw) saved.second else runCatching {
+            json.decodeFromString<CreditSnapshot>(raw).also { decoded = raw to it }
+        }.getOrNull()
+        return snapshot?.takeIf { it.owner==user && it.pharmacy==pharmacy } ?: CreditSnapshot()
     }
     fun snapshots(): Flow<CreditSnapshot> = combine(revision,client.auth.sessionStatus) { _,_ -> current() }
     fun start() {
@@ -87,7 +92,7 @@ internal class CustomerCreditStore private constructor(context: Context) {
         revision.value++
         result
     }
-    suspend fun setBlocked(customer: String, block: Boolean, requestId: String? = null) {
+    suspend fun setBlocked(customer: String, block: Boolean, requestId: String? = null) = mutex.withLock {
         val user = checkNotNull(client.auth.currentSessionOrNull()?.user?.id) { "AUTH_SESSION_REQUIRED" }
         withTimeout(15_000L) {
             client.postgrest.rpc(if (requestId==null) "set_customer_credit" else "resolve_credit_request",buildJsonObject {
@@ -123,8 +128,11 @@ internal class CustomerCreditStore private constructor(context: Context) {
     }
     companion object {
         @Volatile private var instance: CustomerCreditStore?=null
-        fun get(context: Context): CustomerCreditStore = instance ?: synchronized(this) {
-            instance ?: CustomerCreditStore(context).also { instance=it }
+        fun get(context: Context): CustomerCreditStore {
+            val app = context.applicationContext
+            return instance?.takeIf { it.app === app } ?: synchronized(this) {
+                instance?.takeIf { it.app === app } ?: CustomerCreditStore(app).also { instance=it }
+            }
         }
         const val BLOCKED_MESSAGE="هذا الزبون محجوب من رعد؛ التحصيل متاح، وإضافة دين تتطلب رفع الحجب من رعد."
     }

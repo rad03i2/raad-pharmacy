@@ -22,10 +22,12 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowContentResolver
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[35],qualifiers="w420dp-h900dp-mdpi")
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MissingPhoneListTest {
     @get:Rule val rule=createComposeRule()
     @Before fun contacts() {
@@ -53,6 +55,10 @@ class MissingPhoneListTest {
         rule.onNodeWithTag("missing-phone-list").performScrollToIndex(102)
         rule.waitForIdle()
         rule.onNode(hasText("إضافة رقم هاتف") and hasAnyAncestor(hasTestTag("missing-phone:c100"))).performClick()
+        // Let the real IO provider query finish while the indeterminate progress animation is paused.
+        rule.mainClock.autoAdvance=false
+        repeat(50) { rule.mainClock.advanceTimeByFrame(); Thread.sleep(10) }
+        rule.mainClock.autoAdvance=true
         rule.waitUntil(10_000) { rule.onAllNodesWithText("جهة اتصال للتجربة").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("جهة اتصال للتجربة").performClick()
         rule.waitForIdle()
