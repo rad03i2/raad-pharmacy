@@ -27,7 +27,9 @@ internal class RecoveryImporter(private val dao: PharmacyLedgerDao,
             for (raw in plan.records) {
                 val record = raw.copy(pharmacy = pharmacy)
                 controls += BackupControlEntity(RecoveryKeys.item(owner, record), record.json(owner))
-                if (record.added) controls += BackupControlEntity(RecoveryKeys.guard(record.kind, record.id), record.id)
+                // Even an identical existing row may be missing on the server. Protect it
+                // until a real server read confirms it, irrespective of old sync flags.
+                if (record.state == "PENDING") controls += BackupControlEntity(RecoveryKeys.guard(record.kind, record.id), record.id)
             }
             if (current.restoreHeld) {
                 // Legacy replacements held the entire ledger and cleared its queue. Recheck all

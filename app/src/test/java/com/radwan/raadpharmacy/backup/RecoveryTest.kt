@@ -88,7 +88,7 @@ class RecoveryTest {
         RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
         assertEquals(2, records().count { it.state == "CONFLICT" })
         assertTrue(remote.sent.isEmpty())
-        assertEquals(listOf(id(3)), dao.recoveryEntries())
+        assertEquals(setOf(id(2), id(3)), dao.recoveryEntries().toSet())
         dao.applyCloudSnapshot(listOf(customer), listOf(debt(2, 6_000_000)))
         assertNotNull(dao.getEntryById(id(3)))
         assertTrue(runCatching { dao.deleteEntryById(id(3)) }.isFailure)
@@ -233,7 +233,7 @@ class RecoveryTest {
             service.confirm(input, service.compare(input).sequence, owner, pharmacy)
             disk.close(); disk = open()
             assertEquals(2, disk.dao().entryCount())
-            assertEquals(listOf(id(3)), disk.dao().recoveryEntries())
+            assertEquals(setOf(id(2), id(3)), disk.dao().recoveryEntries().toSet())
             val remote = FakeRemote().apply { cs += customer.remote(); es += debt(2, 5_000_000).remote() }
             RecoveryCloudVerifier(disk.dao(), remote).run(owner, pharmacy)
             assertEquals(listOf(id(3)), remote.sent)
@@ -251,6 +251,73 @@ class RecoveryTest {
         val decoded = BackupArchive.restore(JSONObject(String(BackupCrypto.open(point.readBytes(), key))))
         assertEquals(1, decoded.ledger.entries.size)
         assertEquals(5_000_000L, decoded.ledger.entries.single().amount)
+    }
+
+    @Test fun theNineMillionPhoneProtectsExistingRowsAndVerifiesItsOldPendingQueueBeforeAnyOrdinaryUpsert() = runBlocking {
+        val extraDebt = debt(3, 5_000_000)
+        val payment = debt(4, 1_000_000).copy(type = "PAYMENT")
+        dao.insertEntry(extraDebt)
+        dao.insertEntry(payment)
+        val before = dao.cloudOutbox()
+        val input = archive(dao.getEntries())
+        val plan = importer().compare(input)
+        assertEquals(0, plan.additions)
+        assertEquals(4, plan.existing)
+        importer().confirm(input, plan.sequence, owner, pharmacy)
+        assertEquals(before, dao.cloudOutbox())
+        val ordinarySent = mutableListOf<String>()
+        assertTrue(runCatching { DurableCloudDrain(dao) { ordinarySent += it.entityId }.flush() }.isFailure)
+        assertTrue(ordinarySent.isEmpty())
+        assertEquals(before, dao.cloudOutbox())
+        dao.applyCloudSnapshot(listOf(customer), listOf(debt(2, 5_000_000)))
+        assertEquals(9_000_000L, RecoveryTotals.of(dao.getCustomers(), dao.getEntries()).let { it.debts - it.payments })
+        assertTrue(runCatching { dao.insertEntry(debt(8, 1000)) }.isFailure)
+        val remote = FakeRemote().apply { cs += customer.remote(); es += debt(2, 5_000_000).remote() }
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        assertEquals(listOf(extraDebt.id, payment.id), remote.sent)
+        assertTrue(dao.recoveryEntries().isEmpty())
+        assertTrue(dao.cloudOutbox().isEmpty()) // only the matching, server-confirmed revisions were acknowledged
+        DurableCloudDrain(dao) { ordinarySent += it.entityId }.flush()
+        assertTrue(ordinarySent.isEmpty())
+        dao.insertEntry(debt(8, 1000)) // normal financial work resumes after verification
+    }
+
+    @Test fun aGuardedConflictingOrdinaryPayloadNeverUploadsWhileUnrelatedOperationsStillDrain() = runBlocking {
+        val local = debt(2, 6_000_000)
+        dao.insertEntry(local)
+        dao.insertEntry(debt(7, 1000))
+        val guarded = dao.cloudOutbox().single { it.entityId == local.id }
+        val input = archive(listOf(local))
+        importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        val sent = mutableListOf<String>()
+        assertTrue(runCatching { DurableCloudDrain(dao) { sent += it.entityId }.flush() }.isFailure)
+        assertEquals(listOf(id(7)), sent)
+        assertEquals(listOf(guarded), dao.cloudOutbox())
+        val remote = FakeRemote().apply { cs += customer.remote(); es += debt(2, 5_000_000).remote() }
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        assertTrue(records().any { it.id == local.id && it.state == "CONFLICT" })
+        assertTrue(remote.sent.isEmpty())
+        assertEquals(listOf(guarded), dao.cloudOutbox())
+        assertTrue(runCatching { DurableCloudDrain(dao) { sent += it.entityId }.flush() }.isFailure)
+        assertEquals(listOf(id(7)), sent)
+        assertTrue(runCatching { dao.insertEntry(debt(8, 1000)) }.isFailure)
+        assertTrue(runCatching { dao.deleteEntryById(id(7)) }.isFailure)
+        dao.applyCloudSnapshot(listOf(customer), listOf(debt(2, 5_000_000)))
+        assertEquals(local, dao.getEntryById(local.id))
+    }
+
+    @Test fun aServerConfirmationCannotAcknowledgeAnOrdinaryPayloadThatDiffersFromTheCheckedRecord() = runBlocking {
+        val input = archive(listOf(debt(2, 5_000_000)))
+        importer().confirm(input, importer().compare(input).sequence, owner, pharmacy)
+        // Simulate a different durable revision racing with a stale verification response.
+        val newer = CloudOutboxEntity.from(BackupChangeEntity.entry(debt(2, 6_000_000), "LOCAL"))
+        dao.saveCloudMutation(newer)
+        val remote = FakeRemote().apply { cs += customer.remote(); es += debt(2, 5_000_000).remote() }
+        RecoveryCloudVerifier(dao, remote).run(owner, pharmacy)
+        assertEquals(listOf(newer), dao.cloudOutbox())
+        assertTrue(remote.sent.isEmpty())
+        assertTrue(dao.recoveryEntries().isEmpty())
     }
 
     private suspend fun records() = dao.recoveryControls().filter { it.id.startsWith(RecoveryKeys.ITEM) }.map { RecoveryRecord.parse(it.value) }

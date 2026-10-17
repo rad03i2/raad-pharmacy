@@ -6,6 +6,7 @@ import androidx.room3.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 import com.radwan.raadpharmacy.backup.BackupChangeEntity
+import com.radwan.raadpharmacy.backup.RecoveryKeys
 import com.radwan.raadpharmacy.data.PharmacyLedgerDao
 import kotlinx.coroutines.CancellationException
 
@@ -51,8 +52,13 @@ internal class DurableCloudDrain(private val dao: PharmacyLedgerDao,
     suspend fun flush() {
         var firstFailure: Exception? = null
         var failures = 0
+        var awaitingRecovery = false
         for (row in dao.cloudOutbox()) {
             if (dao.restoreHold() == "1") return
+            if (dao.recoveryValue(RecoveryKeys.guard(row.kind, row.entityId)) != null) {
+                awaitingRecovery = true
+                continue // Keep the exact ordinary payload/revision; recovery must verify first.
+            }
             try {
                 send(row)
                 dao.acknowledgeCloudMutation(row.key, row.revision)
@@ -63,5 +69,6 @@ internal class DurableCloudDrain(private val dao: PharmacyLedgerDao,
             }
         }
         firstFailure?.let { throw it }
+        if (awaitingRecovery) throw java.io.IOException("حركات محفوظة تنتظر التحقق من الاسترداد؛ راجع شاشة الاسترداد.")
     }
 }

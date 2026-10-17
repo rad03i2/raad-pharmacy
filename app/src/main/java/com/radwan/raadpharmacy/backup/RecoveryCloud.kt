@@ -172,7 +172,7 @@ internal class RecoveryCloudVerifier(private val dao: PharmacyLedgerDao, private
                                 time(it.occurredAt) == e.createdAt && it.notes.orEmpty() == e.details) })
                             conflict = "عملية مماثلة موجودة بمعرّف آخر؛ لم تُنشأ نسخة ثانية."
                         else if (!validRemoteBalance(remoteParent, e, entries.values)) {
-                            if (dao.pendingCloudEntriesForCustomer(e.customerId) > 0)
+                            if (dao.pendingUnprotectedCloudEntriesForCustomer(e.customerId) > 0)
                                 throw java.io.IOException("Current ordinary operations are still pending")
                             conflict = "تسلسل الخادم أو رصيده لا يسمح بدمج الحركة بأمان؛ لم تُرفع."
                         }
