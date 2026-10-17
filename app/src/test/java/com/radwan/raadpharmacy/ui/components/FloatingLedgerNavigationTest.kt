@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Assessment
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
@@ -52,6 +53,7 @@ class FloatingLedgerNavigationTest {
         LedgerNavigationItem("customers","الزبائن",Icons.Rounded.Groups),
         LedgerNavigationItem("collections","التحصيلات",Icons.Rounded.AccountBalanceWallet),
         LedgerNavigationItem("reports","التقارير",Icons.Rounded.BarChart),
+        LedgerNavigationItem("monthly_reports","شهرية",Icons.Rounded.Assessment),
         LedgerNavigationItem("settings","الضبط",Icons.Rounded.Settings))
 
     @Test fun onlySelectedLabelAppearsAndEveryTabCanBeReached() {

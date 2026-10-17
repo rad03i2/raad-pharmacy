@@ -30,6 +30,7 @@ internal object CloudMessagingFeedback {
     }
 
     fun forFailure(context: Context, error: Throwable, alert: Boolean = false): String {
+        if (error.isCreditBlockedFailure()) return CustomerCreditStore.BLOCKED_MESSAGE
         val caps = context.getSystemService(ConnectivityManager::class.java).let { it.getNetworkCapabilities(it.activeNetwork) }
         return when (kind(error, caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true)) {
             Kind.OFFLINE -> "لا تتوفر شبكة حاليًا. أعد المحاولة بعد الاتصال."
@@ -48,3 +49,6 @@ internal object CloudMessagingFeedback {
         Log.w("RaadMessaging", "path=$path kind=${kind(error)} at=${System.currentTimeMillis()}")
     }
 }
+
+internal fun Throwable.isCreditBlockedFailure(): Boolean = generateSequence(this) { it.cause }.take(8)
+    .any { it.message?.contains("CUSTOMER_CREDIT_BLOCKED") == true }

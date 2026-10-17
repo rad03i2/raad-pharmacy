@@ -40,6 +40,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
@@ -66,6 +67,8 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
@@ -88,16 +91,16 @@ internal fun FloatingLedgerNavigation(
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Box(modifier.fillMaxWidth()
         .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
-        .padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+        .padding(horizontal = if (items.size >= 6) 4.dp else 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
         Surface(Modifier.widthIn(max = 560.dp).fillMaxWidth(),
             shape = RoundedCornerShape(28.dp), color = colors.surface,
             border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.55f)),
             shadowElevation = 9.dp) {
-            BoxWithConstraints(Modifier.fillMaxWidth().padding(6.dp)) {
+            BoxWithConstraints(Modifier.fillMaxWidth().padding(if (items.size >= 6) 4.dp else 6.dp)) {
                 val activeWidth = minOf((maxWidth / items.size) * 1.9f, maxWidth - 48.dp * (items.size - 1))
                     .coerceAtLeast(maxWidth / items.size)
                 val inactiveWidth = if (items.size > 1) (maxWidth - activeWidth) / (items.size - 1) else maxWidth
-                val compact = maxWidth < 296.dp || density.fontScale * labelStyle.fontSize.value / 13f > 1.25f
+                val compact = items.size >= 6 || maxWidth < 296.dp || density.fontScale * labelStyle.fontSize.value / 13f > 1.25f
                 val barHeight = if (compact) maxOf(56.dp, (labelStyle.lineHeight.value * density.fontScale + 29f).dp) else 52.dp
                 val transition = updateTransition(selectedIndex, label = "ledger-navigation")
                 val start by transition.animateDp(transitionSpec = {
@@ -154,11 +157,12 @@ private fun LedgerNavigationButton(item: LedgerNavigationItem, index: Int, selec
     val pressScale by animateFloatAsState(if (pressed) 0.94f else 1f, tween(100), label = "navigation-press")
     val tint by animateColorAsState(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         tween(190), label = "navigation-color")
-    val outline = remember(index) { when (index) {
-        0 -> Icons.Outlined.Home
-        1 -> Icons.Outlined.Groups
-        2 -> Icons.Outlined.AccountBalanceWallet
-        3 -> Icons.Outlined.BarChart
+    val outline = remember(item.route) { when (item.route) {
+        "home" -> Icons.Outlined.Home
+        "customers" -> Icons.Outlined.Groups
+        "collections" -> Icons.Outlined.AccountBalanceWallet
+        "reports" -> Icons.Outlined.BarChart
+        "monthly_reports" -> Icons.Outlined.Assessment
         else -> Icons.Outlined.Settings
     } }
     val style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
@@ -178,7 +182,14 @@ private fun LedgerNavigationButton(item: LedgerNavigationItem, index: Int, selec
                 icon()
                 AnimatedVisibility(selected, enter = fadeIn(tween(160)) + androidx.compose.animation.expandVertically(tween(230)),
                     exit = fadeOut(tween(80)) + androidx.compose.animation.shrinkVertically(tween(210))) {
-                    Text(item.label, color = tint, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        val measurer = rememberTextMeasurer()
+                        val measured = measurer.measure(item.label, style = style).size.width.coerceAtLeast(1)
+                        val available = with(LocalDensity.current) { maxWidth.toPx() }
+                        Text(item.label, color = tint, style = style.copy(fontSize = style.fontSize *
+                            (available / measured).coerceIn(0.4f, 1f)), textAlign = TextAlign.Center,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         } else {

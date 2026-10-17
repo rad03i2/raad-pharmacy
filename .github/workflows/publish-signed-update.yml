@@ -191,7 +191,7 @@ jobs:
             echo "VersionCode: $code"
             echo "SigningCertificateSHA256: $signer"
             echo
-            echo "تحديث 3.3.22.22: إصلاح رفض رفع العمليات HTTP400 بحماية تواريخ الإنشاء والهوية، وفصل الإدراج عن التعديل مع تأكيد الحفظ قبل إقرار المزامنة، دون حذف الطابور المالي."
+            echo "تحديث 3.3.22.23: إضافة الأرقام من جهات الاتصال داخل القائمة وحفظ موضع المتابعة، حجب الزبائن بإدارة رعد وطلبات واردة، تذكيرات قصيرة اختيارية مغلقة افتراضياً، وتقارير شهرية وفترات محددة."
           } > "$RUNNER_TEMP/release-notes.txt"
           echo "RAAD_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           echo "RAAD_RELEASE_NOTES=$RUNNER_TEMP/release-notes.txt" >> "$GITHUB_ENV"

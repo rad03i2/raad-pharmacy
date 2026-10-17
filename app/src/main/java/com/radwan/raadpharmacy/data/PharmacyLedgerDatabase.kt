@@ -471,6 +471,15 @@ interface PharmacyLedgerDao {
         appendBackupChange(BackupChangeEntity.customer(customer, origin))
     }
     @Transaction
+    suspend fun addMissingPhone(id: String, phone: String): CustomerEntity {
+        val current = checkNotNull(getCustomerById(id)) { "تعذر العثور على الزبون." }
+        check(current.phone.isNullOrBlank() || current.phone == phone) { "أُضيف رقم لهذا الزبون أثناء الاختيار؛ راجع الرقم الحالي." }
+        val updated = current.copy(phone = phone)
+        insertCustomer(updated)
+        return updated
+    }
+
+    @Transaction
     suspend fun updateCustomer(customer: CustomerEntity, origin: String = "LOCAL") {
         if (getCustomerById(customer.id) != null) insertCustomer(customer, origin)
     }

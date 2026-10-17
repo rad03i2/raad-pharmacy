@@ -53,6 +53,7 @@ internal class CloudTeamMessageStore(context: Context) {
         if (!row.isUnreadMessageFor(userId)) return false
         cache.restore(userId)
         cache.merge(userId, listOf(row))
+        if (row.creditRequestId != null) CustomerCreditStore.get(appContext).requestRefresh()
         return !cache.wasRead(userId, row.id)
     }
 

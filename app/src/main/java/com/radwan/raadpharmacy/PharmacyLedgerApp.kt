@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Assessment
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Groups
@@ -65,6 +66,7 @@ import com.radwan.raadpharmacy.ui.screens.DailyCollectionsScreenV4
 import com.radwan.raadpharmacy.ui.screens.DailyDebtsScreenV4
 import com.radwan.raadpharmacy.ui.screens.SmartDebtFollowupV316
 import com.radwan.raadpharmacy.ui.screens.HomeScreenV3
+import com.radwan.raadpharmacy.ui.screens.MonthlyReportsScreen
 import com.radwan.raadpharmacy.ui.screens.ReportsScreenV11
 import com.radwan.raadpharmacy.ui.screens.SettingsScreenV10
 import com.radwan.raadpharmacy.ui.screens.AllActivityScreen
@@ -91,6 +93,7 @@ object Routes {
     const val AREA_CUSTOMERS = "area_customers/{areaName}"
     const val SEARCH = "search?intent={intent}"
     const val REPORTS = "reports"
+    const val MONTHLY_REPORTS = "monthly_reports"
     const val FOLLOWUP = "followup"
     const val SETTINGS = "settings"
     const val RESUME_FORM = "resume_form"
@@ -197,6 +200,7 @@ fun PharmacyLedgerApp(
         LedgerNavigationItem(Routes.CUSTOMERS, "الزبائن", Icons.Rounded.Groups),
         LedgerNavigationItem(Routes.COLLECTIONS, "التحصيلات", Icons.Rounded.AccountBalanceWallet),
         LedgerNavigationItem(Routes.REPORTS, "التقارير", Icons.Rounded.BarChart),
+        LedgerNavigationItem(Routes.MONTHLY_REPORTS, "شهرية", Icons.Rounded.Assessment),
         LedgerNavigationItem(Routes.SETTINGS, "الضبط", Icons.Rounded.Settings)
     )
     val bottomRoutes = bottomItems.map { it.route }.toSet()
@@ -503,6 +507,7 @@ fun PharmacyLedgerApp(
                             }
                         )
                     }
+                    composable(Routes.MONTHLY_REPORTS) { MonthlyReportsScreen(vm) }
                     composable(Routes.REPORTS) {
                         ReportsScreenV11(vm, onCustomer = { navController.navigate(Routes.customer(it)) })
                     }

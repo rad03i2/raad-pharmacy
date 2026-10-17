@@ -164,6 +164,15 @@ class PharmacyLedgerViewModel(application: Application) : AndroidViewModel(appli
         customer
     }
 
+    suspend fun addMissingPhone(customerId: String, phone: String): MutationResult = writeMutex.withLock {
+        val result = repository.addMissingPhone(customerId, phone)
+        if (result.success) {
+            _customers.value = repository.customers()
+            rebuildIndexes()
+        }
+        result
+    }
+
     suspend fun updateCustomer(
         customerId: String,
         name: String,

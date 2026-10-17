@@ -21,7 +21,10 @@ internal object CloudFinancialSyncRuntime {
             active = { CloudUiEvents.isAppForeground() && CloudSyncScheduler.isEnabled(app) },
             hasPending = { dao.restoreHold() != "1" && dao.cloudOutbox().isNotEmpty() },
             upload = { CloudSyncEngine(app).flushPendingOnly() },
-            failed = { CloudMessagingFeedback.record("financial_upload", it) })
+            failed = {
+                if (it.isCreditBlockedFailure()) CustomerCreditStore.get(app).requestRefresh()
+                CloudMessagingFeedback.record("financial_upload", it)
+            })
         uploader = pump
         scope.launch {
             // Recovers existing unsent amounts after process death or an app upgrade.

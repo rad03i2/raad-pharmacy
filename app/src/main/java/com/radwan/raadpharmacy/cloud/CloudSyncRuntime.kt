@@ -48,6 +48,7 @@ object CloudSyncRuntime {
         CloudNotificationCenter.ensureChannels(app)
         CloudSyncScheduler.enable(app)
         CloudTeamRuntime.start(app)
+        CustomerCreditStore.get(app).start()
         CloudFinancialSyncRuntime.start(app)
         com.radwan.raadpharmacy.backup.RecoveryScheduler.resume(app)
         if (!runtimeStarted.compareAndSet(false, true)) return
@@ -103,6 +104,8 @@ object CloudSyncRuntime {
     fun onAppForegrounded(context: Context) {
         val app = context.applicationContext
         CloudUiEvents.setAppForeground(true)
+        CustomerCreditStore.get(app).requestRefresh()
+        com.radwan.raadpharmacy.notifications.ShortReminderScheduler.reconcile(app)
         CloudTeamRuntime.request(app)
         CloudFinancialSyncRuntime.request(app)
         CloudContinuousListening.startFromVisibleApp(app)

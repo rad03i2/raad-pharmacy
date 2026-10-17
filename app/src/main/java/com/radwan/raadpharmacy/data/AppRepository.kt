@@ -43,6 +43,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         runCatching { CloudSyncRuntime.start(appContext) }
             .onFailure { android.util.Log.w("AppRepository", "Cloud startup deferred", it) }
         com.radwan.raadpharmacy.cloud.CloudTeamRuntime.request(appContext)
+        com.radwan.raadpharmacy.notifications.ShortReminderScheduler.reconcile(appContext)
 
     }
 
@@ -118,6 +119,18 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         return customer
     }
 
+    suspend fun addMissingPhone(customerId: String, phone: String): MutationResult {
+        if (phone.isBlank()) return MutationResult(false, "رقم الهاتف فارغ.")
+        return try {
+            val updated = dao.addMissingPhone(customerId, phone.trim()).toModel()
+            customersCache = customersCache.map { if (it.id == customerId) updated else it }
+            afterLocalCommit()
+            MutationResult(true, "تمت إضافة رقم الهاتف.")
+        } catch (error: IllegalStateException) { MutationResult(false, error.message.orEmpty()) }
+    }
+
+    private fun creditBlocked(customerId: String) = com.radwan.raadpharmacy.cloud.CustomerCreditStore.get(appContext).current().preventsDebt(customerId)
+
     suspend fun updateCustomer(
         customerId: String,
         name: String,
@@ -131,6 +144,9 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             ?: return MutationResult(false, "تعذر العثور على الزبون.")
         if (name.isBlank()) return MutationResult(false, "اسم الزبون مطلوب.")
         if (openingDebt < 0L) return MutationResult(false, "الدين السابق لا يمكن أن يكون سالبًا.")
+
+        if (openingDebt > current.openingDebt && creditBlocked(customerId))
+            return MutationResult(false, com.radwan.raadpharmacy.cloud.CustomerCreditStore.BLOCKED_MESSAGE)
 
         val updated = current.copy(
             name = name.trim(),
@@ -228,6 +244,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             }
         }
 
+        check(!creditBlocked(customerId)) { "CUSTOMER_CREDIT_BLOCKED" }
         val entry = LedgerEntry(
             id = stableId,
             customerId = customerId,
@@ -311,6 +328,9 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
         val customer = dao.getCustomerById(current.customerId)?.toModel()
             ?: return MutationResult(false, "تعذر العثور على الزبون المرتبط بالحركة.")
 
+        if (creditBlocked(current.customerId) && ((current.type == EntryType.DEBT && amount > current.amount) ||
+                (current.type == EntryType.PAYMENT && amount < current.amount)))
+            return MutationResult(false, com.radwan.raadpharmacy.cloud.CustomerCreditStore.BLOCKED_MESSAGE)
         val updated = current.copy(
             amount = amount,
             bottles = if (current.type == EntryType.DEBT) (bottles?.takeIf { it > 0 } ?: current.bottles) else null,
@@ -340,6 +360,9 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             ?: return MutationResult(false, "تعذر العثور على الحركة.")
         val customer = dao.getCustomerById(current.customerId)?.toModel()
             ?: return MutationResult(false, "تعذر العثور على الزبون المرتبط بالحركة.")
+
+        if (current.type == EntryType.PAYMENT && creditBlocked(current.customerId))
+            return MutationResult(false, com.radwan.raadpharmacy.cloud.CustomerCreditStore.BLOCKED_MESSAGE)
 
         // Explicit user-confirmed deletion removes this movement from the ledger
         // and records the deletion in the durable backup/cloud journal.
@@ -421,6 +444,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
             runCatching { hook.invoke() }
             return
         }
+        com.radwan.raadpharmacy.notifications.ShortReminderScheduler.reconcile(appContext)
         runCatching { CloudSyncRuntime.requestSync(appContext) }
             .onFailure { android.util.Log.w("AppRepository", "Sync scheduling deferred", it) }
         runCatching { com.radwan.raadpharmacy.backup.LocalBackupEngine.get(appContext).wake() }

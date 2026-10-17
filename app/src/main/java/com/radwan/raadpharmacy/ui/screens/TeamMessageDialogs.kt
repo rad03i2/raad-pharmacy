@@ -99,6 +99,7 @@ internal fun ReadTeamMessagesDialog(name: String, messages: List<CloudNotificati
                 items(messages, key = { it.id }, contentType = { "message" }) { message ->
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(message.messageBody.orEmpty(), style = MaterialTheme.typography.bodyLarge)
+                        message.creditRequestId?.let { CreditRequestActions(it) }
                         Text(formatDate(messageTimestamp(message)) + " • " + formatTime(messageTimestamp(message)),
                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

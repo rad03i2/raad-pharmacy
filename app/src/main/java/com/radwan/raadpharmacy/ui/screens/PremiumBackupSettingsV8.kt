@@ -183,11 +183,6 @@ fun SettingsScreenV10(
                 showMissingPhoneCustomers = false
                 showAdditionalSettings = false
                 onCustomer(id)
-            },
-            onAddPhone = { id ->
-                showMissingPhoneCustomers = false
-                showAdditionalSettings = false
-                onAddPhone(id)
             }
         )
         return
@@ -219,6 +214,7 @@ fun SettingsScreenV10(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                item { ShortReminderSetting() }
                 item {
                     V8SettingsRow(
                         Icons.Rounded.Info,
@@ -432,6 +428,28 @@ private fun V8SettingsRow(
                 null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun ShortReminderSetting() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val store = androidx.compose.runtime.remember(context) { com.radwan.raadpharmacy.notifications.ShortReminderStore(context) }
+    var enabled by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(store.enabled()) }
+    androidx.compose.material3.Surface(shape = androidx.compose.material3.MaterialTheme.shapes.large,
+        color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerLow) {
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+                androidx.compose.material3.Text("تفعيل التذكيرات القصيرة")
+                androidx.compose.material3.Text("للتجربة: 5 دقائق، نصف ساعة، ساعة، ساعتان. قد يؤخر أندرويد التنبيه لتوفير البطارية.",
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+            }
+            androidx.compose.material3.Switch(checked = enabled, onCheckedChange = {
+                store.setEnabled(it); enabled = it
+                com.radwan.raadpharmacy.notifications.ShortReminderScheduler.reconcile(context)
+            })
         }
     }
 }
