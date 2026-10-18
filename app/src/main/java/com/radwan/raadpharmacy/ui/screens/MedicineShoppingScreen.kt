@@ -4,6 +4,12 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
@@ -27,6 +33,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -48,51 +59,61 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 @Composable
-fun MedicineShoppingScreen(onBack: () -> Unit) {
+fun MedicineShoppingScreen(onBack: () -> Unit,shareId: String?=null,onShareHandled: ()->Unit={}) {
     val context=LocalContext.current
     val store=remember(context) { MedicineShoppingStore.get(context) }
     val state by store.state.collectAsStateWithLifecycle()
     val scope=rememberCoroutineScope()
     var adding by rememberSaveable { mutableStateOf(false) }
-    var purchase by rememberSaveable { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     DisposableEffect(store) { store.visible=true; store.start(); store.request(); onDispose { store.visible=false } }
-    if(adding) ShoppingItemComposer(store, onDismiss={ adding=false })
-    val chosen=state.items.firstOrNull { it.id==purchase }
-    if(chosen!=null) AlertDialog(onDismissRequest={ if(!busy) purchase=null },
-        icon={ Icon(Icons.Rounded.CheckCircle,null) }, title={ Text("تأكيد شراء العلاج") },
-        text={ Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            Text(chosen.title.ifBlank { "علاج بصورة • ${chosen.id.takeLast(6)}" },fontWeight=FontWeight.Bold)
-            Text("ستُحذف المادة من قائمة الجميع وصورتها من هذا الهاتف. عند انقطاع الإنترنت ينتقل الحذف لبقية الأجهزة فور عودة الاتصال.")
-        } }, confirmButton={ TextButton(enabled=!busy,onClick={
-            busy=true
-            scope.launch {
-                try { store.complete(chosen.id); purchase=null }
-                catch(cancelled: CancellationException) { throw cancelled }
-                catch(_: Exception) { error="تعذر حفظ إتمام الشراء. حاول مجدداً." }
-                finally { busy=false }
-            }
-        }) { Text(if(busy) "جارٍ الحفظ…" else "تم الشراء • حذف نهائي") } },
-        dismissButton={ TextButton(enabled=!busy,onClick={purchase=null}) { Text("إلغاء") } })
+    if(shareId!=null) ShoppingSharedComposer(store,shareId,onShareHandled)
+    if(adding && shareId==null) ShoppingItemComposer(store, onDismiss={ adding=false })
+    LaunchedEffect(store) { while(true) { delay(15_000);store.refreshLocal() } }
     if(error!=null) AlertDialog(onDismissRequest={error=null},title={Text("لم تكتمل العملية")},text={Text(error.orEmpty())},
         confirmButton={TextButton(onClick={error=null}){Text("حسناً")}})
-    ShoppingListContent(state,onBack,{adding=true},{purchase=it},{store.request()},
-        photoFile={item -> state.identity?.let { store.photos.file(it.pharmacy,item.id) }})
+    ShoppingListContent(state,onBack,{adding=true},{id -> if(!busy) {busy=true;scope.launch {
+        try {store.purchase(id)} catch(cancelled: CancellationException) {throw cancelled}
+        catch(_: Exception) {error="تعذر حفظ إتمام الشراء. حاول مجدداً."} finally {busy=false}
+    }}},{store.request()},photoFile={item -> state.identity?.let { store.photos.file(it.pharmacy,item.id) }},
+        onRestore={id -> scope.launch {try {store.restore(id)} catch(cancelled: CancellationException) {throw cancelled}
+            catch(e: Exception) {error=e.message ?: "تعذرت الاستعادة."}}})
 }
 
 @Composable
 internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: ()->Unit,onPurchase: (String)->Unit,
-    onRefresh: ()->Unit,photoFile: (ShoppingItem)->File? = { null }) {
+    onRefresh: ()->Unit,photoFile: (ShoppingItem)->File? = { null },onRestore: (String)->Unit = {}) {
     val colors=MaterialTheme.colorScheme
     var query by rememberSaveable { mutableStateOf("") }
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var trashOpen by rememberSaveable { mutableStateOf(false) }
     var help by rememberSaveable { mutableStateOf(false) }
     var viewing by rememberSaveable { mutableStateOf<String?>(null) }
     val scroll=rememberLazyListState()
     val shown=remember(state.items,query) { state.items.filter { query.isBlank() || it.title.contains(query,true) || it.note.contains(query,true) } }
     if(help) AlertDialog(onDismissRequest={help=false},icon={Icon(Icons.Rounded.ShoppingBag,null)},title={Text("قائمة تستمر معك")},
-        text={Text("أضف اسم العلاج أو صورته، ويمكنك إضافة الكمية أو ملاحظة. المواد غير المشتراة تبقى تلقائياً مع الإضافات الجديدة.\n\nالنصوص مشتركة بين حسابات الصيدلية. الصورة تبقى على جهاز إضافتها فقط ولا تُرفع للسحابة؛ أضف اسماً معها ليسهل تمييزها على بقية الأجهزة.\n\nتأكيد الشراء يحذف المادة ولا ينقلها إلى أرشيف. الأجهزة غير المتصلة تتلقى الحذف عند اتصالها.")},
+        text={Text("أضف اسم العلاج أو صورته، ويمكنك إضافة الكمية أو ملاحظة. المواد غير المشتراة تبقى تلقائياً مع الإضافات الجديدة.\n\nالنصوص مشتركة بين حسابات الصيدلية. الصورة تبقى على جهاز إضافتها فقط ولا تُرفع للسحابة؛ أضف اسماً معها ليسهل تمييزها على بقية الأجهزة.\n\nاضغط مطولاً على علامة الصح لمدة ثانية لإتمام الشراء. يمكنك استعادة المادة من المحذوفة حديثاً خلال 24 ساعة؛ بعدها تُحذف نهائياً. الأجهزة غير المتصلة تتلقى التغيير عند اتصالها. الحذف من إصدار أقدم قد يكون نهائياً.")},
         confirmButton={TextButton(onClick={help=false}){Text("فهمت")}})
+    if(trashOpen) AlertDialog(onDismissRequest={trashOpen=false},title={Text("المحذوفة حديثاً")},
+        text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            Text("مهلة الاستعادة 24 ساعة من الحذف. بعدها تُحذف المادة وصورتها نهائياً؛ تنظيف الصورة على الجهاز يتم عند تشغيله.",style=MaterialTheme.typography.bodySmall)
+            if(state.trash.isEmpty()) Text("لا توجد مواد قابلة للاستعادة")
+            LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                items(state.trash,key={it.item.id}) {held ->
+                    Surface(shape=RoundedCornerShape(16.dp),color=colors.surfaceContainerLow) {
+                        Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(held.item.title.ifBlank {"علاج بصورة"},style=MaterialTheme.typography.titleSmall)
+                                val minutes=((held.expiresAt-System.currentTimeMillis())/60_000).coerceAtLeast(0)
+                                Text(if(minutes>=60) "متبقي ${minutes/60} ساعة" else "متبقي $minutes دقيقة",style=MaterialTheme.typography.labelSmall)
+                            }
+                            TextButton(onClick={onRestore(held.item.id)}) {Text("استعادة")}
+                        }
+                    }
+                }
+            }
+        }},confirmButton={TextButton(onClick={trashOpen=false}) {Text("إغلاق")}})
     val viewed=state.items.firstOrNull { it.id==viewing }
     if(viewed!=null) AlertDialog(onDismissRequest={viewing=null},title={Text(viewed.title.ifBlank { "صورة العلاج" })},
         text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -101,23 +122,26 @@ internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: 
             if(viewed.hasPhoto) Text("الصورة محفوظة محلياً على جهاز إضافتها فقط.",style=MaterialTheme.typography.bodySmall)
         }},confirmButton={TextButton(onClick={viewing=null}){Text("إغلاق")}})
     Scaffold(topBar={ ScreenTopBar("قائمة الشراء",onBack,actions={
+        IconButton(onClick={searchOpen=!searchOpen;if(!searchOpen) query=""}) { Icon(if(searchOpen) Icons.Rounded.Close else Icons.Rounded.Search,"بحث في قائمة الشراء") }
+        IconButton(onClick={trashOpen=true}) { BadgedBox(badge={if(state.trash.isNotEmpty()) Badge {Text(state.trash.size.toString())}}) {
+            Icon(Icons.Rounded.History,"المحذوفة حديثاً") } }
         IconButton(onClick={help=true}) { Icon(Icons.Rounded.Info,"شرح قائمة الشراء") }
     }) },floatingActionButton={ ExtendedFloatingActionButton(onClick=onAdd,modifier=Modifier.testTag("shopping-add").semantics {contentDescription="إضافة علاج"},icon={Icon(Icons.Rounded.Add,null)},
         text={Text("إضافة علاج")},expanded=true,containerColor=colors.primary,contentColor=colors.onPrimary) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Surface(shape=RoundedCornerShape(24.dp),color=colors.primaryContainer) {
                 Row(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(colors.primaryContainer,colors.secondaryContainer)))
-                    .padding(20.dp),verticalAlignment=Alignment.CenterVertically) {
+                    .padding(14.dp),verticalAlignment=Alignment.CenterVertically) {
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
                         Text("مشتريات الصيدلية",style=MaterialTheme.typography.labelLarge,color=colors.onPrimaryContainer)
                         Row(verticalAlignment=Alignment.Bottom,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                            Text(state.items.size.toString(),style=MaterialTheme.typography.headlineLarge,fontWeight=FontWeight.Bold,color=colors.onPrimaryContainer)
+                            Text(state.items.size.toString(),style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold,color=colors.onPrimaryContainer)
                             Text("مادة مطلوبة",modifier=Modifier.padding(bottom=7.dp),color=colors.onPrimaryContainer)
                         }
                         Text("ما لم تجده اليوم، يبقى للجولة القادمة",style=MaterialTheme.typography.bodySmall,color=colors.onPrimaryContainer)
                     }
                     Surface(shape=CircleShape,color=colors.surface.copy(alpha=.6f)) {
-                        Icon(Icons.Rounded.ShoppingBag,null,modifier=Modifier.padding(15.dp).size(30.dp),tint=colors.primary)
+                        Icon(Icons.Rounded.ShoppingBag,null,modifier=Modifier.padding(12.dp).size(26.dp),tint=colors.primary)
                     }
                 }
             }
@@ -135,7 +159,7 @@ internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: 
                 IconButton(onClick=onRefresh,enabled=!state.syncing,modifier=Modifier.size(40.dp)) { Icon(Icons.Rounded.Refresh,"تحديث قائمة الشراء") }
             }
             if(state.error!=null) Text(state.error,style=MaterialTheme.typography.bodySmall,color=colors.error)
-            OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
+            if(searchOpen) OutlinedTextField(query,{query=it},modifier=Modifier.fillMaxWidth(),singleLine=true,
                 placeholder={Text("ابحث عن علاج أو ملاحظة")},leadingIcon={Icon(Icons.Rounded.Search,null)},
                 trailingIcon={if(query.isNotEmpty()) IconButton(onClick={query=""}) { Icon(Icons.Rounded.Close,"مسح البحث") }},
                 shape=RoundedCornerShape(18.dp),keyboardOptions=KeyboardOptions(imeAction=ImeAction.Search))
@@ -148,7 +172,7 @@ internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: 
             } else {
                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                     Text(if(query.isBlank()) "المواد المطلوبة" else "نتائج البحث • ${shown.size}",style=MaterialTheme.typography.titleSmall,modifier=Modifier.weight(1f))
-                    Text("اضغط ✓ عند الشراء",style=MaterialTheme.typography.labelSmall,color=colors.onSurfaceVariant)
+                    Text("اضغط ✓ مطولاً لثانية",style=MaterialTheme.typography.labelSmall,color=colors.onSurfaceVariant)
                 }
                 LazyColumn(state=scroll,flingBehavior=rememberLedgerFlingBehavior(),modifier=Modifier.weight(1f).testTag("shopping-list"),
                     contentPadding=PaddingValues(bottom=100.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -176,9 +200,36 @@ private fun ShoppingItemCard(item: ShoppingItem,photo: File?,onPhoto: ()->Unit,o
                 if(item.hasPhoto) Text("صورة محلية",style=MaterialTheme.typography.labelSmall,color=colors.secondary)
                 if(System.currentTimeMillis()-item.createdAt>7L*24*60*60*1000) Text("متبقية من جولة سابقة",style=MaterialTheme.typography.labelSmall,color=colors.primary)
             }
-            FilledTonalIconButton(onClick=onPurchase,modifier=Modifier.size(48.dp).semantics {
-                contentDescription="تم شراء ${item.title.ifBlank { "العلاج ${item.id.takeLast(6)}" }}"
-            }) { Icon(Icons.Rounded.Check,null) }
+            HoldToPurchase(item.title.ifBlank { "العلاج ${item.id.takeLast(6)}" },onPurchase)
+
+        }
+    }
+}
+
+/** No tap handler: release, scrolling, leaving the screen or disposal cancels the 1-second hold. */
+@Composable
+internal fun HoldToPurchase(title: String,onPurchase: ()->Unit) {
+    val progress=remember {Animatable(0f)}
+    val animationScope=rememberCoroutineScope()
+    val latest by rememberUpdatedState(onPurchase)
+    val colors=MaterialTheme.colorScheme
+    Surface(shape=CircleShape,color=colors.secondaryContainer,modifier=Modifier.size(48.dp)
+        .graphicsLayer {scaleX=1f+progress.value*.06f;scaleY=scaleX}
+        .semantics {contentDescription="تم شراء $title";role=Role.Button
+            onLongClick("تأكيد الشراء") {latest();true} }
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down=awaitFirstDown(requireUnconsumed=false)
+                down.consume()
+                val job=animationScope.launch {progress.snapTo(0f);progress.animateTo(1f,tween(1000,easing=LinearEasing));latest()}
+                val up=waitForUpOrCancellation()
+                job.cancel();animationScope.launch {progress.snapTo(0f)}
+                up?.consume()
+            }
+        }) {
+        Box(contentAlignment=Alignment.Center) {
+            if(progress.value>0f) CircularProgressIndicator(progress={progress.value},modifier=Modifier.fillMaxSize().padding(2.dp),strokeWidth=3.dp,color=colors.primary)
+            Icon(Icons.Rounded.Check,null,tint=colors.onSecondaryContainer)
         }
     }
 }

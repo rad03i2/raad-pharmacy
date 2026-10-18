@@ -53,7 +53,7 @@ class ShoppingHttpTest {
                 "/auth/v1/token" -> reply(e,200,JSONObject().put("access_token","fixture-token").put("refresh_token","fixture-refresh")
                     .put("token_type","bearer").put("expires_in",3600).put("user",JSONObject().put("id",owner)
                         .put("aud","authenticated").put("role","authenticated").put("created_at","2026-10-18T00:00:00Z")).toString())
-                "/rest/v1/rpc/medicine_shopping_context" -> if(outage.get()) reply(e,503,"""{"code":"PGRST000","message":"fixture offline"}""")
+                "/rest/v1/rpc/medicine_shopping_context", "/rest/v1/rpc/medicine_shopping_context_v25" -> if(outage.get()) reply(e,503,"""{"code":"PGRST000","message":"fixture offline"}""")
                     else reply(e,200,kotlinx.serialization.json.Json.encodeToString(ShoppingSnapshot(owner,pharmacy,rows.values.toList())))
                 "/rest/v1/rpc/add_medicine_shopping_item", "/rest/v1/rpc/complete_medicine_shopping_item" -> {
                     val data=JSONObject(e.requestBody.bufferedReader().use {it.readText()});posts+=data
@@ -84,7 +84,7 @@ class ShoppingHttpTest {
         val store=MedicineShoppingStore(context,client,root,"shopping-test-$id",enqueueWork={});stores+=store
         assertTrue(store.sync());return store
     }
-    @After fun close()=runBlocking { stores.forEach {it.local.close()};clients.forEach {it.close()};server.stop(0);executor.shutdownNow()
+    @After fun close()=runBlocking { stores.forEach {it.local.close();it.suppliers.close()};clients.forEach {it.close()};server.stop(0);executor.shutdownNow()
         roots.forEach {it.deleteRecursively()};Unit }
     @Test fun seventyMaterialsExchangeAcrossTwoDevicesAndUnboughtTenRemainWithNewAdditions()=runBlocking {
         val first=device();val second=device()

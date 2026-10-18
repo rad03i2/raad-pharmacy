@@ -4,10 +4,14 @@
         <include domain="database" path="raad_pharmacy_ledger.db" />
         <include domain="database" path="raad_pharmacy_ledger.db-wal" />
         <include domain="database" path="raad_pharmacy_ledger.db-shm" />
+        <include domain="database" path="supplier-ledger.db" />
+        <include domain="database" path="supplier-ledger.db-journal" />
     </cloud-backup>
     <device-transfer>
         <include domain="database" path="raad_pharmacy_ledger.db" />
         <include domain="database" path="raad_pharmacy_ledger.db-wal" />
         <include domain="database" path="raad_pharmacy_ledger.db-shm" />
+        <include domain="database" path="supplier-ledger.db" />
+        <include domain="database" path="supplier-ledger.db-journal" />
     </device-transfer>
 </data-extraction-rules>

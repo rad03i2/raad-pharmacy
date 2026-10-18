@@ -5,4 +5,6 @@
     <include domain="database" path="raad_pharmacy_ledger.db" requireFlags="clientSideEncryption" />
     <include domain="database" path="raad_pharmacy_ledger.db-wal" requireFlags="clientSideEncryption" />
     <include domain="database" path="raad_pharmacy_ledger.db-shm" requireFlags="clientSideEncryption" />
+    <include domain="database" path="supplier-ledger.db" requireFlags="clientSideEncryption" />
+    <include domain="database" path="supplier-ledger.db-journal" requireFlags="clientSideEncryption" />
 </full-backup-content>

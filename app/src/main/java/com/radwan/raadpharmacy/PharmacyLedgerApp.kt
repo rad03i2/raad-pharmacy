@@ -9,6 +9,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.rounded.ShoppingBag
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Assessment
 import androidx.compose.material.icons.rounded.BarChart
@@ -116,6 +117,8 @@ object Routes {
 @Composable
 fun PharmacyLedgerApp(
     vm: PharmacyLedgerViewModel = viewModel(),
+    shoppingShareId: String? = null,
+    onShoppingShareHandled: ()->Unit = {},
     notificationCustomerId: String? = null,
     notificationOpenSettings: Boolean = false,
     notificationOpenFollowup: Boolean = false,
@@ -144,6 +147,10 @@ fun PharmacyLedgerApp(
         ) return@LaunchedEffect
         val active = FormDraftStore.activeRoute(context) ?: return@LaunchedEffect
         navController.navigate(active) { launchSingleTop = true }
+    }
+
+    LaunchedEffect(shoppingShareId,unlocked) {
+        if(shoppingShareId!=null && unlocked) navController.navigateLedgerTab(Routes.SHOPPING)
     }
 
     LaunchedEffect(notificationCustomerId, notificationOpenSettings, notificationOpenFollowup, unlocked) {
@@ -205,7 +212,7 @@ fun PharmacyLedgerApp(
         LedgerNavigationItem(Routes.CUSTOMERS, "الزبائن", Icons.Rounded.Groups),
         LedgerNavigationItem(Routes.COLLECTIONS, "التحصيلات", Icons.Rounded.AccountBalanceWallet),
         LedgerNavigationItem(Routes.REPORTS, "التقارير", Icons.Rounded.BarChart),
-        LedgerNavigationItem(Routes.MONTHLY_REPORTS, "شهرية", Icons.Rounded.Assessment),
+        LedgerNavigationItem(Routes.SHOPPING, "الشراء", Icons.Rounded.ShoppingBag),
         LedgerNavigationItem(Routes.SETTINGS, "الضبط", Icons.Rounded.Settings)
     ) }
     val bottomRoutes = remember(bottomItems) { bottomItems.map { it.route }.toSet() }
@@ -339,7 +346,6 @@ fun PharmacyLedgerApp(
                             vm = vm,
                             onCustomers = { safeNavigate(Routes.CUSTOMERS) },
                             onActivity = { safeNavigate(Routes.ACTIVITY) },
-                            onShopping = { safeNavigate(Routes.SHOPPING) },
                             onAddCustomer = { safeNavigate(Routes.ADD_CUSTOMER) },
                             onSearch = { navController.navigate(Routes.search("open")) { launchSingleTop = true } },
                             onQuickDebt = { navController.navigate(Routes.search("debt")) { launchSingleTop = true } },
@@ -502,10 +508,10 @@ fun PharmacyLedgerApp(
                             }
                         )
                     }
-                    composable(Routes.SHOPPING) { MedicineShoppingScreen(::backOrHome) }
-                    composable(Routes.MONTHLY_REPORTS) { MonthlyReportsScreen(vm) }
+                    composable(Routes.SHOPPING) { MedicineShoppingScreen(::backOrHome,shoppingShareId,onShoppingShareHandled) }
+                    composable(Routes.MONTHLY_REPORTS) { MonthlyReportsScreen(vm,::backOrHome) }
                     composable(Routes.REPORTS) {
-                        ReportsScreenV11(vm, onCustomer = { navController.navigate(Routes.customer(it)) })
+                        ReportsScreenV11(vm, onCustomer = { navController.navigate(Routes.customer(it)) }, onMonthly = { safeNavigate(Routes.MONTHLY_REPORTS) })
                     }
                     composable(
                         "${Routes.FOLLOWUP}?showAll={showAll}",

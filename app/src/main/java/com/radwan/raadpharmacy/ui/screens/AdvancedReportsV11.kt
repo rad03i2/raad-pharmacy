@@ -71,7 +71,8 @@ import java.util.Locale
 @Composable
 fun ReportsScreenV11(
     vm: PharmacyLedgerViewModel,
-    onCustomer: (String) -> Unit
+    onCustomer: (String) -> Unit,
+    onMonthly: () -> Unit = {}
 ) {
     val report by vm.advancedReport.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
@@ -100,6 +101,8 @@ fun ReportsScreenV11(
                             label = { Text(option.label) }
                         )
                     }
+                    FilterChip(selected=false,onClick=onMonthly,label={Text("التقارير الشهرية")},
+                        leadingIcon={Icon(Icons.Rounded.ReceiptLong,null,Modifier.size(18.dp))})
                 }
             }
 
@@ -577,7 +580,8 @@ private fun V11AreasCard(
 private fun V11CustomersCard(
     items: List<CustomerDebtSummary>,
     hideAmounts: Boolean,
-    onCustomer: (String) -> Unit
+    onCustomer: (String) -> Unit,
+    onMonthly: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),

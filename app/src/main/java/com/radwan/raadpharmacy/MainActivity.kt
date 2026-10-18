@@ -23,6 +23,7 @@ import com.radwan.raadpharmacy.cloud.CloudAuthGate
 import com.radwan.raadpharmacy.cloud.CloudNotificationInbox
 
 class MainActivity : FragmentActivity() {
+    private val shoppingShare = mutableStateOf<String?>(null)
     private val notificationOpenSettings = mutableStateOf(false)
     private val notificationCustomerId = mutableStateOf<String?>(null)
     private val notificationOpenFollowup = mutableStateOf(false)
@@ -65,6 +66,8 @@ class MainActivity : FragmentActivity() {
             if (resetFinished.value) {
                 CloudAuthGate {
                 PharmacyLedgerApp(
+                    shoppingShareId = shoppingShare.value,
+                    onShoppingShareHandled = { shoppingShare.value=null;intent.removeExtra(EXTRA_SHOPPING_SHARE) },
                     notificationCustomerId = notificationCustomerId.value,
                     notificationOpenSettings = notificationOpenSettings.value,
                     notificationOpenFollowup = notificationOpenFollowup.value,
@@ -87,6 +90,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun readNotificationIntent(incoming: Intent?) {
+        incoming?.getStringExtra(EXTRA_SHOPPING_SHARE)?.takeIf {runCatching {java.util.UUID.fromString(it)}.isSuccess}?.let {shoppingShare.value=it}
         notificationOpenSettings.value = incoming?.getBooleanExtra(EXTRA_OPEN_SETTINGS, false) == true
         notificationOpenFollowup.value = incoming?.getBooleanExtra(EXTRA_OPEN_FOLLOWUP, false) == true
         notificationCustomerId.value = incoming?.getStringExtra(EXTRA_CUSTOMER_ID)
@@ -98,6 +102,7 @@ class MainActivity : FragmentActivity() {
     }
 
     companion object {
+        const val EXTRA_SHOPPING_SHARE = "shopping_share_request"
         const val EXTRA_OPEN_SETTINGS = "notification_open_settings"
         const val EXTRA_OPEN_FOLLOWUP = "notification_open_followup"
         const val EXTRA_CUSTOMER_ID = "notification_customer_id"
