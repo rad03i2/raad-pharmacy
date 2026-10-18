@@ -99,6 +99,22 @@ class FloatingLedgerNavigationTest {
         org.junit.Assert.assertTrue(home.left > settings.left)
         savePreview("navigation-dark-320.png")
     }
+    @Test fun movingIndicatorDoesNotResizeOrShiftAnyOfTheSixHitTargets() {
+        var selected by mutableStateOf("home")
+        composeRule.setContent { PharmacyLedgerTheme {
+            Box(Modifier.width(320.dp)) { FloatingLedgerNavigation(items,selected,{selected=it}) }
+        } }
+        composeRule.waitForIdle()
+        val before=items.map { composeRule.onNodeWithContentDescription(it.label).fetchSemanticsNode().boundsInRoot }
+        composeRule.mainClock.autoAdvance=false
+        composeRule.onNodeWithContentDescription("التحصيلات").performClick()
+        listOf(16L,64L,160L).forEach { delta ->
+            composeRule.mainClock.advanceTimeBy(delta)
+            val during=items.map {composeRule.onNodeWithContentDescription(it.label).fetchSemanticsNode().boundsInRoot}
+            org.junit.Assert.assertEquals(before,during)
+        }
+        composeRule.mainClock.autoAdvance=true
+    }
     private fun assertLabelFits(label: String) {
         val layouts = mutableListOf<TextLayoutResult>()
         val node = composeRule.onNodeWithText(label, useUnmergedTree = true)

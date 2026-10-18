@@ -15,8 +15,8 @@ android {
         applicationId = "com.radwan.raadpharmacy"
         minSdk = 26
         targetSdk = 37
-        versionCode = 91
-        versionName = "3.3.22.23"
+        versionCode = 92
+        versionName = "3.3.22.24"
         buildConfigField("String", "SUPABASE_URL", "\"https://gsyrjhqkbfomxqacexle.supabase.co\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_dEvMmAVvoihNljWjLAutRg_lkAD934q\"")
         manifestPlaceholders["debtVoicePermission"] =
@@ -63,6 +63,8 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // Use the canonical Maven Central endpoint for Android runtime fixtures; repo1 intermittently returns HTTP 429 on CI.
+        unitTests.all { it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2") }
     }
 }
 

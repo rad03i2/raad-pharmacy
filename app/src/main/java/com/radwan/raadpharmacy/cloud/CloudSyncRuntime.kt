@@ -49,6 +49,7 @@ object CloudSyncRuntime {
         CloudSyncScheduler.enable(app)
         CloudTeamRuntime.start(app)
         CustomerCreditStore.get(app).start()
+        com.radwan.raadpharmacy.shopping.MedicineShoppingStore.get(app).start()
         CloudFinancialSyncRuntime.start(app)
         com.radwan.raadpharmacy.backup.RecoveryScheduler.resume(app)
         if (!runtimeStarted.compareAndSet(false, true)) return
@@ -105,6 +106,7 @@ object CloudSyncRuntime {
         val app = context.applicationContext
         CloudUiEvents.setAppForeground(true)
         CustomerCreditStore.get(app).requestRefresh()
+        com.radwan.raadpharmacy.shopping.MedicineShoppingStore.get(app).request()
         com.radwan.raadpharmacy.notifications.ShortReminderScheduler.reconcile(app)
         CloudTeamRuntime.request(app)
         CloudFinancialSyncRuntime.request(app)

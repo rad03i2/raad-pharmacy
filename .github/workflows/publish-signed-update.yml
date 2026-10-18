@@ -69,6 +69,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Cache verified public Robolectric Android runtimes
+        if: steps.gate.outputs.publish == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: ${{ runner.os }}-raad-robolectric-4.17-sdk26-35-i7
+
       - name: Set up Gradle
         if: steps.gate.outputs.publish == 'true'
         uses: gradle/actions/setup-gradle@v4
@@ -191,7 +198,7 @@ jobs:
             echo "VersionCode: $code"
             echo "SigningCertificateSHA256: $signer"
             echo
-            echo "تحديث 3.3.22.23: إضافة الأرقام من جهات الاتصال داخل القائمة وحفظ موضع المتابعة، حجب الزبائن بإدارة رعد وطلبات واردة، تذكيرات قصيرة اختيارية مغلقة افتراضياً، وتقارير شهرية وفترات محددة."
+            echo "تحديث 3.3.22.24: تنقل أخف بين الأزرار الستة مع حفظ حالة التبويبات، وقائمة شراء علاجات مشتركة. تبقى المواد غير المشتراة للجولات القادمة، الصور محلية فقط، وتأكيد الشراء يحذف المادة من الجميع مع إعادة المحاولة تلقائياً عند انقطاع الإنترنت."
           } > "$RUNNER_TEMP/release-notes.txt"
           echo "RAAD_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
           echo "RAAD_RELEASE_NOTES=$RUNNER_TEMP/release-notes.txt" >> "$GITHUB_ENV"
