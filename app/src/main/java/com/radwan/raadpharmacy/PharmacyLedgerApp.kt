@@ -9,6 +9,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.rounded.ShoppingBag
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Assessment
 import androidx.compose.material.icons.rounded.BarChart
@@ -116,6 +117,8 @@ object Routes {
 @Composable
 fun PharmacyLedgerApp(
     vm: PharmacyLedgerViewModel = viewModel(),
+    shoppingShareId: String? = null,
+    onShoppingShareHandled: ()->Unit = {},
     notificationCustomerId: String? = null,
     notificationOpenSettings: Boolean = false,
     notificationOpenFollowup: Boolean = false,
@@ -129,6 +132,16 @@ fun PharmacyLedgerApp(
     val unlocked by vm.isUnlocked.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
+    var resumedShoppingShare by androidx.compose.runtime.saveable.rememberSaveable {androidx.compose.runtime.mutableStateOf<String?>(null)}
+    val effectiveShoppingShare=shoppingShareId ?: resumedShoppingShare
+    LaunchedEffect(unlocked,shoppingShareId) {
+        if(unlocked && shoppingShareId==null && resumedShoppingShare==null) {
+            resumedShoppingShare=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val owner=com.radwan.raadpharmacy.shopping.MedicineShoppingStore.get(context).identity()?.owner
+                com.radwan.raadpharmacy.shopping.ShoppingShareInbox(context).pending().firstOrNull {it.owner==null || it.owner==owner}?.request
+            }
+        }
+    }
     // If Android recreates the process without a restorable Navigation back stack,
     // reopen the active form from its durable local draft instead of dropping to Home.
     val restoredFormRoute = remember(context) { FormDraftStore.activeRoute(context) }
@@ -144,6 +157,10 @@ fun PharmacyLedgerApp(
         ) return@LaunchedEffect
         val active = FormDraftStore.activeRoute(context) ?: return@LaunchedEffect
         navController.navigate(active) { launchSingleTop = true }
+    }
+
+    LaunchedEffect(effectiveShoppingShare,unlocked) {
+        if(effectiveShoppingShare!=null && unlocked && FormDraftStore.activeRoute(context)==null) navController.navigateLedgerTab(Routes.SHOPPING)
     }
 
     LaunchedEffect(notificationCustomerId, notificationOpenSettings, notificationOpenFollowup, unlocked) {
@@ -205,7 +222,7 @@ fun PharmacyLedgerApp(
         LedgerNavigationItem(Routes.CUSTOMERS, "الزبائن", Icons.Rounded.Groups),
         LedgerNavigationItem(Routes.COLLECTIONS, "التحصيلات", Icons.Rounded.AccountBalanceWallet),
         LedgerNavigationItem(Routes.REPORTS, "التقارير", Icons.Rounded.BarChart),
-        LedgerNavigationItem(Routes.MONTHLY_REPORTS, "شهرية", Icons.Rounded.Assessment),
+        LedgerNavigationItem(Routes.SHOPPING, "الشراء", Icons.Rounded.ShoppingBag),
         LedgerNavigationItem(Routes.SETTINGS, "الضبط", Icons.Rounded.Settings)
     ) }
     val bottomRoutes = remember(bottomItems) { bottomItems.map { it.route }.toSet() }
@@ -339,7 +356,6 @@ fun PharmacyLedgerApp(
                             vm = vm,
                             onCustomers = { safeNavigate(Routes.CUSTOMERS) },
                             onActivity = { safeNavigate(Routes.ACTIVITY) },
-                            onShopping = { safeNavigate(Routes.SHOPPING) },
                             onAddCustomer = { safeNavigate(Routes.ADD_CUSTOMER) },
                             onSearch = { navController.navigate(Routes.search("open")) { launchSingleTop = true } },
                             onQuickDebt = { navController.navigate(Routes.search("debt")) { launchSingleTop = true } },
@@ -503,9 +519,9 @@ fun PharmacyLedgerApp(
                         )
                     }
                     composable(Routes.SHOPPING) { MedicineShoppingScreen(::backOrHome) }
-                    composable(Routes.MONTHLY_REPORTS) { MonthlyReportsScreen(vm) }
+                    composable(Routes.MONTHLY_REPORTS) { MonthlyReportsScreen(vm,::backOrHome) }
                     composable(Routes.REPORTS) {
-                        ReportsScreenV11(vm, onCustomer = { navController.navigate(Routes.customer(it)) })
+                        ReportsScreenV11(vm, onCustomer = { navController.navigate(Routes.customer(it)) }, onMonthly = { safeNavigate(Routes.MONTHLY_REPORTS) })
                     }
                     composable(
                         "${Routes.FOLLOWUP}?showAll={showAll}",
@@ -535,6 +551,14 @@ fun PharmacyLedgerApp(
                 }
             }
 
+            if(unlocked && effectiveShoppingShare!=null) {
+                val shoppingStore=remember(context) {com.radwan.raadpharmacy.shopping.MedicineShoppingStore.get(context)}
+                LaunchedEffect(shoppingStore) {shoppingStore.start();shoppingStore.request()}
+                com.radwan.raadpharmacy.ui.screens.ShoppingSharedComposer(shoppingStore,effectiveShoppingShare) {
+                    resumedShoppingShare=null
+                    onShoppingShareHandled()
+                }
+            }
             CloudActivityBannerHost(
                 onCustomerClick = { customerId ->
                     if (unlocked && vm.customer(customerId) != null) {

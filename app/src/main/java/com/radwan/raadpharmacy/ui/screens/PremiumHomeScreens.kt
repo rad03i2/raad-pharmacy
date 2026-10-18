@@ -111,7 +111,6 @@ fun HomeScreenV3(
     vm: PharmacyLedgerViewModel,
     onCustomers: () -> Unit,
     onActivity: () -> Unit,
-    onShopping: () -> Unit,
     onAddCustomer: () -> Unit,
     onSearch: () -> Unit,
     onQuickDebt: () -> Unit,
@@ -181,7 +180,7 @@ fun HomeScreenV3(
         contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 28.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { V3Header(today, vm, onActivity, onShopping) }
+        item { V3Header(today, vm, onActivity) }
         item {
             V3DebtHero(
                 totalDebt = vm.totalDebt(),
@@ -304,8 +303,7 @@ fun HomeScreenV3(
 private fun V3Header(
     today: String,
     vm: PharmacyLedgerViewModel,
-    onActivity: () -> Unit,
-    onShopping: () -> Unit
+    onActivity: () -> Unit
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -316,13 +314,6 @@ private fun V3Header(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.size(48.dp).clickable(onClick = onShopping)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.ShoppingBag, "قائمة شراء العلاجات", tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.size(24.dp))
-                }
-            }
             HomeVoiceLedgerActionV211(vm)
             Surface(
                 shape = CircleShape,

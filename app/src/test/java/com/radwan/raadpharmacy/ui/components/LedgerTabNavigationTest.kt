@@ -24,7 +24,7 @@ import org.robolectric.annotation.Config
 @Config(sdk=[35],qualifiers="w420dp-h900dp-mdpi")
 class LedgerTabNavigationTest {
     @get:Rule val rule=createComposeRule()
-    private val routes=listOf("home","customers","collections","reports","monthly_reports","settings")
+    private val routes=listOf("home","customers","collections","reports","medicine_shopping","settings")
     @Test fun switchingTabsRestoresSearchAndMidListInsteadOfReopeningAtTheTop() {
         rule.setContent {
             val nav=rememberNavController()
@@ -45,7 +45,7 @@ class LedgerTabNavigationTest {
         rule.onNodeWithTag("tab-customers").performClick()
         rule.onNodeWithTag("query-customers").performTextInput("محفوظ")
         rule.onNodeWithTag("list-customers").performScrollToIndex(50)
-        rule.onNodeWithTag("tab-monthly_reports").performClick()
+        rule.onNodeWithTag("tab-medicine_shopping").performClick()
         rule.onNodeWithTag("tab-settings").performClick()
         rule.onNodeWithTag("tab-customers").performClick()
         rule.onNodeWithTag("query-customers").assertTextEquals("محفوظ")

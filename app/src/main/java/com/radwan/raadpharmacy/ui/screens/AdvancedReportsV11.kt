@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,7 +72,8 @@ import java.util.Locale
 @Composable
 fun ReportsScreenV11(
     vm: PharmacyLedgerViewModel,
-    onCustomer: (String) -> Unit
+    onCustomer: (String) -> Unit,
+    onMonthly: () -> Unit = {}
 ) {
     val report by vm.advancedReport.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
@@ -89,8 +91,8 @@ fun ReportsScreenV11(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     ReportPeriodV11.entries.forEach { option ->
@@ -100,6 +102,8 @@ fun ReportsScreenV11(
                             label = { Text(option.label) }
                         )
                     }
+                    FilterChip(selected=false,onClick=onMonthly,label={Text("التقارير الشهرية")},
+                        leadingIcon={Icon(Icons.Rounded.ReceiptLong,null,Modifier.size(18.dp))})
                 }
             }
 
@@ -577,7 +581,8 @@ private fun V11AreasCard(
 private fun V11CustomersCard(
     items: List<CustomerDebtSummary>,
     hideAmounts: Boolean,
-    onCustomer: (String) -> Unit
+    onCustomer: (String) -> Unit,
+    onMonthly: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),

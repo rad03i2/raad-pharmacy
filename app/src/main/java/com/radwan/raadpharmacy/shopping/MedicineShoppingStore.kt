@@ -1,6 +1,7 @@
 package com.radwan.raadpharmacy.shopping
 
 import android.content.Context
+import com.radwan.raadpharmacy.suppliers.*
 import androidx.work.*
 import com.radwan.raadpharmacy.cloud.CloudDeviceStore
 import com.radwan.raadpharmacy.cloud.CloudUiEvents
@@ -21,7 +22,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal data class ShoppingUiState(val identity: ShoppingIdentity? = null, val items: List<ShoppingItem> = emptyList(),
-    val pending: Int = 0, val syncing: Boolean = false, val lastSyncedAt: Long = 0, val error: String? = null)
+    val pending: Int = 0, val syncing: Boolean = false, val lastSyncedAt: Long = 0, val error: String? = null,
+    val trash: List<ShoppingTrash> = emptyList(),val suppliers: List<SupplierEntry> = emptyList())
 
 /** Independent metadata queue + realtime. Never calls financial sync, notifications, Storage or backup upload. */
 internal class MedicineShoppingStore internal constructor(context: Context,
@@ -31,8 +33,10 @@ internal class MedicineShoppingStore internal constructor(context: Context,
     private val enqueueWork: () -> Unit = { ShoppingSyncScheduler.enqueue(context.applicationContext) }) {
     private val app=context.applicationContext
     private val prefs=app.getSharedPreferences(preferenceName,Context.MODE_PRIVATE)
-    internal val local=ShoppingLocalStore(app,root)
+    private fun clock(): Long = System.currentTimeMillis()+prefs.getLong("server-clock-offset",0)
+    internal val local=ShoppingLocalStore(app,root,::clock)
     internal val photos=ShoppingPhotos(app,root)
+    internal val suppliers=SupplierLocalStore(app,if(root==File(app.noBackupFilesDir,"medicine-shopping")) "supplier-ledger.db" else File(root,"suppliers.db").absolutePath)
     private val client get()=clientOverride ?: SupabaseProvider.client
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val started=AtomicBoolean(false)
@@ -59,8 +63,8 @@ internal class MedicineShoppingStore internal constructor(context: Context,
         val identity=identity()
         val previous=mutable.value.takeIf { it.identity==identity }
         try {
-            mutable.value=ShoppingUiState(identity,identity?.let(local::list).orEmpty(),identity?.let { local.pending(it).size } ?: 0,
-                syncing && identity!=null, if(previous==null) 0 else synced, error.takeIf { identity!=null })
+            mutable.value=ShoppingUiState(identity,identity?.let(local::list).orEmpty(),identity?.let { local.pending(it).size+local.changes(it).size+suppliers.list(it).count {r->r.pending} } ?: 0,
+                syncing && identity!=null, if(previous==null) 0 else synced, error.takeIf { identity!=null },identity?.let(local::trash).orEmpty(),identity?.let(suppliers::list).orEmpty())
         } catch(_: android.database.sqlite.SQLiteException) {
             mutable.value=(previous ?: ShoppingUiState(identity)).copy(syncing=false,
                 error="تعذر فتح التخزين المحلي لقائمة الشراء؛ لم يُحذف الملف. أعد تشغيل التطبيق أو تواصل مع الدعم.")
@@ -70,7 +74,7 @@ internal class MedicineShoppingStore internal constructor(context: Context,
     fun start() {
         if(!started.compareAndSet(false,true)) return
         scope.launch {
-            try { cacheMutex.withLock { photos.reconcile(local); publishLocal(syncing=false,error=null) } }
+            try { cacheMutex.withLock { local.expire(); photos.reconcile(local); publishLocal(syncing=false,error=null) } }
             catch(cancelled: CancellationException) { throw cancelled }
             catch(_: Exception) { cacheMutex.withLock { publishLocal(syncing=false,error="تعذر فتح قائمة الشراء؛ أعد المحاولة.") } }
             for(ignored in signals) { sync() }
@@ -98,16 +102,18 @@ internal class MedicineShoppingStore internal constructor(context: Context,
         runCatching { ShoppingSyncScheduler.ensure(app) }
     }
     fun request() { signals.trySend(Unit) }
-    suspend fun add(id: String,title: String,note: String,hasPhoto: Boolean) = withContext(Dispatchers.IO) {
+    suspend fun add(id: String,title: String,note: String,hasPhoto: Boolean,expected: ShoppingIdentity?=null,shareRequest: String?=null) = withContext(Dispatchers.IO) {
         cacheMutex.withLock {
             val owner=checkNotNull(identity()) { "انتظر اكتمال الاتصال بحساب الصيدلية أولاً." }
+            check(expected==null || owner==expected) {"تغيّر حساب الصيدلية؛ لم تُرسل المادة إلى حساب آخر."}
+            if(shareRequest!=null && local.hasSharedCommit(owner,shareRequest,id)) {photos.discardDraft(id);return@withLock}
             check(title.trim().isNotEmpty() || hasPhoto) { "أضف اسم العلاج أو صورته." }
             val item=ShoppingItem(id,title.trim(),note.trim(),hasPhoto,System.currentTimeMillis(),"أنت",true)
             if(!local.alreadySaved(owner,item)) {
                 if(hasPhoto) photos.attach(owner.pharmacy,id)
-                try { local.add(owner,item) }
+                try { local.add(owner,item,shareRequest) }
                 catch(error: Exception) { if(hasPhoto) photos.file(owner.pharmacy,id).delete(); throw error }
-            }
+            } else if(shareRequest!=null) local.add(owner,item,shareRequest)
             photos.discardDraft(id)
             publishLocal(error=null)
         }
@@ -122,6 +128,22 @@ internal class MedicineShoppingStore internal constructor(context: Context,
         }
         request(); runCatching { enqueueWork() }
     }
+    suspend fun purchase(id: String) = withContext(Dispatchers.IO) {
+        cacheMutex.withLock {val owner=checkNotNull(identity()) {"تعذر تحديد حساب الصيدلية."}
+            local.purchase(owner,id);publishLocal(error=null)}
+        request();runCatching {enqueueWork()}
+    }
+    suspend fun restore(id: String) = withContext(Dispatchers.IO) {
+        cacheMutex.withLock {val owner=checkNotNull(identity()) {"تعذر تحديد حساب الصيدلية."}
+            local.restore(owner,id);publishLocal(error=null)}
+        request();runCatching {enqueueWork()}
+    }
+    suspend fun addSupplier(row: SupplierEntry) = withContext(Dispatchers.IO) {
+        cacheMutex.withLock {val owner=checkNotNull(identity()) {"انتظر اكتمال الاتصال بحساب الصيدلية أولاً."}
+            suppliers.add(owner,row);publishLocal(error=null)}
+        request();runCatching {enqueueWork()}
+    }
+    suspend fun refreshLocal() = withContext(Dispatchers.IO) {cacheMutex.withLock {local.expire();photos.reconcile(local);publishLocal()}}
     private fun verify(owner: ShoppingIdentity) {
         check(client.auth.currentSessionOrNull()?.user?.id==owner.owner) { "SHOPPING_SESSION_CHANGED" }
         check(identity()==owner) { "SHOPPING_SESSION_CHANGED" }
@@ -132,13 +154,15 @@ internal class MedicineShoppingStore internal constructor(context: Context,
             val user=client.auth.currentSessionOrNull()?.user?.id ?: return@withLock false
             cacheMutex.withLock { publishLocal(syncing=true,error=null) }
             suspend fun snapshot(): ShoppingSnapshot = withTimeout(12_000L) {
-                client.postgrest.rpc("medicine_shopping_context").decodeAs<ShoppingSnapshot>()
+                client.postgrest.rpc("medicine_shopping_context_v25").decodeAs<ShoppingSnapshot>()
             }
             val first=snapshot()
             check(first.owner==user && client.auth.currentSessionOrNull()?.user?.id==user) { "SHOPPING_SESSION_CHANGED" }
-            check(prefs.edit().putString("tenant:$user",first.pharmacy).commit())
+            check(prefs.edit().putString("tenant:$user",first.pharmacy).apply {
+                if(first.serverTime>0) putLong("server-clock-offset",first.serverTime-System.currentTimeMillis())
+            }.commit())
             val active=ShoppingIdentity(user,first.pharmacy)
-            cacheMutex.withLock { verify(active); local.merge(active,first); photos.reconcile(local); publishLocal(syncing=true,error=null) }
+            cacheMutex.withLock { verify(active); local.merge(active,first); suppliers.merge(active,first.suppliers);local.expire(); photos.reconcile(local); publishLocal(syncing=true,error=null) }
             val operations=cacheMutex.withLock { local.pending(active).take(40) }
             var conflict=false
             operations.forEach { op ->
@@ -152,7 +176,6 @@ internal class MedicineShoppingStore internal constructor(context: Context,
                     }
                     cacheMutex.withLock {
                         verify(active); local.acknowledge(active,op,receipt)
-                        if(!receipt.active) photos.delete(active.pharmacy,op.item.id)
                         publishLocal(syncing=true,error=null)
                     }
                 } catch(cancelled: CancellationException) { throw cancelled }
@@ -160,12 +183,35 @@ internal class MedicineShoppingStore internal constructor(context: Context,
                     if(error.message.orEmpty().contains("SHOPPING_ID_CONFLICT")) conflict=true else throw error
                 }
             }
+            val changes=cacheMutex.withLock {local.changes(active).take(40)}
+            var expiredRestore=false
+            for(op in changes) {
+                verify(active)
+                val receipt=withTimeout(12_000L) {
+                    client.postgrest.rpc("change_medicine_shopping_v25",buildJsonObject {
+                        put("operation_id",op.operation);put("item_id",op.item.id);put("change_action",op.action)
+                        put("deletion_token",op.deletionId);put("item_title",op.item.title);put("item_note",op.item.note)
+                        put("local_photo",op.item.hasPhoto);put("deleted_at_ms",op.deletedAt)
+                    }).decodeAs<ShoppingChangeReceipt>()
+                }
+                cacheMutex.withLock {verify(active);local.acknowledgeChange(active,op,receipt)}
+                if(op.action=="RESTORE" && !receipt.active) expiredRestore=true
+            }
+            val supplierOperations=cacheMutex.withLock {suppliers.list(active).filter {it.pending}.take(40)}
+            for(row in supplierOperations) {
+                verify(active)
+                val receipt=withTimeout(12_000L) {client.postgrest.rpc("add_supplier_ledger_entry",buildJsonObject {
+                    put("entry_id",row.id);put("supplier_name",row.supplier);put("entry_kind",row.kind)
+                    put("entry_amount",row.amount);put("entry_day",row.day);put("entry_note",row.note)
+                }).decodeAs<ShoppingReceipt>()}
+                cacheMutex.withLock {verify(active);suppliers.acknowledge(active,row,receipt)}
+            }
             val after=snapshot()
             cacheMutex.withLock {
-                verify(active); local.merge(active,after); photos.reconcile(local)
-                publishLocal(syncing=false,error=if(conflict) "تعارض في مادة معلقة؛ لم يُستبدل أي نص موجود." else null,synced=System.currentTimeMillis())
+                verify(active); local.merge(active,after); suppliers.merge(active,after.suppliers);local.expire(); photos.reconcile(local)
+                publishLocal(syncing=false,error=if(conflict) "تعارض في مادة معلقة؛ لم يُستبدل أي نص موجود." else if(expiredRestore) "تعذرت استعادة مادة انتهت مهلتها أو حُذفت نهائياً من جهاز أقدم." else null,synced=System.currentTimeMillis())
             }
-            val pending=cacheMutex.withLock { local.pending(active).isNotEmpty() }
+            val pending=cacheMutex.withLock { local.pending(active).isNotEmpty() || local.changes(active).isNotEmpty() || suppliers.list(active).any {it.pending} }
             if(pending && !conflict) request()
             !pending && !conflict
         } catch(timeout: TimeoutCancellationException) {

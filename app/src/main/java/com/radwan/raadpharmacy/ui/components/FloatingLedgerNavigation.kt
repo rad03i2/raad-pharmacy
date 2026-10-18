@@ -79,7 +79,7 @@ internal fun FloatingLedgerNavigation(items: List<LedgerNavigationItem>, selecte
                                 "customers" -> Icons.Outlined.Groups
                                 "collections" -> Icons.Outlined.AccountBalanceWallet
                                 "reports" -> Icons.Outlined.BarChart
-                                "monthly_reports" -> Icons.Outlined.Assessment
+                                "medicine_shopping" -> Icons.Outlined.ShoppingBag
                                 else -> Icons.Outlined.Settings
                             } }
                             Column(Modifier.weight(1f).fillMaxHeight()

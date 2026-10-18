@@ -51,5 +51,7 @@ jobs:
           export SHOPPING_FIXTURE_URL="${FIXTURE_DB_URL%/postgres}/raad_shopping_fixture"
           psql "$SHOPPING_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/credit-control-fixture.sql
           psql "$SHOPPING_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261018030202_medicine_shopping.sql
+          psql "$SHOPPING_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261018084444_shopping_recovery_supplier_reports.sql
           python supabase/tests/shopping-integration.py
+          python supabase/tests/shopping-v25-integration.py
       # No production credentials, real financial fixtures or backup artifacts.

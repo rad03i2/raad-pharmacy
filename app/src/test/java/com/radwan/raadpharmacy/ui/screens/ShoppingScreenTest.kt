@@ -45,16 +45,18 @@ class ShoppingScreenTest {
     @get:Rule val rule=createComposeRule()
     private val identity=ShoppingIdentity("fixture","00000000-0000-4000-8000-000000000001")
     private val rows=(1..70).map {ShoppingItem(UUID.randomUUID().toString(),"علاج رقم $it", "علبتان • تركيز 500 ملغ",false,1_792_100_000_000L,"رعد")}
+    @Before fun resetFileProviderSandbox() {resetProviderRoots()}
     @Test fun purchasingMidListKeepsNeighbourAndSearchState() {
         var state by mutableStateOf(ShoppingUiState(identity,rows,lastSyncedAt=100))
         rule.setContent {PharmacyLedgerTheme(darkTheme=false) {CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
             Box(Modifier.width(380.dp).testTag("shopping-preview")) { ShoppingListContent(state,{},{},{id->state=state.copy(items=state.items.filterNot {it.id==id})},{}) }
         }}}
         rule.onNodeWithTag("shopping-list").performScrollToIndex(35)
-        rule.onNodeWithContentDescription("تم شراء علاج رقم 36").performClick()
+        hold("تم شراء علاج رقم 36")
         rule.waitForIdle();rule.onNodeWithText("علاج رقم 37").assertIsDisplayed()
         rule.onNodeWithText("علاج رقم 1").assertDoesNotExist()
         save("shopping-light-list.png")
+        rule.onNodeWithContentDescription("بحث في قائمة الشراء").performClick()
         rule.onNodeWithText("ابحث عن علاج أو ملاحظة").performTextInput("رقم 60")
         rule.onNodeWithText("علاج رقم 60").assertIsDisplayed()
         rule.onNodeWithText("نتائج البحث • 1").assertExists()
@@ -64,8 +66,8 @@ class ShoppingScreenTest {
         var requested: String?=null
         rule.setContent {PharmacyLedgerTheme { ShoppingListContent(state,{},{},{requested=it},{}) }}
         rule.onNodeWithTag("shopping-list").performScrollToIndex(35)
-        rule.onNodeWithContentDescription("تم شراء علاج رقم 36").performClick()
-        assertEquals(rows[35].id,requested) // The confirmation was cancelled; no data was changed.
+        hold("تم شراء علاج رقم 36")
+        assertEquals(rows[35].id,requested) // Controlled boundary: hold finished but this fixture leaves the row unchanged.
         rule.onNodeWithTag("shopping-list").performScrollToIndex(60)
         rule.runOnIdle {state=state.copy(items=state.items.filterNot {it.id==requested})}
         rule.waitForIdle()
@@ -123,8 +125,48 @@ class ShoppingScreenTest {
             rule.onNodeWithContentDescription("إغلاق الإضافة").performClick();assertTrue(dismissed)
             assertTrue(File(root,"drafts").listFiles().orEmpty().isEmpty())
             image.delete()
-        } finally {store.local.close();root.deleteRecursively();runBlocking {client.close()}}
+        } finally {store.local.close();store.suppliers.close();root.deleteRecursively();runBlocking {client.close()}}
+    }
+    @Test fun shortPressAndCancelledHoldNeverPurchaseButFullSecondCommitsOnce() {
+        var count=0
+        rule.setContent {PharmacyLedgerTheme {HoldToPurchase("اختبار") {count++}}}
+        rule.mainClock.autoAdvance=false
+        val button=rule.onNodeWithContentDescription("تم شراء اختبار")
+        button.performTouchInput {down(center)}
+        rule.mainClock.advanceTimeBy(600)
+        rule.onRoot().performTouchInput {up()}
+        rule.mainClock.advanceTimeBy(200)
+        assertEquals(0,count)
+        button.performTouchInput {down(center)}
+        rule.mainClock.advanceTimeBy(1100)
+        assertEquals(1,count)
+        rule.mainClock.advanceTimeBy(2000)
+        assertEquals(1,count)
+        rule.onRoot().performTouchInput {up()}
+        rule.mainClock.autoAdvance=true
+    }
+    @Test fun recentlyDeletedMaterialHasAnActualRestoreAction() {
+        var restored=""
+        val trash=ShoppingTrash(rows.first(),UUID.randomUUID().toString(),System.currentTimeMillis()+86_000_000)
+        rule.setContent {PharmacyLedgerTheme {ShoppingListContent(ShoppingUiState(identity,emptyList(),trash=listOf(trash)),{},{},{},{},onRestore={restored=it})}}
+        rule.onNodeWithContentDescription("المحذوفة حديثاً").performClick()
+        rule.onNodeWithText("استعادة").performClick()
+        assertEquals(rows.first().id,restored)
+    }
+    private fun hold(description: String) {
+        rule.mainClock.autoAdvance=false
+        rule.onNodeWithContentDescription(description).performTouchInput {down(center)}
+        rule.mainClock.advanceTimeBy(1100)
+        rule.onRoot().performTouchInput {up()}
+        rule.mainClock.autoAdvance=true
+        rule.waitForIdle()
     }
     private fun save(name:String) {val bitmap=rule.onNodeWithTag("shopping-preview").captureToImage().asAndroidBitmap()
         File("build/reports/shopping-preview").apply {mkdirs()}.resolve(name).outputStream().use {bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
+    private fun resetProviderRoots() {
+        // AndroidX caches absolute roots; Robolectric assigns a different data directory to each test.
+        val field=FileProvider::class.java.getDeclaredField("sCache").apply {isAccessible=true}
+        (field.get(null) as MutableMap<*,*>).clear()
+    }
+
 }

@@ -7,6 +7,9 @@ import android.database.sqlite.SQLiteDatabaseCorruptException
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import com.radwan.raadpharmacy.suppliers.SupplierEntry
 import java.io.File
 import java.util.UUID
 
@@ -14,15 +17,25 @@ import java.util.UUID
 internal data class ShoppingItem(val id: String, val title: String, val note: String = "", val hasPhoto: Boolean = false,
     val createdAt: Long = 0, val createdBy: String = "", val pending: Boolean = false)
 @Serializable
-internal data class ShoppingSnapshot(val owner: String, val pharmacy: String, val items: List<ShoppingItem>)
+internal data class ShoppingSnapshot(val owner: String, val pharmacy: String, val items: List<ShoppingItem>,
+    val trash: List<ShoppingTrash> = emptyList(), val suppliers: List<SupplierEntry> = emptyList(), val serverTime: Long = 0)
 @Serializable
 internal data class ShoppingReceipt(val owner: String, val pharmacy: String, val id: String, val active: Boolean)
+@Serializable
+internal data class ShoppingTrash(val item: ShoppingItem,val deletionId: String,val expiresAt: Long)
+@Serializable
+internal data class ShoppingChange(val operation: String,val item: ShoppingItem,val action: String,
+    val deletionId: String,val deletedAt: Long)
+@Serializable
+internal data class ShoppingChangeReceipt(val owner: String,val pharmacy: String,val id: String,
+    val operation: String,val active: Boolean,val trashed: Boolean)
 internal data class ShoppingIdentity(val owner: String, val pharmacy: String)
 internal data class ShoppingOperation(val item: ShoppingItem, val deleting: Boolean)
 
 /** A separate database, excluded from Android backup. Never opens or migrates the financial Room database. */
-internal class ShoppingLocalStore(context: Context, directory: File = File(context.noBackupFilesDir,"medicine-shopping")) :
-    SQLiteOpenHelper(context, File(directory.apply { mkdirs() },"shopping.db").absolutePath, null, 1, DatabaseErrorHandler {
+internal class ShoppingLocalStore(context: Context, directory: File = File(context.noBackupFilesDir,"medicine-shopping"),
+    private val clock: ()->Long = System::currentTimeMillis) :
+    SQLiteOpenHelper(context, File(directory.apply { mkdirs() },"shopping.db").absolutePath, null, 2, DatabaseErrorHandler {
         // Never let the default Android corruption handler silently delete unsent shopping data.
         throw SQLiteDatabaseCorruptException("تعذر فتح مخزن قائمة الشراء؛ احتُفظ بالملف دون إعادة تهيئته.")
     }) {
@@ -32,8 +45,69 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
             note TEXT NOT NULL,photo INTEGER NOT NULL,created_at INTEGER NOT NULL,created_by TEXT NOT NULL,
             state TEXT NOT NULL CHECK(state IN ('CREATE','SYNCED','DELETE')),PRIMARY KEY(pharmacy,id))""")
         db.execSQL("CREATE INDEX items_scope ON items(pharmacy,state,created_at,id)")
+        createRecovery(db)
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = error("Unsupported shopping database version")
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { if(oldVersion<2) createRecovery(db) }
+    private fun createRecovery(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE trash(pharmacy TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(pharmacy,id))")
+        db.execSQL("CREATE TABLE changes(sequence INTEGER PRIMARY KEY AUTOINCREMENT,pharmacy TEXT NOT NULL,owner TEXT NOT NULL,id TEXT NOT NULL,operation TEXT NOT NULL UNIQUE,payload TEXT NOT NULL)")
+        db.execSQL("CREATE INDEX changes_scope ON changes(pharmacy,owner,sequence)")
+        db.execSQL("CREATE TABLE shared_commits(pharmacy TEXT NOT NULL,request TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(pharmacy,request,id))")
+    }
+    private fun protected(pharmacy: String): Set<String> = readableDatabase.rawQuery(
+        "SELECT id FROM changes WHERE pharmacy=?",arrayOf(pharmacy)).use { c -> buildSet {while(c.moveToNext()) add(c.getString(0))} }
+    private fun allTrash(pharmacy: String): List<ShoppingTrash> = readableDatabase.rawQuery(
+        "SELECT payload FROM trash WHERE pharmacy=?",arrayOf(pharmacy)).use { c -> buildList {
+            while(c.moveToNext()) add(Json.decodeFromString<ShoppingTrash>(c.getString(0)))
+        } }
+    @Synchronized fun trash(identity: ShoppingIdentity,now: Long=clock()): List<ShoppingTrash> =
+        allTrash(identity.pharmacy).filter {it.expiresAt>now}.sortedByDescending {it.expiresAt}
+    @Synchronized fun changes(identity: ShoppingIdentity): List<ShoppingChange> = readableDatabase.rawQuery(
+        "SELECT payload FROM changes WHERE pharmacy=? AND owner=? ORDER BY sequence",arrayOf(identity.pharmacy,identity.owner)).use { c ->
+        buildList {while(c.moveToNext()) add(Json.decodeFromString<ShoppingChange>(c.getString(0)))} }
+    private fun putTrash(pharmacy: String,row: ShoppingTrash) { writableDatabase.insertWithOnConflict("trash",null,ContentValues().apply {
+        put("pharmacy",pharmacy);put("id",row.item.id);put("payload",Json.encodeToString(row)) },SQLiteDatabase.CONFLICT_REPLACE) }
+    private fun putChange(identity: ShoppingIdentity,row: ShoppingChange) { writableDatabase.insertOrThrow("changes",null,ContentValues().apply {
+        put("pharmacy",identity.pharmacy);put("owner",identity.owner);put("id",row.item.id);put("operation",row.operation);put("payload",Json.encodeToString(row)) }) }
+    @Synchronized fun purchase(identity: ShoppingIdentity,id: String,now: Long=clock()) {
+        val row=list(identity).firstOrNull {it.id==id} ?: return
+        val operation=UUID.randomUUID().toString()
+        val db=writableDatabase;db.beginTransaction()
+        try {
+            putTrash(identity.pharmacy,ShoppingTrash(row,operation,now+86_400_000L))
+            putChange(identity,ShoppingChange(operation,row,"TRASH",operation,now))
+            db.delete("items","pharmacy=? AND id=?",arrayOf(identity.pharmacy,id));db.setTransactionSuccessful()
+        } finally {db.endTransaction()}
+    }
+    @Synchronized fun restore(identity: ShoppingIdentity,id: String,now: Long=clock()) {
+        val held=trash(identity,now).firstOrNull {it.item.id==id} ?: error("انتهت مهلة استعادة المادة.")
+        val db=writableDatabase;db.beginTransaction()
+        try {
+            putChange(identity,ShoppingChange(UUID.randomUUID().toString(),held.item,"RESTORE",held.deletionId,held.expiresAt-86_400_000L))
+            db.insertWithOnConflict("items",null,values(identity,held.item,"SYNCED"),SQLiteDatabase.CONFLICT_REPLACE)
+            db.delete("trash","pharmacy=? AND id=?",arrayOf(identity.pharmacy,id));db.setTransactionSuccessful()
+        } finally {db.endTransaction()}
+    }
+    @Synchronized fun acknowledgeChange(identity: ShoppingIdentity,op: ShoppingChange,r: ShoppingChangeReceipt) {
+        check(r.owner==identity.owner && r.pharmacy==identity.pharmacy && r.id==op.item.id && r.operation==op.operation) {"SHOPPING_RECEIPT_MISMATCH"}
+        writableDatabase.delete("changes","pharmacy=? AND owner=? AND operation=?",arrayOf(identity.pharmacy,identity.owner,op.operation))
+    }
+    @Synchronized fun expire(now: Long=clock()) {
+        val expired=readableDatabase.rawQuery("SELECT pharmacy,id,payload FROM trash",null).use { c -> buildList {
+            while(c.moveToNext()) if(Json.decodeFromString<ShoppingTrash>(c.getString(2)).expiresAt<=now) add(c.getString(0) to c.getString(1)) } }
+        expired.forEach { (pharmacy,id) ->
+            // For an uploaded purchase, another device may have restored it while this one was offline.
+            // Hide it at the deadline; remove cached content/photo only after a fresh server snapshot.
+            val unsent=readableDatabase.rawQuery("SELECT payload FROM changes WHERE pharmacy=? AND id=?",arrayOf(pharmacy,id)).use { c ->
+                var purchase=false;while(c.moveToNext()) if(Json.decodeFromString<ShoppingChange>(c.getString(0)).action=="TRASH") purchase=true;purchase }
+            if(unsent) writableDatabase.delete("trash","pharmacy=? AND id=?",arrayOf(pharmacy,id))
+        }
+        // A durable opaque delete can still reach the server after a long offline interval.
+        val redactions=readableDatabase.rawQuery("SELECT operation,payload FROM changes",null).use { c -> buildList {
+            while(c.moveToNext()) { val op=Json.decodeFromString<ShoppingChange>(c.getString(1))
+                if(op.action=="TRASH" && op.deletedAt+86_400_000L<=now) add(op.copy(item=ShoppingItem(op.item.id,"مادة"))) } } }
+        redactions.forEach { op -> writableDatabase.execSQL("UPDATE changes SET payload=? WHERE operation=?",arrayOf(Json.encodeToString(op),op.operation)) }
+    }
     private fun values(identity: ShoppingIdentity, item: ShoppingItem, state: String) = ContentValues().apply {
         put("pharmacy",identity.pharmacy); put("id",item.id); put("owner",identity.owner); put("title",item.title)
         put("note",item.note); put("photo",if(item.hasPhoto) 1 else 0); put("created_at",item.createdAt)
@@ -45,7 +119,7 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
             c.getLong(4),c.getString(5),c.getString(6)!="SYNCED"),c.getString(6),c.getString(7))) }
     }
     @Synchronized fun list(identity: ShoppingIdentity): List<ShoppingItem> = query(identity.pharmacy)
-        .filter { it.second!="DELETE" && (it.second=="SYNCED" || it.third==identity.owner) }.map { it.first }
+        .filter { it.second!="DELETE" && (it.second=="SYNCED" || it.third==identity.owner) }.map { it.first.copy(pending=it.first.pending || it.first.id in protected(identity.pharmacy)) }
     @Synchronized fun pending(identity: ShoppingIdentity): List<ShoppingOperation> = query(identity.pharmacy)
         .filter { it.second=="DELETE" || (it.second=="CREATE" && it.third==identity.owner) }
         .sortedBy { if(it.second=="DELETE") 0 else 1 }.map { ShoppingOperation(it.first,it.second=="DELETE") }
@@ -56,10 +130,17 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
         }
         return true
     }
-    @Synchronized fun add(identity: ShoppingIdentity, item: ShoppingItem) {
+    @Synchronized fun hasSharedCommit(identity: ShoppingIdentity,request: String,id: String): Boolean = readableDatabase.rawQuery(
+        "SELECT 1 FROM shared_commits WHERE pharmacy=? AND request=? AND id=?",arrayOf(identity.pharmacy,request,id)).use {it.moveToFirst()}
+    @Synchronized fun add(identity: ShoppingIdentity, item: ShoppingItem,shareRequest: String?=null) {
         UUID.fromString(identity.pharmacy); UUID.fromString(item.id)
         require(item.title.length<=240 && item.note.length<=1000 && (item.title.isNotBlank() || item.hasPhoto))
-        if(!alreadySaved(identity,item)) writableDatabase.insertOrThrow("items",null,values(identity,item,"CREATE"))
+        val db=writableDatabase;db.beginTransaction()
+        try {
+            if(!alreadySaved(identity,item)) db.insertOrThrow("items",null,values(identity,item,"CREATE"))
+            if(shareRequest!=null) {UUID.fromString(shareRequest);db.execSQL("INSERT OR IGNORE INTO shared_commits VALUES(?,?,?)",arrayOf(identity.pharmacy,shareRequest,item.id))}
+            db.setTransactionSuccessful()
+        } finally {db.endTransaction()}
     }
     @Synchronized fun complete(identity: ShoppingIdentity, id: String) {
         // Persist an opaque delete intent BEFORE erasing a file; a crash cannot re-create the content.
@@ -84,22 +165,35 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
         db.beginTransaction()
         try {
             val before=query(identity.pharmacy).associateBy { it.first.id }
+            val held=protected(identity.pharmacy)
             val ids=snapshot.items.map { it.id }.toSet()
-            before.values.filter { it.second=="SYNCED" && it.first.id !in ids }.forEach {
+            val trashIds=snapshot.trash.map {it.item.id}.toSet()
+            require(trashIds.size==snapshot.trash.size && trashIds.intersect(ids).isEmpty())
+            snapshot.trash.forEach { UUID.fromString(it.item.id);UUID.fromString(it.deletionId)
+                require(it.item.title.length<=240 && it.item.note.length<=1000) }
+            db.rawQuery("SELECT id FROM trash WHERE pharmacy=?",arrayOf(identity.pharmacy)).use { c ->
+                val remove=buildList {while(c.moveToNext()) if(c.getString(0) !in held) add(c.getString(0))}
+                remove.forEach {db.delete("trash","pharmacy=? AND id=?",arrayOf(identity.pharmacy,it))}
+            }
+            snapshot.trash.filter {it.item.id !in held}.forEach {putTrash(identity.pharmacy,it)}
+            before.values.filter { it.second=="SYNCED" && it.first.id !in ids && it.first.id !in held }.forEach {
                 db.delete("items","pharmacy=? AND id=?",arrayOf(identity.pharmacy,it.first.id))
             }
             snapshot.items.forEach { row ->
                 val old=before[row.id]
                 // A stale snapshot may contain an item the user just bought. Never revive a pending delete.
-                if(old==null || old.second=="SYNCED") db.insertWithOnConflict("items",null,
+                if(row.id !in held && (old==null || old.second=="SYNCED")) db.insertWithOnConflict("items",null,
                     values(identity,row,"SYNCED"),SQLiteDatabase.CONFLICT_REPLACE)
             }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
     }
-    @Synchronized fun knownIds(): Set<String> = readableDatabase.rawQuery("SELECT id FROM items",null).use { c ->
+    @Synchronized fun knownIds(): Set<String> = readableDatabase.rawQuery("SELECT id FROM items UNION SELECT id FROM trash UNION SELECT id FROM changes",null).use { c ->
         buildSet {while(c.moveToNext()) add(c.getString(0))}
     }
     @Synchronized fun activePhotoIds(pharmacy: String): Set<String> = query(pharmacy).filter {
-        it.second!="DELETE" && it.first.hasPhoto }.map { it.first.id }.toSet()
+        it.second!="DELETE" && it.first.hasPhoto }.map { it.first.id }.toSet() +
+        allTrash(pharmacy).filter {it.item.hasPhoto}.map {it.item.id} +
+        readableDatabase.rawQuery("SELECT payload FROM changes WHERE pharmacy=?",arrayOf(pharmacy)).use {c -> buildSet {
+            while(c.moveToNext()) {val op=Json.decodeFromString<ShoppingChange>(c.getString(0));if(op.item.hasPhoto) add(op.item.id)} } }
 }

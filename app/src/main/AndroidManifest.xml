@@ -65,6 +65,24 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <activity android:name=".shopping.ShoppingShareActivity" android:exported="true"
+            android:label="إضافة مادة لقائمة الشراء" android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+        <activity-alias android:name=".shopping.ShoppingQuickShare" android:targetActivity=".shopping.ShoppingShareActivity"
+            android:exported="true" android:label="حفظ سريع لقائمة الشراء">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity-alias>
         <activity android:name=".backup.BackupRecoveryActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"
