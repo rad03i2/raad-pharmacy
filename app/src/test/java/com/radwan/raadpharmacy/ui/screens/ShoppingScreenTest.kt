@@ -105,7 +105,7 @@ class ShoppingScreenTest {
             rule.onNodeWithText("حفظ وإغلاق").assertIsEnabled()
             rule.onNodeWithText("اسم العلاج").performTextInput("باراسيتامول 500 ملغ")
             rule.onNodeWithText("الكمية أو ملاحظة (اختياري)").performTextInput("علبتان • بديل اقتصادي")
-            val preview=rule.onRoot().captureToImage().asAndroidBitmap()
+            val preview=rule.onNodeWithTag("shopping-composer").captureToImage().asAndroidBitmap()
             File("build/reports/shopping-preview").apply {mkdirs()}.resolve("shopping-add-local-photo.png").outputStream().use {preview.compress(Bitmap.CompressFormat.PNG,100,it)}
             rule.onNodeWithContentDescription("إغلاق الإضافة").performClick();assertTrue(dismissed)
             assertTrue(File(root,"drafts").listFiles().orEmpty().isEmpty())

@@ -2,6 +2,8 @@ package com.radwan.raadpharmacy.shopping
 
 import android.content.ContentValues
 import android.content.Context
+import android.database.DatabaseErrorHandler
+import android.database.sqlite.SQLiteDatabaseCorruptException
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import kotlinx.serialization.Serializable
@@ -20,7 +22,10 @@ internal data class ShoppingOperation(val item: ShoppingItem, val deleting: Bool
 
 /** A separate database, excluded from Android backup. Never opens or migrates the financial Room database. */
 internal class ShoppingLocalStore(context: Context, directory: File = File(context.noBackupFilesDir,"medicine-shopping")) :
-    SQLiteOpenHelper(context, File(directory.apply { mkdirs() },"shopping.db").absolutePath, null, 1) {
+    SQLiteOpenHelper(context, File(directory.apply { mkdirs() },"shopping.db").absolutePath, null, 1, DatabaseErrorHandler {
+        // Never let the default Android corruption handler silently delete unsent shopping data.
+        throw SQLiteDatabaseCorruptException("تعذر فتح مخزن قائمة الشراء؛ احتُفظ بالملف دون إعادة تهيئته.")
+    }) {
     override fun onConfigure(db: SQLiteDatabase) { db.rawQuery("PRAGMA secure_delete=ON",null).use { it.moveToFirst() } }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE items(pharmacy TEXT NOT NULL,id TEXT NOT NULL,owner TEXT NOT NULL,title TEXT NOT NULL,
@@ -91,6 +96,9 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
             }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
+    }
+    @Synchronized fun knownIds(): Set<String> = readableDatabase.rawQuery("SELECT id FROM items",null).use { c ->
+        buildSet {while(c.moveToNext()) add(c.getString(0))}
     }
     @Synchronized fun activePhotoIds(pharmacy: String): Set<String> = query(pharmacy).filter {
         it.second!="DELETE" && it.first.hasPhoto }.map { it.first.id }.toSet()

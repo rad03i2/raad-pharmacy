@@ -498,9 +498,11 @@ fun CustomersScreenV3(
     val customers by vm.customers.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
     val security by vm.securityState.collectAsStateWithLifecycle()
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(CustomerOrdering.NAME) }
 
+    val customerScroll = androidx.compose.foundation.lazy.rememberLazyListState()
+    var prepared by remember { mutableStateOf(false) }
     val visible by produceState(emptyList<Customer>(), customers, entries, query, sort) {
         value = withContext(Dispatchers.Default) {
             val term = query.trim()
@@ -510,6 +512,7 @@ fun CustomersScreenV3(
             }
             orderCustomers(filtered, entries, sort)
         }
+        prepared = true
     }
 
     Scaffold(
@@ -523,7 +526,13 @@ fun CustomersScreenV3(
             )
         }
     ) { padding ->
+        // Delay measuring the restored list until its first async result exists, avoiding a clamp to row zero.
+        if (!prepared) {
+            androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().padding(padding))
+            return@Scaffold
+        }
         LazyColumn(
+            state = customerScroll,
             flingBehavior = rememberLedgerFlingBehavior(),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 94.dp),

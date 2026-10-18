@@ -28,6 +28,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Cache verified public Robolectric Android runtimes
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: ${{ runner.os }}-raad-robolectric-4.17-sdk26-35-i7
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:

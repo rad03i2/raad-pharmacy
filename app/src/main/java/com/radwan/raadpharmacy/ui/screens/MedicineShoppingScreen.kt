@@ -270,7 +270,7 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
     }
     ModalBottomSheet(onDismissRequest={ if(!busy) { store.photos.discardDraft(id); onDismiss() } },
         sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal=20.dp).padding(bottom=24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.fillMaxWidth().testTag("shopping-composer").verticalScroll(rememberScrollState()).imePadding().padding(horizontal=20.dp).padding(bottom=24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("إضافة علاج للقائمة",style=MaterialTheme.typography.titleLarge)
                     Text("اسم أو صورة • والكمية إن احتجت",style=MaterialTheme.typography.bodySmall) }
@@ -292,7 +292,7 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
                 OutlinedButton(enabled=!busy,onClick={
                     runCatching {
                         val directory=File(context.cacheDir,"shopping_camera").apply {mkdirs()}
-                        val file=File(directory,"${UUID.randomUUID()}.jpg");cameraPath=file.path
+                        val file=File(directory,"${id}.jpg");cameraPath=file.path
                         camera.launch(FileProvider.getUriForFile(context,"${context.packageName}.fileprovider",file))
                     }.onFailure {error="لا يوجد تطبيق كاميرا متاح؛ يمكنك الاختيار من الصور."}
                 },modifier=Modifier.weight(1f)) { Icon(Icons.Rounded.PhotoCamera,null,Modifier.size(20.dp));Spacer(Modifier.width(6.dp));Text("الكاميرا") }

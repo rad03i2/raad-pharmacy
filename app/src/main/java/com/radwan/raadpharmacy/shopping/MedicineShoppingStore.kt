@@ -58,13 +58,21 @@ internal class MedicineShoppingStore internal constructor(context: Context,
     private fun publishLocal(syncing: Boolean = mutable.value.syncing, error: String? = mutable.value.error, synced: Long = mutable.value.lastSyncedAt) {
         val identity=identity()
         val previous=mutable.value.takeIf { it.identity==identity }
-        mutable.value=ShoppingUiState(identity,identity?.let(local::list).orEmpty(),identity?.let { local.pending(it).size } ?: 0,
-            syncing && identity!=null, if(previous==null) 0 else synced, error.takeIf { identity!=null })
+        try {
+            mutable.value=ShoppingUiState(identity,identity?.let(local::list).orEmpty(),identity?.let { local.pending(it).size } ?: 0,
+                syncing && identity!=null, if(previous==null) 0 else synced, error.takeIf { identity!=null })
+        } catch(_: android.database.sqlite.SQLiteException) {
+            mutable.value=(previous ?: ShoppingUiState(identity)).copy(syncing=false,
+                error="تعذر فتح التخزين المحلي لقائمة الشراء؛ لم يُحذف الملف. أعد تشغيل التطبيق أو تواصل مع الدعم.")
+        }
+
     }
     fun start() {
         if(!started.compareAndSet(false,true)) return
         scope.launch {
-            cacheMutex.withLock { photos.reconcile(local); publishLocal(syncing=false,error=null) }
+            try { cacheMutex.withLock { photos.reconcile(local); publishLocal(syncing=false,error=null) } }
+            catch(cancelled: CancellationException) { throw cancelled }
+            catch(_: Exception) { cacheMutex.withLock { publishLocal(syncing=false,error="تعذر فتح قائمة الشراء؛ أعد المحاولة.") } }
             for(ignored in signals) { sync() }
         }
         scope.launch {
@@ -98,7 +106,7 @@ internal class MedicineShoppingStore internal constructor(context: Context,
             if(!local.alreadySaved(owner,item)) {
                 if(hasPhoto) photos.attach(owner.pharmacy,id)
                 try { local.add(owner,item) }
-                catch(error: Exception) { if(hasPhoto) photos.delete(owner.pharmacy,id); throw error }
+                catch(error: Exception) { if(hasPhoto) photos.file(owner.pharmacy,id).delete(); throw error }
             }
             photos.discardDraft(id)
             publishLocal(error=null)

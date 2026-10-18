@@ -70,14 +70,20 @@ internal class ShoppingPhotos(private val context: Context,
         target.parentFile!!.mkdirs()
         FileOutputStream(target).use { output -> source.inputStream().use { it.copyTo(output) }; output.fd.sync() }
     }
-    fun discardDraft(id: String) { draft(id).delete() }
-    fun delete(pharmacy: String,id: String) { file(pharmacy,id).delete() }
+    fun discardDraft(id: String) { draft(id).delete(); File(context.cacheDir,"shopping_camera/${uuid(id)}.jpg").delete() }
+    fun delete(pharmacy: String,id: String) { file(pharmacy,id).delete(); discardDraft(id) }
     fun reconcile(local: ShoppingLocalStore) {
         File(root,"photos").listFiles()?.filter { it.isDirectory }?.forEach { folder ->
             val keep=local.activePhotoIds(folder.name)
-            folder.listFiles()?.filter { it.nameWithoutExtension !in keep }?.forEach { it.delete() }
+            folder.listFiles()?.filter { it.nameWithoutExtension !in keep }?.forEach { file ->
+                file.delete(); runCatching { discardDraft(file.nameWithoutExtension) }
+            }
         }
-        // Abandoned unsaved drafts have never been shared. Active list images have no expiry.
-        File(root,"drafts").listFiles()?.filter { System.currentTimeMillis()-it.lastModified()>7L*24*60*60*1000 }?.forEach { it.delete() }
+        val known=local.knownIds()
+        // Committed items must not leave a second draft/camera copy after a process interruption.
+        File(root,"drafts").listFiles()?.filter { it.nameWithoutExtension in known ||
+            System.currentTimeMillis()-it.lastModified()>7L*24*60*60*1000 }?.forEach { it.delete() }
+        File(context.cacheDir,"shopping_camera").listFiles()?.filter { it.nameWithoutExtension in known ||
+            System.currentTimeMillis()-it.lastModified()>24L*60*60*1000 }?.forEach { it.delete() }
     }
 }

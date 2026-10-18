@@ -72,6 +72,13 @@ class ShoppingLocalStoreTest {
         assertThrows(IllegalArgumentException::class.java) {local.merge(owner,ShoppingSnapshot(owner.owner,owner.pharmacy,listOf(item,item)))}
         assertEquals(item.id,local.list(owner).single().id)
     }
+    @Test fun damagedShoppingDatabaseIsPreservedInsteadOfBeingSilentlyDeleted() {
+        local.close()
+        val file=File(root,"shopping.db");val original="damaged fixture database; preserve unsent data".toByteArray()
+        file.writeBytes(original);local=ShoppingLocalStore(context,root)
+        assertThrows(android.database.sqlite.SQLiteException::class.java) {local.list(owner)}
+        assertArrayEquals(original,file.readBytes())
+    }
     @Test fun moreThanThousandMaterialsAndNewWeekPreserveActualRowsWithoutReset() {
         val rows=(1..1200).map { item.copy(id=UUID.randomUUID().toString(),title="مادة $it",createdAt=it.toLong()) }
         local.merge(owner,ShoppingSnapshot(owner.owner,owner.pharmacy,rows))
