@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.22.23",
+  "tag_name": "v3.3.22.24",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 91\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.23: إضافة الأرقام من جهات الاتصال داخل القائمة وحفظ موضع المتابعة، حجب الزبائن بإدارة رعد وطلبات واردة، تذكيرات قصيرة اختيارية مغلقة افتراضياً، وتقارير شهرية وفترات محددة.",
+  "body": "VersionCode: 92\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.24: تنقل أخف بين الأزرار الستة مع حفظ حالة التبويبات، وقائمة شراء علاجات مشتركة. تبقى المواد غير المشتراة للجولات القادمة، الصور محلية فقط، وتأكيد الشراء يحذف المادة من الجميع مع إعادة المحاولة تلقائياً عند انقطاع الإنترنت.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.22.23.apk",
-      "size": 5581370,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.23/Raad-Pharmacy-v3.3.22.23.apk"
+      "name": "Raad-Pharmacy-v3.3.22.24.apk",
+      "size": 5659562,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.24/Raad-Pharmacy-v3.3.22.24.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.22.23.apk.sha256",
+      "name": "Raad-Pharmacy-v3.3.22.24.apk.sha256",
       "size": 95,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.23/Raad-Pharmacy-v3.3.22.23.apk.sha256"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.24/Raad-Pharmacy-v3.3.22.24.apk.sha256"
     }
   ]
 }
