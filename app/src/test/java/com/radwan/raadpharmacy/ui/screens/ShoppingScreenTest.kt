@@ -59,6 +59,19 @@ class ShoppingScreenTest {
         rule.onNodeWithText("علاج رقم 60").assertIsDisplayed()
         rule.onNodeWithText("نتائج البحث • 1").assertExists()
     }
+    @Test fun cancellingPurchaseThenScrollingDoesNotJumpBackWhenAnotherDeviceRemovesThatMaterial() {
+        var state by mutableStateOf(ShoppingUiState(identity,rows,lastSyncedAt=100))
+        var requested: String?=null
+        rule.setContent {PharmacyLedgerTheme { ShoppingListContent(state,{},{},{requested=it},{}) }}
+        rule.onNodeWithTag("shopping-list").performScrollToIndex(35)
+        rule.onNodeWithContentDescription("تم شراء علاج رقم 36").performClick()
+        assertEquals(rows[35].id,requested) // The confirmation was cancelled; no data was changed.
+        rule.onNodeWithTag("shopping-list").performScrollToIndex(60)
+        rule.runOnIdle {state=state.copy(items=state.items.filterNot {it.id==requested})}
+        rule.waitForIdle()
+        rule.onNodeWithText("علاج رقم 61").assertIsDisplayed()
+        rule.onNodeWithText("علاج رقم 37").assertDoesNotExist()
+    }
     @Test fun darkNarrowOfflineListExplainsLocalPhotosAndPendingDeletes() {
         var added=false
         val photo=rows.first().copy(title="",hasPhoto=true,pending=true)

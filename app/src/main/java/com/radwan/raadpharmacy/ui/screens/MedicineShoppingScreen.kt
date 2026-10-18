@@ -90,20 +90,6 @@ internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: 
     var viewing by rememberSaveable { mutableStateOf<String?>(null) }
     val scroll=rememberLazyListState()
     val shown=remember(state.items,query) { state.items.filter { query.isBlank() || it.title.contains(query,true) || it.note.contains(query,true) } }
-    var anchorKey by rememberSaveable { mutableStateOf<String?>(null) }
-    var anchorIndex by rememberSaveable { mutableIntStateOf(0) }
-    var anchorOffset by rememberSaveable { mutableIntStateOf(0) }
-    var awaitingRemoval by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(shown,awaitingRemoval) {
-        val removed=awaitingRemoval
-        if(removed!=null && state.items.none { it.id==removed }) {
-            if(shown.isNotEmpty()) {
-                val target=shown.indexOfFirst { it.id==anchorKey }.takeIf { it>=0 } ?: anchorIndex.coerceIn(0,shown.lastIndex)
-                scroll.scrollToItem(target,anchorOffset)
-            }
-            awaitingRemoval=null
-        }
-    }
     if(help) AlertDialog(onDismissRequest={help=false},icon={Icon(Icons.Rounded.ShoppingBag,null)},title={Text("قائمة تستمر معك")},
         text={Text("أضف اسم العلاج أو صورته، ويمكنك إضافة الكمية أو ملاحظة. المواد غير المشتراة تبقى تلقائياً مع الإضافات الجديدة.\n\nالنصوص مشتركة بين حسابات الصيدلية. الصورة تبقى على جهاز إضافتها فقط ولا تُرفع للسحابة؛ أضف اسماً معها ليسهل تمييزها على بقية الأجهزة.\n\nتأكيد الشراء يحذف المادة ولا ينقلها إلى أرشيف. الأجهزة غير المتصلة تتلقى الحذف عند اتصالها.")},
         confirmButton={TextButton(onClick={help=false}){Text("فهمت")}})
@@ -167,11 +153,8 @@ internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: 
                 LazyColumn(state=scroll,flingBehavior=rememberLedgerFlingBehavior(),modifier=Modifier.weight(1f).testTag("shopping-list"),
                     contentPadding=PaddingValues(bottom=100.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     items(shown,key={it.id},contentType={"shopping-item"}) { item ->
-                        ShoppingItemCard(item,photoFile(item),onPhoto={viewing=item.id},onPurchase={
-                            anchorKey=scroll.layoutInfo.visibleItemsInfo.firstOrNull()?.key as? String
-                            anchorIndex=scroll.firstVisibleItemIndex; anchorOffset=scroll.firstVisibleItemScrollOffset
-                            awaitingRemoval=item.id; onPurchase(item.id)
-                        })
+                        // Stable item keys keep the neighbouring row in view, including a purchase confirmed later.
+                        ShoppingItemCard(item,photoFile(item),onPhoto={viewing=item.id},onPurchase={onPurchase(item.id)})
                     }
                 }
             }
@@ -217,7 +200,7 @@ private fun ShoppingPhoto(file: File?,hasPhoto: Boolean,modifier: Modifier,full:
         val image=bitmap
         if(image!=null) Image(image,"صورة العلاج المحلية",Modifier.fillMaxSize(),contentScale=if(full) ContentScale.Fit else ContentScale.Crop)
         else Column(Modifier.fillMaxSize().padding(5.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
-            Icon(if(hasPhoto) Icons.Rounded.ImageNotSupported else Icons.Rounded.Medication,null,tint=MaterialTheme.colorScheme.primary,modifier=Modifier.size(28.dp))
+            Icon(if(hasPhoto) Icons.Rounded.Photo else Icons.Rounded.Medication,null,tint=MaterialTheme.colorScheme.primary,modifier=Modifier.size(28.dp))
             if(full && hasPhoto) Text("الصورة على جهاز إضافتها فقط",style=MaterialTheme.typography.bodySmall)
         }
     }
