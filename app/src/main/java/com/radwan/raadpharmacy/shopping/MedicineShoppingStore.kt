@@ -102,17 +102,18 @@ internal class MedicineShoppingStore internal constructor(context: Context,
         runCatching { ShoppingSyncScheduler.ensure(app) }
     }
     fun request() { signals.trySend(Unit) }
-    suspend fun add(id: String,title: String,note: String,hasPhoto: Boolean,expected: ShoppingIdentity?=null) = withContext(Dispatchers.IO) {
+    suspend fun add(id: String,title: String,note: String,hasPhoto: Boolean,expected: ShoppingIdentity?=null,shareRequest: String?=null) = withContext(Dispatchers.IO) {
         cacheMutex.withLock {
             val owner=checkNotNull(identity()) { "انتظر اكتمال الاتصال بحساب الصيدلية أولاً." }
             check(expected==null || owner==expected) {"تغيّر حساب الصيدلية؛ لم تُرسل المادة إلى حساب آخر."}
+            if(shareRequest!=null && local.hasSharedCommit(owner,shareRequest,id)) {photos.discardDraft(id);return@withLock}
             check(title.trim().isNotEmpty() || hasPhoto) { "أضف اسم العلاج أو صورته." }
             val item=ShoppingItem(id,title.trim(),note.trim(),hasPhoto,System.currentTimeMillis(),"أنت",true)
             if(!local.alreadySaved(owner,item)) {
                 if(hasPhoto) photos.attach(owner.pharmacy,id)
-                try { local.add(owner,item) }
+                try { local.add(owner,item,shareRequest) }
                 catch(error: Exception) { if(hasPhoto) photos.file(owner.pharmacy,id).delete(); throw error }
-            }
+            } else if(shareRequest!=null) local.add(owner,item,shareRequest)
             photos.discardDraft(id)
             publishLocal(error=null)
         }

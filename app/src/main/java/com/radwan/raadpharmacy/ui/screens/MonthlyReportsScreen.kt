@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -115,7 +116,7 @@ internal fun MonthlyReportsContent(entries: List<LedgerEntry>,hideAmounts: Boole
         },confirmButton={TextButton(onClick={selectedSupplier=null}) {Text("إغلاق")}})
     }
     Scaffold(topBar={ScreenTopBar("التقارير الشهرية",onBack)}) {padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding),flingBehavior=rememberLedgerFlingBehavior(),contentPadding=PaddingValues(16.dp,6.dp,16.dp,32.dp),
+        LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("monthly-list"),flingBehavior=rememberLedgerFlingBehavior(),contentPadding=PaddingValues(16.dp,6.dp,16.dp,32.dp),
             verticalArrangement=Arrangement.spacedBy(14.dp)) {
             item {
                 Surface(shape=RoundedCornerShape(26.dp),color=colors.primaryContainer) {

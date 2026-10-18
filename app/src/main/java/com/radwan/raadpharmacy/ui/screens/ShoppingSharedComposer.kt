@@ -32,7 +32,7 @@ internal fun ShoppingSharedComposer(store: MedicineShoppingStore,request: String
             var saved=value.copy(owner=identity.owner,pharmacy=identity.pharmacy)
             withContext(Dispatchers.IO) {inbox.write(saved)}
             for(id in value.ids.filterNot {it in value.completed}) {
-                store.add(id,value.title,listOfNotNull(value.quantity.takeIf {it.isNotBlank()}?.let {"العدد: $it"},value.caption.takeIf {it.isNotBlank()}).joinToString("\n"),true,identity)
+                store.add(id,value.title,listOfNotNull(value.quantity.takeIf {it.isNotBlank()}?.let {"العدد: $it"},value.caption.takeIf {it.isNotBlank()}).joinToString("\n"),true,identity,request)
                 saved=saved.copy(completed=saved.completed+id)
                 withContext(Dispatchers.IO) {inbox.write(saved)}
                 draft=saved

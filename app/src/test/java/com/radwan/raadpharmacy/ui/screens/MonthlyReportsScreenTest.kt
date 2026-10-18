@@ -11,6 +11,8 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.LayoutDirection
 import com.radwan.raadpharmacy.data.*
+import com.radwan.raadpharmacy.suppliers.SupplierEntry
+import java.util.UUID
 import com.radwan.raadpharmacy.ui.theme.PharmacyLedgerTheme
 import com.radwan.raadpharmacy.util.formatMoney
 import java.io.File
@@ -46,5 +48,23 @@ class MonthlyReportsScreenTest {
         val folder=File("build/reports/monthly-preview").apply{mkdirs()}
         val bitmap=rule.onNodeWithTag("monthly-preview").captureToImage().asAndroidBitmap()
         File(folder,"monthly-december.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) }
+    }    @Test fun supplierMonthSeparatesOpeningBalanceMovementsAndShowsActualReceiptDetails() {
+        fun row(day: String,amount: Long,kind: String="DEBT")=SupplierEntry(UUID.randomUUID().toString(),"مذخر النور",kind,amount,day,"وصل 123")
+        val suppliers=listOf(row("2026-12-15",5000000),row("2027-01-10",2000000),row("2027-01-11",1000000,"PAYMENT"),row("2027-02-01",9000000))
+        rule.setContent {PharmacyLedgerTheme {CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+            Box(Modifier.testTag("monthly-preview")) {MonthlyReportsContent(emptyList(),false,LocalDate.of(2027,1,17),suppliers=suppliers)}
+        }}}
+        rule.waitUntil(10000) {rule.onAllNodesWithText(formatMoney(6000000)).fetchSemanticsNodes().isNotEmpty()}
+        rule.onNodeWithText("المتبقي حتى نهاية الفترة").performScrollTo()
+        rule.onNodeWithText(formatMoney(6000000)).assertIsDisplayed()
+        rule.onNodeWithTag("monthly-list").performScrollToNode(hasText("تفاصيل حركات المذخر"))
+        rule.onNodeWithText("تفاصيل حركات المذخر").performClick()
+        rule.onNodeWithText("دين: ${formatMoney(2000000)}").assertExists()
+        rule.onNodeWithText("تسديد: ${formatMoney(1000000)}").assertExists()
+        rule.onNodeWithText("دين: ${formatMoney(9000000)}").assertDoesNotExist()
+        rule.onNodeWithText("إغلاق").performClick()
+        val bitmap=rule.onNodeWithTag("monthly-preview").captureToImage().asAndroidBitmap()
+        File("build/reports/monthly-preview").apply {mkdirs()}.resolve("monthly-supplier-details.png").outputStream().use {bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}
     }
+
 }

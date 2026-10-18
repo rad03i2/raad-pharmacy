@@ -62,6 +62,12 @@ internal class SupplierLocalStore(context: Context,name: String="supplier-ledger
         require(rows.map{it.id}.toSet().size==rows.size); rows.forEach {it.validate()}
         val db=writableDatabase;db.beginTransaction()
         try {val old=list(identity).associateBy {it.id}
+            val serverIds=rows.map {it.id}.toSet()
+            // The server snapshot is a full authenticated aggregate, not a paged subset.
+            // A missing acknowledged entry is rechecked by its stable UUID, never assumed synced forever.
+            old.values.filter {!it.pending && it.id !in serverIds}.forEach {row ->
+                db.update("records",values(identity,row,true),"pharmacy=? AND id=?",arrayOf(identity.pharmacy,row.id))
+            }
             rows.forEach {row -> val previous=old[row.id]
                 check(previous==null || previous.copy(pending=false)==row.copy(pending=false)) {"SUPPLIER_ID_CONFLICT"}
                 if(previous==null || !previous.pending) db.insertWithOnConflict("records",null,values(identity,row,false),SQLiteDatabase.CONFLICT_REPLACE)

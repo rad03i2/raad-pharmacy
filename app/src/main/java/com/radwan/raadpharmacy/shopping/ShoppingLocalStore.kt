@@ -52,6 +52,7 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
         db.execSQL("CREATE TABLE trash(pharmacy TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(pharmacy,id))")
         db.execSQL("CREATE TABLE changes(sequence INTEGER PRIMARY KEY AUTOINCREMENT,pharmacy TEXT NOT NULL,owner TEXT NOT NULL,id TEXT NOT NULL,operation TEXT NOT NULL UNIQUE,payload TEXT NOT NULL)")
         db.execSQL("CREATE INDEX changes_scope ON changes(pharmacy,owner,sequence)")
+        db.execSQL("CREATE TABLE shared_commits(pharmacy TEXT NOT NULL,request TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(pharmacy,request,id))")
     }
     private fun protected(pharmacy: String): Set<String> = readableDatabase.rawQuery(
         "SELECT id FROM changes WHERE pharmacy=?",arrayOf(pharmacy)).use { c -> buildSet {while(c.moveToNext()) add(c.getString(0))} }
@@ -121,10 +122,17 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
         }
         return true
     }
-    @Synchronized fun add(identity: ShoppingIdentity, item: ShoppingItem) {
+    @Synchronized fun hasSharedCommit(identity: ShoppingIdentity,request: String,id: String): Boolean = readableDatabase.rawQuery(
+        "SELECT 1 FROM shared_commits WHERE pharmacy=? AND request=? AND id=?",arrayOf(identity.pharmacy,request,id)).use {it.moveToFirst()}
+    @Synchronized fun add(identity: ShoppingIdentity, item: ShoppingItem,shareRequest: String?=null) {
         UUID.fromString(identity.pharmacy); UUID.fromString(item.id)
         require(item.title.length<=240 && item.note.length<=1000 && (item.title.isNotBlank() || item.hasPhoto))
-        if(!alreadySaved(identity,item)) writableDatabase.insertOrThrow("items",null,values(identity,item,"CREATE"))
+        val db=writableDatabase;db.beginTransaction()
+        try {
+            if(!alreadySaved(identity,item)) db.insertOrThrow("items",null,values(identity,item,"CREATE"))
+            if(shareRequest!=null) {UUID.fromString(shareRequest);db.execSQL("INSERT OR IGNORE INTO shared_commits VALUES(?,?,?)",arrayOf(identity.pharmacy,shareRequest,item.id))}
+            db.setTransactionSuccessful()
+        } finally {db.endTransaction()}
     }
     @Synchronized fun complete(identity: ShoppingIdentity, id: String) {
         // Persist an opaque delete intent BEFORE erasing a file; a crash cannot re-create the content.

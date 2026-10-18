@@ -84,7 +84,7 @@ class ShoppingHttpTest {
                                 rows[id]=held.item;trashRows.remove(id);deleted.remove(id)
                             }
                         }
-                        ShoppingChangeReceipt(owner,pharmacy,id,op,id in rows,id in trashRows)
+                        ShoppingChangeReceipt(owner,pharmacy,id,op,rows.containsKey(id),trashRows.containsKey(id))
                     }
                     if(loseReply.compareAndSet(true,false)) e.close()
                     else reply(e,200,kotlinx.serialization.json.Json.encodeToString(receipt.copy(operation=if(wrongReceipt.get()) UUID.randomUUID().toString() else op)))

@@ -37,6 +37,13 @@ class SupplierLedgerTest {
         assertThrows(IllegalStateException::class.java) {local.add(owner,row.copy(amount=3000))}
         assertEquals(2000L,local.list(owner).single().amount)
     }
+    @Test fun acknowledgedEntryMissingFromFullServerSnapshotIsRetainedAndRecheckedWithSameId() {
+        val row=row("2026-10-18",9000000)
+        local.add(owner,row);local.acknowledge(owner,row,ShoppingReceipt(owner.owner,owner.pharmacy,row.id,true))
+        local.merge(owner,emptyList())
+        assertTrue(local.list(owner).single().pending);assertEquals(row.id,local.list(owner).single().id)
+        assertEquals(9000000L,local.list(owner).single().amount)
+    }
     @Test fun separateAccountsAndTenantsCannotUploadEachOthersPendingEntries() {
         local.add(owner,row("2026-10-18",100))
         assertTrue(local.list(owner.copy(owner=UUID.randomUUID().toString())).isEmpty())

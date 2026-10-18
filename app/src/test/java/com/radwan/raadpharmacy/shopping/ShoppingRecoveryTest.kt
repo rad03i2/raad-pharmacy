@@ -34,6 +34,14 @@ class ShoppingRecoveryTest {
         local.merge(owner,ShoppingSnapshot(owner.owner,owner.pharmacy,emptyList()))
         assertEquals(row.id,local.list(owner).single().id) // stale snapshot cannot remove a queued restore
     }
+    @Test fun sharedImageCommitSurvivesDeletionAndRestartSoIntentRedeliveryCannotDuplicateIt() {
+        val request=UUID.randomUUID().toString()
+        local.add(owner,row,request);local.complete(owner,row.id)
+        local.acknowledge(owner,ShoppingOperation(row,true),ShoppingReceipt(owner.owner,owner.pharmacy,row.id,false))
+        local.close();local=ShoppingLocalStore(context,root)
+        assertTrue(local.list(owner).isEmpty());assertTrue(local.hasSharedCommit(owner,request,row.id))
+        assertFalse(local.hasSharedCommit(owner.copy(pharmacy=UUID.randomUUID().toString()),request,row.id))
+    }
     @Test fun mutationReceiptMustMatchExactOperationAndScope() {
         local.add(owner,row);local.purchase(owner,row.id)
         val op=local.changes(owner).single()
