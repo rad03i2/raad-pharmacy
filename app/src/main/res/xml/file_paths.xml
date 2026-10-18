@@ -7,4 +7,5 @@
         name="customer_photos_tmp"
         path="customer_photos_tmp/" />
     <cache-path name="verified_apk_updates" path="updates/" />
+    <cache-path name="medicine_shopping_camera" path="shopping_camera/" />
 </paths>

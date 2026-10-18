@@ -45,4 +45,11 @@ jobs:
           psql "$CREDIT_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261017212428_customer_credit_controls.sql
           psql "$CREDIT_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/customer-credit-controls.sql
           python supabase/tests/credit-concurrency.py
+      - name: Verify shared shopping, offline idempotency, permanent deletion and two-device races
+        run: |
+          psql "$FIXTURE_DB_URL" -v ON_ERROR_STOP=1 -c 'create database raad_shopping_fixture'
+          export SHOPPING_FIXTURE_URL="${FIXTURE_DB_URL%/postgres}/raad_shopping_fixture"
+          psql "$SHOPPING_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/credit-control-fixture.sql
+          psql "$SHOPPING_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261018030202_medicine_shopping.sql
+          python supabase/tests/shopping-integration.py
       # No production credentials, real financial fixtures or backup artifacts.

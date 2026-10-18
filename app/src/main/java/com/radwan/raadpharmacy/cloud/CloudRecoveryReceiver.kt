@@ -11,6 +11,8 @@ class CloudRecoveryReceiver : BroadcastReceiver() {
             intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
         if (!CloudSyncScheduler.isEnabled(context)) return
         CloudSyncScheduler.ensurePeriodic(context)
+        com.radwan.raadpharmacy.shopping.ShoppingSyncScheduler.ensure(context)
+        com.radwan.raadpharmacy.shopping.ShoppingSyncScheduler.enqueue(context)
         CloudPushRegistrationWorker.enqueue(context)
         CloudSyncScheduler.ensureNetworkCatchUp(context)
         CloudSyncScheduler.enqueue(context)

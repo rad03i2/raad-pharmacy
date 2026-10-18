@@ -47,8 +47,8 @@ jobs:
       - name: Verify stable version metadata
         shell: bash
         run: |
-          grep -q 'versionName = "3.3.22.23"' app/build.gradle.kts
-          grep -q 'versionCode = 91' app/build.gradle.kts
+          grep -q 'versionName = "3.3.22.24"' app/build.gradle.kts
+          grep -q 'versionCode = 92' app/build.gradle.kts
           if grep -q 'versionName = ".*-rc' app/build.gradle.kts; then
             echo "Release candidate suffix is still present."
             exit 1
@@ -94,6 +94,7 @@ jobs:
           path: |
             app/build/reports/navigation-preview/
             app/build/reports/monthly-preview/
+            app/build/reports/shopping-preview/
             app/build/reports/backup-preview/
             app/build/reports/cloud-backup-preview/
             app/build/reports/tests/testDebugUnitTest/

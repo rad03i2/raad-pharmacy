@@ -4,6 +4,8 @@ import android.app.Activity
 import android.os.SystemClock
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.padding
@@ -67,6 +69,7 @@ import com.radwan.raadpharmacy.ui.screens.DailyDebtsScreenV4
 import com.radwan.raadpharmacy.ui.screens.SmartDebtFollowupV316
 import com.radwan.raadpharmacy.ui.screens.HomeScreenV3
 import com.radwan.raadpharmacy.ui.screens.MonthlyReportsScreen
+import com.radwan.raadpharmacy.ui.screens.MedicineShoppingScreen
 import com.radwan.raadpharmacy.ui.screens.ReportsScreenV11
 import com.radwan.raadpharmacy.ui.screens.SettingsScreenV10
 import com.radwan.raadpharmacy.ui.screens.AllActivityScreen
@@ -93,6 +96,7 @@ object Routes {
     const val AREA_CUSTOMERS = "area_customers/{areaName}"
     const val SEARCH = "search?intent={intent}"
     const val REPORTS = "reports"
+    const val SHOPPING = "medicine_shopping"
     const val MONTHLY_REPORTS = "monthly_reports"
     const val FOLLOWUP = "followup"
     const val SETTINGS = "settings"
@@ -195,15 +199,15 @@ fun PharmacyLedgerApp(
         }
     }
 
-    val bottomItems = listOf(
+    val bottomItems = remember { listOf(
         LedgerNavigationItem(Routes.HOME, "الرئيسية", Icons.Rounded.Home),
         LedgerNavigationItem(Routes.CUSTOMERS, "الزبائن", Icons.Rounded.Groups),
         LedgerNavigationItem(Routes.COLLECTIONS, "التحصيلات", Icons.Rounded.AccountBalanceWallet),
         LedgerNavigationItem(Routes.REPORTS, "التقارير", Icons.Rounded.BarChart),
         LedgerNavigationItem(Routes.MONTHLY_REPORTS, "شهرية", Icons.Rounded.Assessment),
         LedgerNavigationItem(Routes.SETTINGS, "الضبط", Icons.Rounded.Settings)
-    )
-    val bottomRoutes = bottomItems.map { it.route }.toSet()
+    ) }
+    val bottomRoutes = remember(bottomItems) { bottomItems.map { it.route }.toSet() }
     var lastNavigationAt by remember { mutableLongStateOf(0L) }
 
     fun navigateHome() {
@@ -212,6 +216,17 @@ fun PharmacyLedgerApp(
         navController.navigate(Routes.HOME) {
             popUpTo(navController.graph.id) { inclusive = false }
             launchSingleTop = true
+        }
+    }
+
+    fun navigateTab(route: String) {
+        if (navController.currentDestination?.route == route) return
+        val hasHome = runCatching { navController.getBackStackEntry(Routes.HOME) }.isSuccess
+        navController.navigate(route) {
+            if (hasHome) popUpTo(Routes.HOME) { saveState = true }
+            else popUpTo(navController.graph.id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
         }
     }
 
@@ -257,16 +272,8 @@ fun PharmacyLedgerApp(
                 Scaffold(
                 bottomBar = {
                     if (currentRoute != null && currentRoute in bottomRoutes) {
-                        FloatingLedgerNavigation(items = bottomItems, selectedRoute = currentRoute, onSelect = { route ->
-                            val now = SystemClock.elapsedRealtime()
-                            if (now - lastNavigationAt >= 280L) {
-                                lastNavigationAt = now
-                                navController.navigate(route) {
-                                    popUpTo(navController.graph.id) { inclusive = false }
-                                    launchSingleTop = true
-                                }
-                            }
-                        })
+                        FloatingLedgerNavigation(items = bottomItems, selectedRoute = currentRoute,
+                            onSelect = ::navigateTab)
                     }
                 }
             ) { innerPadding ->
@@ -274,6 +281,10 @@ fun PharmacyLedgerApp(
 
                 NavHost(
                     navController = navController,
+                    enterTransition = { if (initialState.destination.route in bottomRoutes && targetState.destination.route in bottomRoutes)
+                        EnterTransition.None else androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)) },
+                    exitTransition = { if (initialState.destination.route in bottomRoutes && targetState.destination.route in bottomRoutes)
+                        ExitTransition.None else androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) },
                     startDestination = if (restoredFormRoute != null) Routes.RESUME_FORM else Routes.HOME,
                     modifier = Modifier
                         .padding(innerPadding)
@@ -313,16 +324,7 @@ fun PharmacyLedgerApp(
                                             (index - 1).coerceAtLeast(0)
                                         }
                                         val route = bottomItems[target].route
-                                        if (route != currentRoute) {
-                                            val now = SystemClock.elapsedRealtime()
-                                            if (now - lastNavigationAt >= 280L) {
-                                                lastNavigationAt = now
-                                                navController.navigate(route) {
-                                                    popUpTo(navController.graph.id) { inclusive = false }
-                                                    launchSingleTop = true
-                                                }
-                                            }
-                                        }
+                                        if (route != currentRoute) navigateTab(route)
                                     }
                                 }
                             }
@@ -345,6 +347,7 @@ fun PharmacyLedgerApp(
                             vm = vm,
                             onCustomers = { safeNavigate(Routes.CUSTOMERS) },
                             onActivity = { safeNavigate(Routes.ACTIVITY) },
+                            onShopping = { safeNavigate(Routes.SHOPPING) },
                             onAddCustomer = { safeNavigate(Routes.ADD_CUSTOMER) },
                             onSearch = { navController.navigate(Routes.search("open")) { launchSingleTop = true } },
                             onQuickDebt = { navController.navigate(Routes.search("debt")) { launchSingleTop = true } },
@@ -507,6 +510,7 @@ fun PharmacyLedgerApp(
                             }
                         )
                     }
+                    composable(Routes.SHOPPING) { MedicineShoppingScreen(::backOrHome) }
                     composable(Routes.MONTHLY_REPORTS) { MonthlyReportsScreen(vm) }
                     composable(Routes.REPORTS) {
                         ReportsScreenV11(vm, onCustomer = { navController.navigate(Routes.customer(it)) })
