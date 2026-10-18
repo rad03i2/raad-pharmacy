@@ -64,6 +64,19 @@ with psycopg.connect(url,autocommit=True) as admin:
     for thread in threads:thread.join(10)
     assert len(results)==2 and all(r['active'] for r in results)
     assert admin.execute('select count(*) from medicine_shopping_items where id=%s',(racing,)).fetchone()[0]==1
+    # Snapshot consistency while a real concurrent device repeatedly buys/restores the same material.
+    moving=uid();add(moving);failures=[]
+    def churn():
+        try:
+            for _ in range(30):
+                token=uid();change(moving,token);change(moving,uid(),'RESTORE',token)
+        except BaseException as error:failures.append(error)
+    writer=threading.Thread(target=churn);writer.start()
+    for _ in range(60):
+        snap=context(ahmad)
+        occurrences=sum(r['id']==moving for r in snap['items'])+sum(r['item']['id']==moving for r in snap['trash'])
+        assert occurrences==1,'Mixed active/trash snapshots could erase a restored local photo'
+    writer.join(15);assert not writer.is_alive() and not failures,failures
     # Appended financial supplier entries: exact retries only, scope, strict dates and positive integer IQD.
     supplier=uid()
     sql='select add_supplier_ledger_entry(%s,%s,%s,%s,%s,%s)'

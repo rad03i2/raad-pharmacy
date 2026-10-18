@@ -87,11 +87,16 @@ returns jsonb language sql security invoker set search_path='' as $$
     select raad_private.supplier_add(entry_id,supplier_name,entry_kind,entry_amount,entry_day,entry_note)
 $$;
 
-create function raad_private.shopping_context_v25() returns jsonb language plpgsql security definer set search_path='' as $$
-declare tenant uuid:=raad_private.shopping_pharmacy(); base jsonb;
+create function raad_private.shopping_context_v25() returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare tenant uuid:=raad_private.shopping_pharmacy();
 begin
-    base:=raad_private.shopping_context(); -- existing authenticated, tenant-scoped active list
-    return base || jsonb_build_object('serverTime',floor(extract(epoch from clock_timestamp())*1000)::bigint,
+    if tenant is null or auth.uid() is null then raise exception 'SHOPPING_ACCESS_DENIED' using errcode='42501'; end if;
+    -- One statement/snapshot for active rows, trash and suppliers: a racing restore must not hide a local photo.
+    return jsonb_build_object('owner',auth.uid(),'pharmacy',tenant,'items',coalesce((
+        select jsonb_agg(jsonb_build_object('id',s.id,'title',s.title,'note',s.note,'hasPhoto',s.local_photo,
+            'createdAt',floor(extract(epoch from s.created_at)*1000)::bigint,'createdBy',coalesce(p.display_name,'مستخدم')) order by s.created_at,s.id)
+        from public.medicine_shopping_items s left join public.profiles p on p.id=s.created_by where s.pharmacy_id=tenant
+    ),'[]'::jsonb),'serverTime',floor(extract(epoch from clock_timestamp())*1000)::bigint,
         'trash',coalesce((select jsonb_agg(jsonb_build_object('item',jsonb_build_object('id',s.id,'title',s.title,'note',s.note,
             'hasPhoto',s.local_photo,'createdAt',floor(extract(epoch from s.created_at)*1000)::bigint,
             'createdBy',coalesce(p.display_name,'مستخدم')),'deletionId',s.deletion_id,
@@ -102,7 +107,7 @@ begin
             'amount',s.amount,'day',s.occurred_on,'note',s.note) order by s.occurred_on,s.id)
             from public.supplier_ledger_entries s where s.pharmacy_id=tenant),'[]'::jsonb));
 end $$;
-create function public.medicine_shopping_context_v25() returns jsonb language sql security invoker set search_path='' as $$
+create function public.medicine_shopping_context_v25() returns jsonb language sql stable security invoker set search_path='' as $$
     select raad_private.shopping_context_v25()
 $$;
 
