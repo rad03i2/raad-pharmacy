@@ -3,6 +3,8 @@ package com.radwan.raadpharmacy.shopping
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import java.io.File
 import java.io.FileOutputStream
@@ -21,6 +23,7 @@ internal class ShoppingPhotos(private val context: Context,
         val encoded=File(target.parentFile,"${uuid(id)}.writing")
         var bitmap: Bitmap?=null
         var scaled: Bitmap?=null
+        var oriented: Bitmap?=null
         try {
             context.contentResolver.openInputStream(uri).use { input ->
                 requireNotNull(input) { "تعذر قراءة الصورة المختارة." }
@@ -38,13 +41,27 @@ internal class ShoppingPhotos(private val context: Context,
             var sample=1
             while(maxOf(bounds.outWidth,bounds.outHeight)/sample>2048) sample*=2
             bitmap=requireNotNull(BitmapFactory.decodeFile(raw.path,BitmapFactory.Options().apply { inSampleSize=sample })) { "تعذر فتح الصورة." }
-            val ratio=minOf(1f,1600f/maxOf(bitmap.width,bitmap.height))
-            scaled=if(ratio<1) Bitmap.createScaledBitmap(bitmap,(bitmap.width*ratio).toInt().coerceAtLeast(1),
-                (bitmap.height*ratio).toInt().coerceAtLeast(1),true) else bitmap
+            val orientation=runCatching { ExifInterface(raw.path).getAttributeInt(ExifInterface.TAG_ORIENTATION,ExifInterface.ORIENTATION_NORMAL) }
+                .getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+            val matrix=Matrix().apply {
+                when(orientation) {
+                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> setScale(-1f,1f)
+                    ExifInterface.ORIENTATION_ROTATE_180 -> setRotate(180f)
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> setScale(1f,-1f)
+                    ExifInterface.ORIENTATION_TRANSPOSE -> {setRotate(90f);postScale(-1f,1f)}
+                    ExifInterface.ORIENTATION_ROTATE_90 -> setRotate(90f)
+                    ExifInterface.ORIENTATION_TRANSVERSE -> {setRotate(-90f);postScale(-1f,1f)}
+                    ExifInterface.ORIENTATION_ROTATE_270 -> setRotate(-90f)
+                }
+            }
+            oriented=if(matrix.isIdentity) bitmap else Bitmap.createBitmap(bitmap,0,0,bitmap.width,bitmap.height,matrix,true)
+            val ratio=minOf(1f,1600f/maxOf(oriented.width,oriented.height))
+            scaled=if(ratio<1) Bitmap.createScaledBitmap(oriented,(oriented.width*ratio).toInt().coerceAtLeast(1),
+                (oriented.height*ratio).toInt().coerceAtLeast(1),true) else oriented
             FileOutputStream(encoded).use { output -> check(scaled.compress(Bitmap.CompressFormat.JPEG,88,output)); output.fd.sync() }
             check(encoded.renameTo(target)) { "تعذر حفظ الصورة على الهاتف." }
         } finally {
-            if(scaled!==bitmap) scaled?.recycle(); bitmap?.recycle(); raw.delete(); encoded.delete()
+            if(scaled!==bitmap && scaled!==oriented) scaled?.recycle(); if(oriented!==bitmap) oriented?.recycle(); bitmap?.recycle(); raw.delete(); encoded.delete()
         }
     }
     fun attach(pharmacy: String,id: String) {

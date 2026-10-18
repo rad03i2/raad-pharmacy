@@ -21,7 +21,7 @@ internal data class ShoppingOperation(val item: ShoppingItem, val deleting: Bool
 /** A separate database, excluded from Android backup. Never opens or migrates the financial Room database. */
 internal class ShoppingLocalStore(context: Context, directory: File = File(context.noBackupFilesDir,"medicine-shopping")) :
     SQLiteOpenHelper(context, File(directory.apply { mkdirs() },"shopping.db").absolutePath, null, 1) {
-    override fun onConfigure(db: SQLiteDatabase) { db.execSQL("PRAGMA secure_delete=ON") }
+    override fun onConfigure(db: SQLiteDatabase) { db.rawQuery("PRAGMA secure_delete=ON",null).use { it.moveToFirst() } }
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE items(pharmacy TEXT NOT NULL,id TEXT NOT NULL,owner TEXT NOT NULL,title TEXT NOT NULL,
             note TEXT NOT NULL,photo INTEGER NOT NULL,created_at INTEGER NOT NULL,created_by TEXT NOT NULL,

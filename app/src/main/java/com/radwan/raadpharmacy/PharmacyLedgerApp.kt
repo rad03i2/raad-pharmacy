@@ -55,6 +55,7 @@ import com.radwan.raadpharmacy.cloud.CloudSyncRuntime
 import com.radwan.raadpharmacy.data.FormDraftStore
 import com.radwan.raadpharmacy.ui.components.FloatingLedgerNavigation
 import com.radwan.raadpharmacy.ui.components.LedgerNavigationItem
+import com.radwan.raadpharmacy.ui.components.navigateLedgerTab
 import com.radwan.raadpharmacy.ui.screens.AddCustomerScreenV12
 import com.radwan.raadpharmacy.ui.screens.AppLockScreenV9
 import com.radwan.raadpharmacy.ui.screens.AddDebtScreenV12
@@ -219,16 +220,7 @@ fun PharmacyLedgerApp(
         }
     }
 
-    fun navigateTab(route: String) {
-        if (navController.currentDestination?.route == route) return
-        val hasHome = runCatching { navController.getBackStackEntry(Routes.HOME) }.isSuccess
-        navController.navigate(route) {
-            if (hasHome) popUpTo(Routes.HOME) { saveState = true }
-            else popUpTo(navController.graph.id) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
-        }
-    }
+    fun navigateTab(route: String) { navController.navigateLedgerTab(route) }
 
     fun backOrHome() {
         if (!navController.popBackStack()) navigateHome()

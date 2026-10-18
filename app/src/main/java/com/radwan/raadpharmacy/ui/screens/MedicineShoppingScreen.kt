@@ -116,7 +116,7 @@ internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: 
         }},confirmButton={TextButton(onClick={viewing=null}){Text("إغلاق")}})
     Scaffold(topBar={ ScreenTopBar("قائمة الشراء",onBack,actions={
         IconButton(onClick={help=true}) { Icon(Icons.Rounded.Info,"شرح قائمة الشراء") }
-    }) },floatingActionButton={ ExtendedFloatingActionButton(onClick=onAdd,icon={Icon(Icons.Rounded.Add,null)},
+    }) },floatingActionButton={ ExtendedFloatingActionButton(onClick=onAdd,modifier=Modifier.testTag("shopping-add").semantics {contentDescription="إضافة علاج"},icon={Icon(Icons.Rounded.Add,null)},
         text={Text("إضافة علاج")},expanded=true,containerColor=colors.primary,contentColor=colors.onPrimary) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             Surface(shape=RoundedCornerShape(24.dp),color=colors.primaryContainer) {
@@ -227,7 +227,7 @@ private fun shoppingDate(time: Long): String = DateTimeFormatter.ofPattern("d / 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Unit) {
+internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Unit) {
     val context=LocalContext.current
     val scope=rememberCoroutineScope()
     var id by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }

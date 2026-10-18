@@ -27,7 +27,8 @@ internal data class ShoppingUiState(val identity: ShoppingIdentity? = null, val 
 internal class MedicineShoppingStore internal constructor(context: Context,
     private val clientOverride: SupabaseClient? = null,
     root: File = File(context.noBackupFilesDir,"medicine-shopping"),
-    preferenceName: String = "raad_medicine_shopping_v24") {
+    preferenceName: String = "raad_medicine_shopping_v24",
+    private val enqueueWork: () -> Unit = { ShoppingSyncScheduler.enqueue(context.applicationContext) }) {
     private val app=context.applicationContext
     private val prefs=app.getSharedPreferences(preferenceName,Context.MODE_PRIVATE)
     internal val local=ShoppingLocalStore(app,root)
@@ -102,7 +103,7 @@ internal class MedicineShoppingStore internal constructor(context: Context,
             photos.discardDraft(id)
             publishLocal(error=null)
         }
-        request(); runCatching { ShoppingSyncScheduler.enqueue(app) }
+        request(); runCatching { enqueueWork() }
     }
     suspend fun complete(id: String) = withContext(Dispatchers.IO) {
         cacheMutex.withLock {
@@ -111,7 +112,7 @@ internal class MedicineShoppingStore internal constructor(context: Context,
             photos.delete(owner.pharmacy,id)
             publishLocal(error=null)
         }
-        request(); runCatching { ShoppingSyncScheduler.enqueue(app) }
+        request(); runCatching { enqueueWork() }
     }
     private fun verify(owner: ShoppingIdentity) {
         check(client.auth.currentSessionOrNull()?.user?.id==owner.owner) { "SHOPPING_SESSION_CHANGED" }

@@ -81,7 +81,7 @@ class ShoppingHttpTest {
         };clients+=client
         client.auth.signInWith(Email) {email="fixture@example.invalid";password="fixture-only"}
         val id=UUID.randomUUID().toString();val root=File(context.noBackupFilesDir,"shopping-http-$id");roots+=root
-        val store=MedicineShoppingStore(context,client,root,"shopping-test-$id");stores+=store
+        val store=MedicineShoppingStore(context,client,root,"shopping-test-$id",enqueueWork={});stores+=store
         assertTrue(store.sync());return store
     }
     @After fun close()=runBlocking { stores.forEach {it.local.close()};clients.forEach {it.close()};server.stop(0);executor.shutdownNow()
@@ -112,6 +112,18 @@ class ShoppingHttpTest {
         assertTrue(first.sync());first.complete(item);assertTrue(first.sync())
         assertTrue(other.sync());assertTrue(rows.isEmpty());assertTrue(other.state.value.items.isEmpty());assertEquals(0,other.state.value.pending)
         assertTrue(deleted.contains(item))
+    }
+    @Test fun photoBytesStayOnlyOnTheirOriginalDeviceAndAreRemovedWhenAnotherDeviceBuysTheItem()=runBlocking {
+        val first=device();val other=device()
+        first.photos.draft(item).apply {parentFile!!.mkdirs();writeText("PRIVATE_LOCAL_IMAGE_BYTES")}
+        first.add(item,"","علبتان",true);assertTrue(first.sync());assertTrue(other.sync())
+        assertTrue(first.photos.file(pharmacy,item).isFile)
+        assertFalse(other.photos.file(pharmacy,item).exists())
+        assertTrue(other.state.value.items.single().hasPhoto)
+        assertTrue(posts.all { data -> data.keys().asSequence().toSet()==setOf("item_id","item_title","item_note","local_photo") })
+        assertFalse(posts.any {"PRIVATE_LOCAL_IMAGE_BYTES" in it.toString() || "no_backup" in it.toString()})
+        other.complete(item);assertTrue(other.sync());assertTrue(first.sync())
+        assertFalse(first.photos.file(pharmacy,item).exists());assertTrue(first.state.value.items.isEmpty())
     }
     @Test fun wrongReceiptsNeverClearPendingAdditionOrDeletion()=runBlocking {
         val first=device();first.add(item,"علاج","",false);wrongReceipt.set(true)
