@@ -164,7 +164,10 @@ class ShoppingHttpTest {
         assertTrue(second.sync());assertTrue(first.sync())
         assertTrue(first.state.value.items.isEmpty());assertEquals(item,first.state.value.trash.single().item.id)
         assertTrue(first.photos.file(pharmacy,item).exists());assertFalse(second.photos.file(pharmacy,item).exists())
-        first.restore(item);assertTrue(first.sync());assertTrue(second.sync())
+        second.restore(item);assertTrue(second.sync())
+        first.local.expire(System.currentTimeMillis()+86_400_001);first.photos.reconcile(first.local)
+        assertTrue(first.photos.file(pharmacy,item).exists()) // Original phone missed the timely remote restore.
+        assertTrue(first.sync())
         assertEquals(item,second.state.value.items.single().id);assertTrue(first.state.value.trash.isEmpty())
         assertEquals(1,rows.size);assertTrue(first.photos.file(pharmacy,item).exists())
         assertFalse(posts.any {"PRIVATE_LOCAL_IMAGE_BYTES" in it.toString()})

@@ -6,6 +6,8 @@ create table raad_private.shopping_trash (
     created_by uuid references public.profiles(id) on delete set null,
     expires_at timestamptz not null, primary key(pharmacy_id,id)
 );
+create index shopping_trash_identity on raad_private.shopping_trash(id,pharmacy_id);
+create index shopping_deleted_identity on raad_private.medicine_shopping_deleted(id,pharmacy_id);
 create index shopping_trash_expiry on raad_private.shopping_trash(expires_at);
 create index shopping_trash_creator on raad_private.shopping_trash(created_by);
 create table raad_private.shopping_mutations (
@@ -21,7 +23,7 @@ create function raad_private.purge_shopping_trash() returns void language plpgsq
 declare row record;
 begin
     for row in select pharmacy_id,id from raad_private.shopping_trash where expires_at<=clock_timestamp() loop
-        perform pg_advisory_xact_lock(hashtextextended(row.pharmacy_id::text||':'||row.id::text,2401));
+        perform pg_advisory_xact_lock(hashtextextended(row.id::text,2401));
         delete from raad_private.shopping_trash where pharmacy_id=row.pharmacy_id and id=row.id and expires_at<=clock_timestamp();
         -- Existing content-free deletion marker is deliberately retained forever.
     end loop;
@@ -114,7 +116,7 @@ begin
     if auth.uid() is null or tenant is null then raise exception 'SHOPPING_ACCESS_DENIED' using errcode='42501'; end if;
     if item_id is null or operation_id is null or change_action is null or change_action not in ('TRASH','RESTORE') then
         raise exception 'SHOPPING_INVALID_ITEM' using errcode='22023'; end if;
-    perform pg_advisory_xact_lock(hashtextextended(tenant::text||':'||item_id::text,2401));
+    perform pg_advisory_xact_lock(hashtextextended(item_id::text,2401));
     -- Also serialize reuse of a mutation UUID for a different item.
     perform pg_advisory_xact_lock(hashtextextended(tenant::text||':'||operation_id::text,2502));
     select * into prior from raad_private.shopping_mutations where pharmacy_id=tenant and operation=operation_id;
@@ -122,7 +124,9 @@ begin
         if prior.item_id<>item_id or prior.action<>change_action then raise exception 'SHOPPING_ID_CONFLICT' using errcode='22023'; end if;
         return jsonb_build_object('owner',auth.uid(),'pharmacy',tenant,'id',item_id,'operation',operation_id,'active',prior.active,'trashed',prior.trashed);
     end if;
-    if exists(select 1 from public.medicine_shopping_items where id=item_id and pharmacy_id<>tenant) then
+    if exists(select 1 from public.medicine_shopping_items where id=item_id and pharmacy_id<>tenant)
+        or exists(select 1 from raad_private.shopping_trash where id=item_id and pharmacy_id<>tenant)
+        or exists(select 1 from raad_private.medicine_shopping_deleted where id=item_id and pharmacy_id<>tenant) then
         raise exception 'SHOPPING_ACCESS_DENIED' using errcode='42501'; end if;
     select * into held from raad_private.shopping_trash where pharmacy_id=tenant and id=item_id;
     if change_action='TRASH' then
@@ -167,14 +171,47 @@ returns jsonb language sql security invoker set search_path='' as $$
     select raad_private.shopping_change_v25(operation_id,item_id,change_action,deletion_token,item_title,item_note,local_photo,deleted_at_ms)
 $$;
 
+-- Keep UUID ownership through recovery/permanent deletion, including older client calls.
+create or replace function raad_private.add_shopping_item(item_id uuid,item_title text,item_note text,local_photo boolean)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare tenant uuid := raad_private.shopping_pharmacy(); existing public.medicine_shopping_items%rowtype;
+    title_value text := btrim(coalesce(item_title,'')); note_value text := btrim(coalesce(item_note,''));
+begin
+    if auth.uid() is null or tenant is null then raise exception 'SHOPPING_ACCESS_DENIED' using errcode='42501'; end if;
+    if item_id is null or local_photo is null or char_length(title_value)>240 or char_length(note_value)>1000
+        or (title_value='' and not local_photo) then raise exception 'SHOPPING_INVALID_ITEM' using errcode='22023'; end if;
+    perform pg_advisory_xact_lock(hashtextextended(item_id::text,2401));
+    if exists(select 1 from raad_private.shopping_trash where id=item_id and pharmacy_id<>tenant)
+        or exists(select 1 from raad_private.medicine_shopping_deleted where id=item_id and pharmacy_id<>tenant) then
+        raise exception 'SHOPPING_ACCESS_DENIED' using errcode='42501';
+    end if;
+    if exists(select 1 from raad_private.medicine_shopping_deleted d where d.pharmacy_id=tenant and d.id=item_id) then
+        return jsonb_build_object('owner',auth.uid(),'pharmacy',tenant,'id',item_id,'active',false);
+    end if;
+    select * into existing from public.medicine_shopping_items where id=item_id;
+    if found then
+        if existing.pharmacy_id<>tenant then raise exception 'SHOPPING_ACCESS_DENIED' using errcode='42501'; end if;
+        if existing.title<>title_value or existing.note<>note_value or existing.local_photo<>local_photo then
+            raise exception 'SHOPPING_ID_CONFLICT' using errcode='22023';
+        end if;
+    else
+        insert into public.medicine_shopping_items(id,pharmacy_id,title,note,local_photo,created_by)
+            values(item_id,tenant,title_value,note_value,local_photo,auth.uid());
+        insert into public.medicine_shopping_signal(pharmacy_id) values(tenant)
+            on conflict(pharmacy_id) do update set revision=public.medicine_shopping_signal.revision+1;
+    end if;
+    return jsonb_build_object('owner',auth.uid(),'pharmacy',tenant,'id',item_id,'active',true);
+end $$;
 -- v24 keeps its established permanent-delete contract, including when it meets a v25 trash item.
 create or replace function raad_private.complete_shopping_item(item_id uuid) returns jsonb language plpgsql security definer set search_path='' as $$
 declare tenant uuid:=raad_private.shopping_pharmacy();
 begin
     if auth.uid() is null or tenant is null then raise exception 'SHOPPING_ACCESS_DENIED' using errcode='42501'; end if;
     if item_id is null then raise exception 'SHOPPING_INVALID_ITEM' using errcode='22023'; end if;
-    perform pg_advisory_xact_lock(hashtextextended(tenant::text||':'||item_id::text,2401));
-    if exists(select 1 from public.medicine_shopping_items where id=item_id and pharmacy_id<>tenant) then
+    perform pg_advisory_xact_lock(hashtextextended(item_id::text,2401));
+    if exists(select 1 from public.medicine_shopping_items where id=item_id and pharmacy_id<>tenant)
+        or exists(select 1 from raad_private.shopping_trash where id=item_id and pharmacy_id<>tenant)
+        or exists(select 1 from raad_private.medicine_shopping_deleted where id=item_id and pharmacy_id<>tenant) then
         raise exception 'SHOPPING_ACCESS_DENIED' using errcode='42501'; end if;
     insert into raad_private.medicine_shopping_deleted(pharmacy_id,id) values(tenant,item_id) on conflict do nothing;
     delete from raad_private.shopping_trash where pharmacy_id=tenant and id=item_id;

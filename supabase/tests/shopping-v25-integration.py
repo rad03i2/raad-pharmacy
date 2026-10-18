@@ -29,6 +29,9 @@ with psycopg.connect(url,autocommit=True) as admin:
     held=next(r for r in context(ahmad)['trash'] if r['item']['id']==id)
     assert held['deletionId']==op and held['expiresAt']>int(time.time()*1000)
     assert all(r['item']['id']!=id for r in context(outsider)['trash'])
+    expect(psycopg.errors.InsufficientPrivilege,lambda:change(id,uid(),user=outsider))
+    expect(psycopg.errors.InsufficientPrivilege,lambda:query(outsider,'select add_medicine_shopping_item(%s,%s,%s,false)',(id,'علاج آمن','علبتان')))
+    expect(psycopg.errors.InsufficientPrivilege,lambda:query(outsider,'select complete_medicine_shopping_item(%s)',(id,)))
     expect(psycopg.errors.InsufficientPrivilege,lambda:query(ahmad,'select count(*) from raad_private.shopping_trash'))
     wrong=change(id,uid(),'RESTORE',uid());assert not wrong['active'] and wrong['trashed']
     restored=change(id,uid(),'RESTORE',op,user=ahmad);assert restored['active'] and not restored['trashed']

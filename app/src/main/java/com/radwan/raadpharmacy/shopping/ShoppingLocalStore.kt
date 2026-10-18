@@ -56,10 +56,12 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
     }
     private fun protected(pharmacy: String): Set<String> = readableDatabase.rawQuery(
         "SELECT id FROM changes WHERE pharmacy=?",arrayOf(pharmacy)).use { c -> buildSet {while(c.moveToNext()) add(c.getString(0))} }
-    @Synchronized fun trash(identity: ShoppingIdentity,now: Long=clock()): List<ShoppingTrash> = readableDatabase.rawQuery(
-        "SELECT payload FROM trash WHERE pharmacy=?",arrayOf(identity.pharmacy)).use { c -> buildList {
+    private fun allTrash(pharmacy: String): List<ShoppingTrash> = readableDatabase.rawQuery(
+        "SELECT payload FROM trash WHERE pharmacy=?",arrayOf(pharmacy)).use { c -> buildList {
             while(c.moveToNext()) add(Json.decodeFromString<ShoppingTrash>(c.getString(0)))
-        } }.filter {it.expiresAt>now}.sortedByDescending {it.expiresAt}
+        } }
+    @Synchronized fun trash(identity: ShoppingIdentity,now: Long=clock()): List<ShoppingTrash> =
+        allTrash(identity.pharmacy).filter {it.expiresAt>now}.sortedByDescending {it.expiresAt}
     @Synchronized fun changes(identity: ShoppingIdentity): List<ShoppingChange> = readableDatabase.rawQuery(
         "SELECT payload FROM changes WHERE pharmacy=? AND owner=? ORDER BY sequence",arrayOf(identity.pharmacy,identity.owner)).use { c ->
         buildList {while(c.moveToNext()) add(Json.decodeFromString<ShoppingChange>(c.getString(0)))} }
@@ -93,7 +95,13 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
     @Synchronized fun expire(now: Long=clock()) {
         val expired=readableDatabase.rawQuery("SELECT pharmacy,id,payload FROM trash",null).use { c -> buildList {
             while(c.moveToNext()) if(Json.decodeFromString<ShoppingTrash>(c.getString(2)).expiresAt<=now) add(c.getString(0) to c.getString(1)) } }
-        expired.forEach { (pharmacy,id) -> writableDatabase.delete("trash","pharmacy=? AND id=?",arrayOf(pharmacy,id)) }
+        expired.forEach { (pharmacy,id) ->
+            // For an uploaded purchase, another device may have restored it while this one was offline.
+            // Hide it at the deadline; remove cached content/photo only after a fresh server snapshot.
+            val unsent=readableDatabase.rawQuery("SELECT payload FROM changes WHERE pharmacy=? AND id=?",arrayOf(pharmacy,id)).use { c ->
+                var purchase=false;while(c.moveToNext()) if(Json.decodeFromString<ShoppingChange>(c.getString(0)).action=="TRASH") purchase=true;purchase }
+            if(unsent) writableDatabase.delete("trash","pharmacy=? AND id=?",arrayOf(pharmacy,id))
+        }
         // A durable opaque delete can still reach the server after a long offline interval.
         val redactions=readableDatabase.rawQuery("SELECT operation,payload FROM changes",null).use { c -> buildList {
             while(c.moveToNext()) { val op=Json.decodeFromString<ShoppingChange>(c.getString(1))
@@ -185,7 +193,7 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
     }
     @Synchronized fun activePhotoIds(pharmacy: String): Set<String> = query(pharmacy).filter {
         it.second!="DELETE" && it.first.hasPhoto }.map { it.first.id }.toSet() +
-        trash(ShoppingIdentity("",pharmacy)).filter {it.item.hasPhoto}.map {it.item.id} +
+        allTrash(pharmacy).filter {it.item.hasPhoto}.map {it.item.id} +
         readableDatabase.rawQuery("SELECT payload FROM changes WHERE pharmacy=?",arrayOf(pharmacy)).use {c -> buildSet {
             while(c.moveToNext()) {val op=Json.decodeFromString<ShoppingChange>(c.getString(0));if(op.item.hasPhoto) add(op.item.id)} } }
 }

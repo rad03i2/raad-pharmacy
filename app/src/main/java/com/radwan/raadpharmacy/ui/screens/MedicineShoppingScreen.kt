@@ -96,7 +96,7 @@ internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: 
         confirmButton={TextButton(onClick={help=false}){Text("فهمت")}})
     if(trashOpen) AlertDialog(onDismissRequest={trashOpen=false},title={Text("المحذوفة حديثاً")},
         text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            Text("مهلة الاستعادة 24 ساعة من الحذف، ويجب تأكيد الاستعادة على السحابة قبل انتهائها. بعدها تُحذف المادة نهائياً؛ تنظيف الصورة المحلية يتم عند تشغيل الجهاز.",style=MaterialTheme.typography.bodySmall)
+            Text("مهلة الاستعادة 24 ساعة من الحذف، ويجب تأكيد الاستعادة على السحابة قبل انتهائها. بعدها تُحذف المادة نهائياً؛ تنظيف الصورة المحلية يتم عند تشغيل الجهاز والتحقق من السحابة.",style=MaterialTheme.typography.bodySmall)
             if(state.trash.isEmpty()) Text("لا توجد مواد قابلة للاستعادة")
             LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 items(state.trash,key={it.item.id}) {held ->

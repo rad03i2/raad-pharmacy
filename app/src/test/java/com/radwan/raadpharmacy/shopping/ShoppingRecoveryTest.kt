@@ -66,7 +66,9 @@ class ShoppingRecoveryTest {
         local.merge(owner,ShoppingSnapshot(owner.owner,owner.pharmacy,emptyList(),listOf(ShoppingTrash(row,UUID.randomUUID().toString(),System.currentTimeMillis()+1000))))
         photos.reconcile(local);assertTrue(photos.file(owner.pharmacy,row.id).exists())
         local.expire(System.currentTimeMillis()+2000);photos.reconcile(local)
-        assertFalse(photos.file(owner.pharmacy,row.id).exists())
+        assertTrue(photos.file(owner.pharmacy,row.id).exists()) // It could have been restored on another device.
+        local.merge(owner,ShoppingSnapshot(owner.owner,owner.pharmacy,emptyList())) // Server confirms no restore.
+        photos.reconcile(local);assertFalse(photos.file(owner.pharmacy,row.id).exists())
     }
     @Test fun versionOneUpgradePreservesUnsentLegacyCreateAndPermanentDelete() {
         local.close();File(root,"shopping.db").delete()
