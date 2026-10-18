@@ -59,7 +59,7 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 @Composable
-fun MedicineShoppingScreen(onBack: () -> Unit,shareId: String?=null,onShareHandled: ()->Unit={}) {
+fun MedicineShoppingScreen(onBack: () -> Unit) {
     val context=LocalContext.current
     val store=remember(context) { MedicineShoppingStore.get(context) }
     val state by store.state.collectAsStateWithLifecycle()
@@ -68,8 +68,7 @@ fun MedicineShoppingScreen(onBack: () -> Unit,shareId: String?=null,onShareHandl
     var busy by remember { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     DisposableEffect(store) { store.visible=true; store.start(); store.request(); onDispose { store.visible=false } }
-    if(shareId!=null) ShoppingSharedComposer(store,shareId,onShareHandled)
-    if(adding && shareId==null) ShoppingItemComposer(store, onDismiss={ adding=false })
+    if(adding) ShoppingItemComposer(store, onDismiss={ adding=false })
     LaunchedEffect(store) { while(true) { delay(15_000);store.refreshLocal() } }
     if(error!=null) AlertDialog(onDismissRequest={error=null},title={Text("لم تكتمل العملية")},text={Text(error.orEmpty())},
         confirmButton={TextButton(onClick={error=null}){Text("حسناً")}})
@@ -97,7 +96,7 @@ internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: 
         confirmButton={TextButton(onClick={help=false}){Text("فهمت")}})
     if(trashOpen) AlertDialog(onDismissRequest={trashOpen=false},title={Text("المحذوفة حديثاً")},
         text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            Text("مهلة الاستعادة 24 ساعة من الحذف. بعدها تُحذف المادة وصورتها نهائياً؛ تنظيف الصورة على الجهاز يتم عند تشغيله.",style=MaterialTheme.typography.bodySmall)
+            Text("مهلة الاستعادة 24 ساعة من الحذف، ويجب تأكيد الاستعادة على السحابة قبل انتهائها. بعدها تُحذف المادة نهائياً؛ تنظيف الصورة المحلية يتم عند تشغيل الجهاز.",style=MaterialTheme.typography.bodySmall)
             if(state.trash.isEmpty()) Text("لا توجد مواد قابلة للاستعادة")
             LazyColumn(Modifier.heightIn(max=400.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 items(state.trash,key={it.item.id}) {held ->

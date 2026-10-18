@@ -33,7 +33,8 @@ internal data class ShoppingIdentity(val owner: String, val pharmacy: String)
 internal data class ShoppingOperation(val item: ShoppingItem, val deleting: Boolean)
 
 /** A separate database, excluded from Android backup. Never opens or migrates the financial Room database. */
-internal class ShoppingLocalStore(context: Context, directory: File = File(context.noBackupFilesDir,"medicine-shopping")) :
+internal class ShoppingLocalStore(context: Context, directory: File = File(context.noBackupFilesDir,"medicine-shopping"),
+    private val clock: ()->Long = System::currentTimeMillis) :
     SQLiteOpenHelper(context, File(directory.apply { mkdirs() },"shopping.db").absolutePath, null, 2, DatabaseErrorHandler {
         // Never let the default Android corruption handler silently delete unsent shopping data.
         throw SQLiteDatabaseCorruptException("تعذر فتح مخزن قائمة الشراء؛ احتُفظ بالملف دون إعادة تهيئته.")
@@ -54,7 +55,7 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
     }
     private fun protected(pharmacy: String): Set<String> = readableDatabase.rawQuery(
         "SELECT id FROM changes WHERE pharmacy=?",arrayOf(pharmacy)).use { c -> buildSet {while(c.moveToNext()) add(c.getString(0))} }
-    @Synchronized fun trash(identity: ShoppingIdentity,now: Long=System.currentTimeMillis()): List<ShoppingTrash> = readableDatabase.rawQuery(
+    @Synchronized fun trash(identity: ShoppingIdentity,now: Long=clock()): List<ShoppingTrash> = readableDatabase.rawQuery(
         "SELECT payload FROM trash WHERE pharmacy=?",arrayOf(identity.pharmacy)).use { c -> buildList {
             while(c.moveToNext()) add(Json.decodeFromString<ShoppingTrash>(c.getString(0)))
         } }.filter {it.expiresAt>now}.sortedByDescending {it.expiresAt}
@@ -65,7 +66,7 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
         put("pharmacy",pharmacy);put("id",row.item.id);put("payload",Json.encodeToString(row)) },SQLiteDatabase.CONFLICT_REPLACE) }
     private fun putChange(identity: ShoppingIdentity,row: ShoppingChange) { writableDatabase.insertOrThrow("changes",null,ContentValues().apply {
         put("pharmacy",identity.pharmacy);put("owner",identity.owner);put("id",row.item.id);put("operation",row.operation);put("payload",Json.encodeToString(row)) }) }
-    @Synchronized fun purchase(identity: ShoppingIdentity,id: String,now: Long=System.currentTimeMillis()) {
+    @Synchronized fun purchase(identity: ShoppingIdentity,id: String,now: Long=clock()) {
         val row=list(identity).firstOrNull {it.id==id} ?: return
         val operation=UUID.randomUUID().toString()
         val db=writableDatabase;db.beginTransaction()
@@ -75,7 +76,7 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
             db.delete("items","pharmacy=? AND id=?",arrayOf(identity.pharmacy,id));db.setTransactionSuccessful()
         } finally {db.endTransaction()}
     }
-    @Synchronized fun restore(identity: ShoppingIdentity,id: String,now: Long=System.currentTimeMillis()) {
+    @Synchronized fun restore(identity: ShoppingIdentity,id: String,now: Long=clock()) {
         val held=trash(identity,now).firstOrNull {it.item.id==id} ?: error("انتهت مهلة استعادة المادة.")
         val db=writableDatabase;db.beginTransaction()
         try {
@@ -88,7 +89,7 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
         check(r.owner==identity.owner && r.pharmacy==identity.pharmacy && r.id==op.item.id && r.operation==op.operation) {"SHOPPING_RECEIPT_MISMATCH"}
         writableDatabase.delete("changes","pharmacy=? AND owner=? AND operation=?",arrayOf(identity.pharmacy,identity.owner,op.operation))
     }
-    @Synchronized fun expire(now: Long=System.currentTimeMillis()) {
+    @Synchronized fun expire(now: Long=clock()) {
         val expired=readableDatabase.rawQuery("SELECT pharmacy,id,payload FROM trash",null).use { c -> buildList {
             while(c.moveToNext()) if(Json.decodeFromString<ShoppingTrash>(c.getString(2)).expiresAt<=now) add(c.getString(0) to c.getString(1)) } }
         expired.forEach { (pharmacy,id) -> writableDatabase.delete("trash","pharmacy=? AND id=?",arrayOf(pharmacy,id)) }
@@ -109,7 +110,7 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
             c.getLong(4),c.getString(5),c.getString(6)!="SYNCED"),c.getString(6),c.getString(7))) }
     }
     @Synchronized fun list(identity: ShoppingIdentity): List<ShoppingItem> = query(identity.pharmacy)
-        .filter { it.second!="DELETE" && (it.second=="SYNCED" || it.third==identity.owner) }.map { it.first }
+        .filter { it.second!="DELETE" && (it.second=="SYNCED" || it.third==identity.owner) }.map { it.first.copy(pending=it.first.pending || it.first.id in protected(identity.pharmacy)) }
     @Synchronized fun pending(identity: ShoppingIdentity): List<ShoppingOperation> = query(identity.pharmacy)
         .filter { it.second=="DELETE" || (it.second=="CREATE" && it.third==identity.owner) }
         .sortedBy { if(it.second=="DELETE") 0 else 1 }.map { ShoppingOperation(it.first,it.second=="DELETE") }

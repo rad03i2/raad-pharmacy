@@ -36,6 +36,9 @@ class ShoppingHttpTest {
     private lateinit var server: HttpServer
     private val executor=Executors.newCachedThreadPool { r -> Thread(r,"shopping-fixture").apply {isDaemon=true} }
     private val rows=ConcurrentHashMap<String,ShoppingItem>()
+    private val trashRows=ConcurrentHashMap<String,ShoppingTrash>()
+    private val supplierRows=ConcurrentHashMap<String,com.radwan.raadpharmacy.suppliers.SupplierEntry>()
+    private val mutations=ConcurrentHashMap<String,ShoppingChangeReceipt>()
     private val deleted=ConcurrentHashMap.newKeySet<String>()
     private val posts=CopyOnWriteArrayList<JSONObject>()
     private val paths=CopyOnWriteArrayList<String>()
@@ -54,7 +57,7 @@ class ShoppingHttpTest {
                     .put("token_type","bearer").put("expires_in",3600).put("user",JSONObject().put("id",owner)
                         .put("aud","authenticated").put("role","authenticated").put("created_at","2026-10-18T00:00:00Z")).toString())
                 "/rest/v1/rpc/medicine_shopping_context", "/rest/v1/rpc/medicine_shopping_context_v25" -> if(outage.get()) reply(e,503,"""{"code":"PGRST000","message":"fixture offline"}""")
-                    else reply(e,200,kotlinx.serialization.json.Json.encodeToString(ShoppingSnapshot(owner,pharmacy,rows.values.toList())))
+                    else reply(e,200,kotlinx.serialization.json.Json.encodeToString(ShoppingSnapshot(owner,pharmacy,rows.values.toList(),trashRows.values.toList(),supplierRows.values.toList())))
                 "/rest/v1/rpc/add_medicine_shopping_item", "/rest/v1/rpc/complete_medicine_shopping_item" -> {
                     val data=JSONObject(e.requestBody.bufferedReader().use {it.readText()});posts+=data
                     val id=data.getString("item_id")
@@ -65,6 +68,33 @@ class ShoppingHttpTest {
                     if(loseReply.compareAndSet(true,false)) e.close()
                     else reply(e,200,kotlinx.serialization.json.Json.encodeToString(ShoppingReceipt(owner,pharmacy,
                         if(wrongReceipt.get()) UUID.randomUUID().toString() else id,id !in deleted)))
+                }
+                "/rest/v1/rpc/change_medicine_shopping_v25" -> {
+                    val data=JSONObject(e.requestBody.bufferedReader().use {it.readText()});posts+=data
+                    val id=data.getString("item_id");val op=data.getString("operation_id")
+                    val receipt=mutations.computeIfAbsent(op) {
+                        if(data.getString("change_action")=="TRASH") {
+                            if(id !in deleted) {
+                                val row=rows.remove(id)?:ShoppingItem(id,data.getString("item_title"),data.getString("item_note"),data.getBoolean("local_photo"))
+                                deleted+=id;trashRows[id]=ShoppingTrash(row,op,data.getLong("deleted_at_ms")+86_400_000)
+                            }
+                        } else {
+                            val held=trashRows[id]
+                            if(held!=null && held.deletionId==data.getString("deletion_token") && held.expiresAt>System.currentTimeMillis()) {
+                                rows[id]=held.item;trashRows.remove(id);deleted.remove(id)
+                            }
+                        }
+                        ShoppingChangeReceipt(owner,pharmacy,id,op,id in rows,id in trashRows)
+                    }
+                    if(loseReply.compareAndSet(true,false)) e.close()
+                    else reply(e,200,kotlinx.serialization.json.Json.encodeToString(receipt.copy(operation=if(wrongReceipt.get()) UUID.randomUUID().toString() else op)))
+                }
+                "/rest/v1/rpc/add_supplier_ledger_entry" -> {
+                    val data=JSONObject(e.requestBody.bufferedReader().use {it.readText()});posts+=data
+                    val id=data.getString("entry_id")
+                    supplierRows.putIfAbsent(id,com.radwan.raadpharmacy.suppliers.SupplierEntry(id,data.getString("supplier_name"),data.getString("entry_kind"),data.getLong("entry_amount"),data.getString("entry_day"),data.getString("entry_note")))
+                    if(loseReply.compareAndSet(true,false)) e.close()
+                    else reply(e,200,kotlinx.serialization.json.Json.encodeToString(ShoppingReceipt(owner,pharmacy,id,true)))
                 }
                 else -> reply(e,404,"{}")
             }
@@ -124,6 +154,29 @@ class ShoppingHttpTest {
         assertFalse(posts.any {"PRIVATE_LOCAL_IMAGE_BYTES" in it.toString() || "no_backup" in it.toString()})
         other.complete(item);assertTrue(other.sync());assertTrue(first.sync())
         assertFalse(first.photos.file(pharmacy,item).exists());assertTrue(first.state.value.items.isEmpty())
+    }
+    @Test fun recoverablePurchaseAndRestoreCrossDevicesRetainOnlyOriginalLocalPhoto()=runBlocking {
+        val first=device();val second=device()
+        first.photos.draft(item).apply {parentFile!!.mkdirs();writeText("PRIVATE_LOCAL_IMAGE_BYTES")}
+        first.add(item,"علاج","3 علب",true);assertTrue(first.sync());assertTrue(second.sync())
+        second.purchase(item);loseReply.set(true);assertFalse(second.sync())
+        assertEquals(1,second.local.changes(second.identity()!!).size)
+        assertTrue(second.sync());assertTrue(first.sync())
+        assertTrue(first.state.value.items.isEmpty());assertEquals(item,first.state.value.trash.single().item.id)
+        assertTrue(first.photos.file(pharmacy,item).exists());assertFalse(second.photos.file(pharmacy,item).exists())
+        first.restore(item);assertTrue(first.sync());assertTrue(second.sync())
+        assertEquals(item,second.state.value.items.single().id);assertTrue(first.state.value.trash.isEmpty())
+        assertEquals(1,rows.size);assertTrue(first.photos.file(pharmacy,item).exists())
+        assertFalse(posts.any {"PRIVATE_LOCAL_IMAGE_BYTES" in it.toString()})
+    }
+    @Test fun offlineSupplierDebtAndPaymentUseExactIdsAndConfirmedServerReceipts()=runBlocking {
+        val first=device();val second=device()
+        val row=com.radwan.raadpharmacy.suppliers.SupplierEntry(item,"مذخر اختبار","DEBT",9_000_000,"2026-10-18")
+        first.addSupplier(row);outage.set(true);assertFalse(first.sync());assertTrue(first.state.value.suppliers.single().pending)
+        outage.set(false);loseReply.set(true);assertFalse(first.sync());assertTrue(first.state.value.suppliers.single().pending)
+        assertTrue(first.sync());assertTrue(second.sync())
+        assertEquals(9_000_000L,second.state.value.suppliers.single().amount);assertEquals(1,supplierRows.size)
+        assertFalse(first.state.value.suppliers.single().pending)
     }
     @Test fun wrongReceiptsNeverClearPendingAdditionOrDeletion()=runBlocking {
         val first=device();first.add(item,"علاج","",false);wrongReceipt.set(true)

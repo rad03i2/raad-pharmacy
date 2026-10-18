@@ -16,13 +16,16 @@ import java.io.FileOutputStream
 import java.util.UUID
 
 @Serializable
-internal data class SharedShoppingDraft(val request: String,val ids: List<String>,val quick: Boolean,val title: String="",val quantity: String="",val caption: String="")
+internal data class SharedShoppingDraft(val request: String,val ids: List<String>,val quick: Boolean,val title: String="",val quantity: String="",val caption: String="",
+    val completed: List<String> = emptyList(),val owner: String?=null,val pharmacy: String?=null)
 /** Copies incoming content while the transient URI grant is valid; never persists an external URI or uploads image bytes. */
 internal class ShoppingShareInbox(private val context: Context) {
     private val root=File(context.noBackupFilesDir,"medicine-shopping/share-inbox")
     private fun file(id: String)=File(root,"${UUID.fromString(id)}.json")
     fun read(id: String): SharedShoppingDraft=Json.decodeFromString(file(id).readText())
     fun exists(id: String)=file(id).isFile
+    fun pending(): List<SharedShoppingDraft> = root.listFiles().orEmpty().filter {it.extension=="json"}.sortedBy {it.lastModified()}
+        .mapNotNull {runCatching {read(it.nameWithoutExtension)}.getOrNull()}
     fun write(draft: SharedShoppingDraft) {
         root.mkdirs();val destination=file(draft.request);val writing=File(root,"${draft.request}.writing")
         FileOutputStream(writing).use {it.write(Json.encodeToString(draft).toByteArray());it.fd.sync()}

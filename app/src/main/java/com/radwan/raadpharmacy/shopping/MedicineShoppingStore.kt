@@ -33,7 +33,8 @@ internal class MedicineShoppingStore internal constructor(context: Context,
     private val enqueueWork: () -> Unit = { ShoppingSyncScheduler.enqueue(context.applicationContext) }) {
     private val app=context.applicationContext
     private val prefs=app.getSharedPreferences(preferenceName,Context.MODE_PRIVATE)
-    internal val local=ShoppingLocalStore(app,root)
+    private fun clock(): Long = System.currentTimeMillis()+prefs.getLong("server-clock-offset",0)
+    internal val local=ShoppingLocalStore(app,root,::clock)
     internal val photos=ShoppingPhotos(app,root)
     internal val suppliers=SupplierLocalStore(app,if(root==File(app.noBackupFilesDir,"medicine-shopping")) "supplier-ledger.db" else File(root,"suppliers.db").absolutePath)
     private val client get()=clientOverride ?: SupabaseProvider.client
@@ -156,7 +157,9 @@ internal class MedicineShoppingStore internal constructor(context: Context,
             }
             val first=snapshot()
             check(first.owner==user && client.auth.currentSessionOrNull()?.user?.id==user) { "SHOPPING_SESSION_CHANGED" }
-            check(prefs.edit().putString("tenant:$user",first.pharmacy).commit())
+            check(prefs.edit().putString("tenant:$user",first.pharmacy).apply {
+                if(first.serverTime>0) putLong("server-clock-offset",first.serverTime-System.currentTimeMillis())
+            }.commit())
             val active=ShoppingIdentity(user,first.pharmacy)
             cacheMutex.withLock { verify(active); local.merge(active,first); suppliers.merge(active,first.suppliers);local.expire(); photos.reconcile(local); publishLocal(syncing=true,error=null) }
             val operations=cacheMutex.withLock { local.pending(active).take(40) }

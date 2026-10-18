@@ -43,7 +43,7 @@ internal fun SupplierEntryComposer(store: MedicineShoppingStore,names: List<Stri
     ModalBottomSheet(onDismissRequest={if(!busy)onDismiss()},sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Text("حركة مذخر",style=MaterialTheme.typography.titleLarge)
-            Text("سجّل الدين أو التسديد الفعلي وتاريخه. لإدخال دين سابق، استخدم تاريخ بدايته وملاحظة رصيد سابق.",style=MaterialTheme.typography.bodySmall)
+            Text("سجّل الدين أو التسديد الفعلي وتاريخه. لإدخال دين سابق، استخدم تاريخ بدايته وملاحظة رصيد سابق. التصحيح يكون بحركة مقابلة مع ملاحظة توضح السبب.",style=MaterialTheme.typography.bodySmall)
             OutlinedTextField(name,{if(it.length<=160)name=it},label={Text("اسم المذخر")},modifier=Modifier.fillMaxWidth(),singleLine=true)
             if(names.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                 names.forEach {value -> SuggestionChip(onClick={name=value},label={Text(value)})}

@@ -28,9 +28,15 @@ internal fun ShoppingSharedComposer(store: MedicineShoppingStore,request: String
         busy=true;error=null
         try {
             val identity=checkNotNull(store.identity()) {"انتظر اكتمال تسجيل الدخول للصيدلية."}
-            withContext(Dispatchers.IO) {inbox.write(value)}
-            for(id in value.ids) store.add(id,value.title,
-                listOfNotNull(value.quantity.takeIf {it.isNotBlank()}?.let {"العدد: $it"},value.caption.takeIf {it.isNotBlank()}).joinToString("\n"),true,identity)
+            check(value.owner==null || (value.owner==identity.owner && value.pharmacy==identity.pharmacy)) {"هذه المشاركة مرتبطة بحساب آخر؛ ارجع إلى الحساب الذي بدأ الإضافة."}
+            var saved=value.copy(owner=identity.owner,pharmacy=identity.pharmacy)
+            withContext(Dispatchers.IO) {inbox.write(saved)}
+            for(id in value.ids.filterNot {it in value.completed}) {
+                store.add(id,value.title,listOfNotNull(value.quantity.takeIf {it.isNotBlank()}?.let {"العدد: $it"},value.caption.takeIf {it.isNotBlank()}).joinToString("\n"),true,identity)
+                saved=saved.copy(completed=saved.completed+id)
+                withContext(Dispatchers.IO) {inbox.write(saved)}
+                draft=saved
+            }
             withContext(Dispatchers.IO) {inbox.discard(request)}
             onHandled()
         }catch(cancelled: CancellationException) {throw cancelled}
@@ -48,7 +54,7 @@ internal fun ShoppingSharedComposer(store: MedicineShoppingStore,request: String
         // Intentionally no success dialog, toast, notification, title or quantity prompt.
         if(error!=null) AlertDialog(onDismissRequest=onHandled,title={Text("لم تكتمل الإضافة السريعة")},text={Text(error.orEmpty())},
             confirmButton={TextButton(onClick={scope.launch {save(value)}}) {Text("إعادة المحاولة")}},
-            dismissButton={TextButton(onClick=onHandled) {Text("لاحقاً")}})
+            dismissButton={TextButton(onClick={scope.launch {withContext(Dispatchers.IO) {inbox.discard(request)};onHandled()}}) {Text("إلغاء الإضافة المتبقية")}})
     } else if(value!=null) ModalBottomSheet(onDismissRequest={if(!busy) scope.launch {withContext(Dispatchers.IO) {inbox.discard(request)};onHandled()}},
         sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {

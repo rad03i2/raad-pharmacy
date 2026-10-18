@@ -45,6 +45,7 @@ class ShoppingScreenTest {
     @get:Rule val rule=createComposeRule()
     private val identity=ShoppingIdentity("fixture","00000000-0000-4000-8000-000000000001")
     private val rows=(1..70).map {ShoppingItem(UUID.randomUUID().toString(),"علاج رقم $it", "علبتان • تركيز 500 ملغ",false,1_792_100_000_000L,"رعد")}
+    @Before fun resetFileProviderSandbox() {resetProviderRoots()}
     @Test fun purchasingMidListKeepsNeighbourAndSearchState() {
         var state by mutableStateOf(ShoppingUiState(identity,rows,lastSyncedAt=100))
         rule.setContent {PharmacyLedgerTheme(darkTheme=false) {CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
@@ -162,4 +163,10 @@ class ShoppingScreenTest {
     }
     private fun save(name:String) {val bitmap=rule.onNodeWithTag("shopping-preview").captureToImage().asAndroidBitmap()
         File("build/reports/shopping-preview").apply {mkdirs()}.resolve(name).outputStream().use {bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}}
+    private fun resetProviderRoots() {
+        // AndroidX caches absolute roots; Robolectric assigns a different data directory to each test.
+        val field=FileProvider::class.java.getDeclaredField("sCache").apply {isAccessible=true}
+        (field.get(null) as MutableMap<*,*>).clear()
+    }
+
 }

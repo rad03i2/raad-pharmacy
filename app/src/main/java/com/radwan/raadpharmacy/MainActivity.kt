@@ -47,6 +47,7 @@ class MainActivity : FragmentActivity() {
             )
         }
         enableEdgeToEdge()
+        shoppingShare.value=savedInstanceState?.getString(EXTRA_SHOPPING_SHARE)
         readNotificationIntent(intent)
         setContent {
             val resetFinished = remember { mutableStateOf(false) }
@@ -81,6 +82,11 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(EXTRA_SHOPPING_SHARE,shoppingShare.value)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -24,6 +24,7 @@ class ShoppingShareTest {
     private lateinit var source: File
     private var request=UUID.randomUUID().toString()
     @Before fun image() {
+        resetProviderRoots()
         source=File(context.cacheDir,"shopping_camera/share-fixture.jpg").apply {parentFile!!.mkdirs()}
         val bitmap=Bitmap.createBitmap(900,500,Bitmap.Config.ARGB_8888)
         source.outputStream().use {bitmap.compress(Bitmap.CompressFormat.JPEG,90,it)};bitmap.recycle()
@@ -53,4 +54,10 @@ class ShoppingShareTest {
         assertThrows(Exception::class.java) {inbox.receive(intent(false),request)}
         assertFalse(inbox.exists(request))
     }
+    private fun resetProviderRoots() {
+        // AndroidX caches absolute roots; Robolectric assigns a different data directory to each test.
+        val field=FileProvider::class.java.getDeclaredField("sCache").apply {isAccessible=true}
+        (field.get(null) as MutableMap<*,*>).clear()
+    }
+
 }

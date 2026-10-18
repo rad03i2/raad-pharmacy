@@ -63,6 +63,7 @@ internal fun MonthlyReportsContent(entries: List<LedgerEntry>,hideAmounts: Boole
     var custom by rememberSaveable {mutableStateOf(false)}
     var from by rememberSaveable {mutableStateOf(current.atDay(1).toString())}
     var through by rememberSaveable {mutableStateOf(today.toString())}
+    var selectedSupplier by rememberSaveable {mutableStateOf<String?>(null)}
     var showMonths by rememberSaveable {mutableStateOf(false)}
     val period=remember(selected,custom,from,through) {
         if(custom) MonthlyReports.Period(LocalDate.parse(from),LocalDate.parse(through)) else MonthlyReports.month(YearMonth.parse(selected))
@@ -93,6 +94,26 @@ internal fun MonthlyReportsContent(entries: List<LedgerEntry>,hideAmounts: Boole
             TextButton(onClick={selected=month.toString();custom=false;showMonths=false},modifier=Modifier.fillMaxWidth()) {Text(monthTitle(month,current))}
         }}
     },confirmButton={TextButton(onClick={showMonths=false}) {Text("إغلاق")}})
+    selectedSupplier?.let {name ->
+        val movements=remember(suppliers,period,name) {suppliers.filter {it.supplier==name && LocalDate.parse(it.day)>=period.from && LocalDate.parse(it.day)<=period.through}.sortedByDescending {it.day}}
+        AlertDialog(onDismissRequest={selectedSupplier=null},title={Text(name)},text={
+            Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                Text("حركات الفترة المحددة فقط",style=MaterialTheme.typography.labelLarge)
+                if(movements.isEmpty()) Text("لا توجد حركات داخل هذه الفترة؛ المتبقي يعود إلى حركات سابقة.")
+                LazyColumn(Modifier.heightIn(max=420.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                    items(movements,key={it.id}) {entry ->
+                        Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                            Text(if(entry.kind=="DEBT") "دين: ${amount(entry.amount)}" else "تسديد: ${amount(entry.amount)}",fontWeight=FontWeight.Bold)
+                            Text(entry.day,style=MaterialTheme.typography.labelSmall)
+                            if(entry.note.isNotBlank()) Text(entry.note,style=MaterialTheme.typography.bodySmall)
+                            if(entry.pending) Text("محفوظ • بانتظار الرفع",style=MaterialTheme.typography.labelSmall)
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
+        },confirmButton={TextButton(onClick={selectedSupplier=null}) {Text("إغلاق")}})
+    }
     Scaffold(topBar={ScreenTopBar("التقارير الشهرية",onBack)}) {padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding),flingBehavior=rememberLedgerFlingBehavior(),contentPadding=PaddingValues(16.dp,6.dp,16.dp,32.dp),
             verticalArrangement=Arrangement.spacedBy(14.dp)) {
@@ -165,6 +186,7 @@ internal fun MonthlyReportsContent(entries: List<LedgerEntry>,hideAmounts: Boole
                         Text(supplier.name,style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.Bold)
                         Text("المتبقي: ${amount(supplier.closing)}",style=MaterialTheme.typography.titleMedium)
                         Text("ديون الفترة: ${amount(supplier.debts)}\nتسديدات الفترة: ${amount(supplier.payments)}",style=MaterialTheme.typography.bodySmall,color=colors.onSurfaceVariant)
+                        TextButton(onClick={selectedSupplier=supplier.name}) {Text("تفاصيل حركات المذخر")}
                     }
                 }}
             }
