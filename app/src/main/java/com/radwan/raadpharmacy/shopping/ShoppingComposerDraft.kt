@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.util.AtomicFile
 import java.io.File
+import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -17,7 +18,12 @@ internal class ShoppingComposerDraftStore(root: File) {
     private val file=AtomicFile(File(root.apply {mkdirs()},"composer.json"))
     @Synchronized fun load(identity: ShoppingIdentity?): ShoppingComposerDraft? {
         identity ?: return null
-        return runCatching {Json.decodeFromString<ShoppingComposerDraft>(file.openRead().bufferedReader().use {it.readText()})}
+        return runCatching {
+            Json.decodeFromString<ShoppingComposerDraft>(file.openRead().bufferedReader().use {it.readText()}).also {
+                UUID.fromString(it.id)
+                require(it.title.length<=240 && it.note.length<=1000 && (it.uri?.length ?: 0)<=16_384)
+            }
+        }
             .getOrNull()?.takeIf {it.owner==identity.owner && it.pharmacy==identity.pharmacy}
     }
     @Synchronized fun save(value: ShoppingComposerDraft) {

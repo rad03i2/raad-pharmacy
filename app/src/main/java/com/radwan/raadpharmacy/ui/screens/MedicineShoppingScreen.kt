@@ -4,9 +4,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.lazy.grid.*
-import androidx.compose.foundation.selection.selectable
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -36,7 +34,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
@@ -372,7 +369,7 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
                 key(id,imageRevision) { ShoppingPhoto(store.photos.draft(id),true,Modifier.size(76.dp)) }
                 Column(Modifier.weight(1f)) { Text("الصورة محفوظة على هذا الهاتف",style=MaterialTheme.typography.labelMedium)
                     Text("لن تُرفع للسحابة. الاسم والملاحظة يظهران للجميع.",style=MaterialTheme.typography.bodySmall) }
-                IconButton(enabled=!busy,onClick={store.photos.discardDraft(id);photo=false}) { Icon(Icons.Rounded.DeleteOutline,"إزالة الصورة") }
+                IconButton(enabled=!busy,onClick={store.photos.discardDraft(id);draftIdentity()?.let {store.drafts.imported(it,id)};photo=false}) { Icon(Icons.Rounded.DeleteOutline,"إزالة الصورة") }
             }
             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(enabled=!busy,onClick={scope.launch {

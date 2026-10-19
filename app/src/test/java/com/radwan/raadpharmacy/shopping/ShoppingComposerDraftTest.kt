@@ -35,6 +35,16 @@ class ShoppingComposerDraftTest {
             reopened.clear(draft.id);assertNull(reopened.load(owner))
         } finally {root.deleteRecursively()}
     }
+    @Test fun aDamagedDraftCannotCrashPhotoComposerInitialization() {
+        val root=File(context.noBackupFilesDir,"corrupt-draft-${UUID.randomUUID()}").apply {mkdirs()}
+        try {
+            val file=File(root,"composer.json")
+            file.writeText("""{"owner":"fixture-owner","pharmacy":"fixture-pharmacy","id":"damaged-id"}""")
+            assertNull(ShoppingComposerDraftStore(root).load(owner));assertTrue(file.exists())
+            file.writeText("invalid json")
+            assertNull(ShoppingComposerDraftStore(root).load(owner));assertTrue(file.exists())
+        } finally {root.deleteRecursively()}
+    }
     @Test fun galleryIsImageOnlyAndCancellationNeverImportsAnImage() {
         val contract=ShoppingGalleryContract();val intent=contract.createIntent(context,Unit)
         assertEquals("image/*",intent.type)
