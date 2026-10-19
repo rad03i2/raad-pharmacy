@@ -113,24 +113,18 @@ fun CloudAuthGate(content: @Composable () -> Unit) {
     }
 
     PharmacyLedgerTheme {
-        when (status) {
-            is SessionStatus.Authenticated -> content()
-            // Keep the offline-first UI (and any active ActivityResult launcher)
-            // composed while auth restores a previously valid session. External pickers
-            // such as Camera and Contacts may temporarily stop/recreate this Activity.
-            SessionStatus.Initializing -> {
-                if (hasOfflineSession) content() else LoadingCloudSession()
-            }
-            is SessionStatus.RefreshFailure -> {
-                if (hasOfflineSession) {
-                    content()
-                } else {
-                    CloudLoginScreen()
-                }
-            }
-            is SessionStatus.NotAuthenticated -> CloudLoginScreen()
-        }
+        StableCloudSessionContent(status is SessionStatus.Authenticated ||
+            (hasOfflineSession && (status is SessionStatus.Initializing || status is SessionStatus.RefreshFailure)),
+            content = content,
+            fallback = { if(status is SessionStatus.Initializing) LoadingCloudSession() else CloudLoginScreen() })
     }
+}
+
+/** One composition callsite preserves the NavHost and ActivityResult keys during token refresh.
+ * Authentication, explicit sign-out and the PIN policy are unchanged. */
+@Composable
+internal fun StableCloudSessionContent(allowed: Boolean,content: @Composable ()->Unit,fallback: @Composable ()->Unit) {
+    if(allowed) content() else fallback()
 }
 
 @Composable

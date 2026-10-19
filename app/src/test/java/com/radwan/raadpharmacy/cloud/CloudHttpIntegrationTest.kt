@@ -292,6 +292,24 @@ class CloudHttpIntegrationTest {
         } finally { db.close() }
     }
 
+    @Test fun areaOnlyPatchPreservesNewerServerMoneyNamePhoneAndCreationMetadata()=runBlocking {
+        val client=client();login(client)
+        val current=customerWrite().copy(name="newer server name",openingDebt=9_000_000,phone="07800000000",notes="newer server notes",area="previous")
+        seed(current)
+        val before=JSONObject(customerRows.getValue(customer))
+        val writer=CloudLedgerWriter(client,pharmacy)
+        writer.saveArea(customer,"الكرادة")
+        writer.saveArea(customer,"الكرادة") // Retry is the same PATCH, never an INSERT.
+        val after=JSONObject(customerRows.getValue(customer))
+        before.keys().forEach {if(it!="area") assertEquals(it,before.get(it),after.get(it))}
+        assertEquals("الكرادة",after.getString("area"));assertTrue(postPaths.isEmpty())
+        assertTrue(patches.all {it.keys().asSequence().toSet()==setOf("area")})
+        customerRows.clear()
+        var rejected=false
+        try {writer.saveArea(customer,"المفقود")} catch(_:CloudAreaWriteConflict) {rejected=true}
+        assertTrue(rejected);assertTrue(customerRows.isEmpty());assertTrue(postPaths.isEmpty())
+    }
+
     private val preciseCreation = "2026-10-17T00:00:00.000123Z"
     private fun customerWrite() = CloudCustomerWrite(customer, pharmacy, "fixture", phone = "07000000000",
         openingDebt = 0, createdByName = "original creator", createdAt = instant)

@@ -37,6 +37,7 @@ class ShoppingHttpTest {
     private val executor=Executors.newCachedThreadPool { r -> Thread(r,"shopping-fixture").apply {isDaemon=true} }
     private val rows=ConcurrentHashMap<String,ShoppingItem>()
     private val trashRows=ConcurrentHashMap<String,ShoppingTrash>()
+    private val areaNames=ConcurrentHashMap.newKeySet<String>()
     private val supplierRows=ConcurrentHashMap<String,com.radwan.raadpharmacy.suppliers.SupplierEntry>()
     private val mutations=ConcurrentHashMap<String,ShoppingChangeReceipt>()
     private val deleted=ConcurrentHashMap.newKeySet<String>()
@@ -56,8 +57,8 @@ class ShoppingHttpTest {
                 "/auth/v1/token" -> reply(e,200,JSONObject().put("access_token","fixture-token").put("refresh_token","fixture-refresh")
                     .put("token_type","bearer").put("expires_in",3600).put("user",JSONObject().put("id",owner)
                         .put("aud","authenticated").put("role","authenticated").put("created_at","2026-10-18T00:00:00Z")).toString())
-                "/rest/v1/rpc/medicine_shopping_context", "/rest/v1/rpc/medicine_shopping_context_v25" -> if(outage.get()) reply(e,503,"""{"code":"PGRST000","message":"fixture offline"}""")
-                    else reply(e,200,kotlinx.serialization.json.Json.encodeToString(ShoppingSnapshot(owner,pharmacy,rows.values.toList(),trashRows.values.toList(),supplierRows.values.toList())))
+                "/rest/v1/rpc/medicine_shopping_context", "/rest/v1/rpc/medicine_shopping_context_v25", "/rest/v1/rpc/medicine_shopping_context_v26" -> if(outage.get()) reply(e,503,"""{"code":"PGRST000","message":"fixture offline"}""")
+                    else reply(e,200,kotlinx.serialization.json.Json.encodeToString(ShoppingSnapshot(owner,pharmacy,rows.values.toList(),trashRows.values.toList(),supplierRows.values.toList(),areas=areaNames.toList())))
                 "/rest/v1/rpc/add_medicine_shopping_item", "/rest/v1/rpc/complete_medicine_shopping_item" -> {
                     val data=JSONObject(e.requestBody.bufferedReader().use {it.readText()});posts+=data
                     val id=data.getString("item_id")
@@ -96,6 +97,12 @@ class ShoppingHttpTest {
                     if(loseReply.compareAndSet(true,false)) e.close()
                     else reply(e,200,kotlinx.serialization.json.Json.encodeToString(ShoppingReceipt(owner,pharmacy,id,true)))
                 }
+                "/rest/v1/rpc/add_customer_area_v26" -> {
+                    val data=JSONObject(e.requestBody.bufferedReader().use {it.readText()});posts+=data
+                    val name=data.getString("area_name");areaNames+=name
+                    if(loseReply.compareAndSet(true,false)) e.close()
+                    else reply(e,200,kotlinx.serialization.json.Json.encodeToString(AreaReceipt(owner,pharmacy,name)))
+                }
                 else -> reply(e,404,"{}")
             }
         };server.start()
@@ -116,6 +123,17 @@ class ShoppingHttpTest {
     }
     @After fun close()=runBlocking { stores.forEach {it.local.close();it.suppliers.close()};clients.forEach {it.close()};server.stop(0);executor.shutdownNow()
         roots.forEach {it.deleteRecursively()};Unit }
+    @Test fun areaNamesRemainQueuedOfflineAndLostRepliesCannotCreateDuplicatesAcrossDevices()=runBlocking {
+        val first=device();val second=device()
+        first.addArea("  الكرادة   داخل  ")
+        outage.set(true);assertFalse(first.sync());assertEquals(listOf("الكرادة داخل"),first.state.value.areas)
+        outage.set(false);loseReply.set(true);assertFalse(first.sync())
+        assertEquals(listOf("الكرادة داخل"),first.local.areas(first.identity()!!,true))
+        assertTrue(first.sync());assertTrue(second.sync());assertEquals(1,areaNames.size)
+        assertEquals(listOf("الكرادة داخل"),second.state.value.areas)
+        assertTrue(first.local.areas(first.identity()!!,true).isEmpty())
+        assertFalse(paths.any {"customers" in it || "transactions" in it || "notification" in it})
+    }
     @Test fun seventyMaterialsExchangeAcrossTwoDevicesAndUnboughtTenRemainWithNewAdditions()=runBlocking {
         val first=device();val second=device()
         repeat(70) {first.add(UUID.randomUUID().toString(),"علاج $it","علبتان",false)}

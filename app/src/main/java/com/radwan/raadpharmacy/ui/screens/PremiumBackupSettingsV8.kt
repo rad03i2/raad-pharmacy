@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Save
@@ -96,6 +97,7 @@ fun SettingsScreenV10(
     var showLocalBackups by rememberSaveable { mutableStateOf(false) }
     var showAdditionalSettings by rememberSaveable { mutableStateOf(false) }
     var showMissingPhoneCustomers by rememberSaveable { mutableStateOf(false) }
+    var showBulkAreas by rememberSaveable { mutableStateOf(false) }
     var showReadyMessages by rememberSaveable { mutableStateOf(false) }
     var showReminderSettings by rememberSaveable { mutableStateOf(false) }
 
@@ -188,6 +190,8 @@ fun SettingsScreenV10(
         return
     }
 
+    if(showBulkAreas) {BulkCustomerAreasScreen(vm,{showBulkAreas=false});return}
+
     if (showReadyMessages) {
         ReadyMessagesSettingsScreen(onBack = { showReadyMessages = false })
         return
@@ -215,6 +219,7 @@ fun SettingsScreenV10(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item { ShortReminderSetting() }
+                item {V8SettingsRow(Icons.Rounded.LocationOn,"إضافة المنطقة بشكل جماعي","إنشاء المناطق وتعيين عدة زبائن دفعة واحدة") {showBulkAreas=true}}
                 item {
                     V8SettingsRow(
                         Icons.Rounded.Info,

@@ -9,6 +9,7 @@ import com.radwan.raadpharmacy.backup.BackupChangeEntity
 import com.radwan.raadpharmacy.backup.RecoveryKeys
 import com.radwan.raadpharmacy.data.PharmacyLedgerDao
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.*
 
 /** Independent of backup retention. Replacing a row gives it a new acknowledgement token. */
 @Entity(tableName = "cloud_outbox")
@@ -28,6 +29,12 @@ data class CloudOutboxEntity(
         )
     }
 }
+
+/** The full customer remains in the backup payload; only the outbox carries this field mask. */
+internal fun CloudOutboxEntity.isAreaOnly(): Boolean = kind=="CUSTOMER" && action=="UPSERT" &&
+    runCatching {Json.parseToJsonElement(payload).jsonObject["_areaOnly26"]?.jsonPrimitive?.booleanOrNull==true}.getOrDefault(false)
+internal fun CloudOutboxEntity.areaOnly(): CloudOutboxEntity = copy(payload=JsonObject(
+    Json.parseToJsonElement(payload).jsonObject+ ("_areaOnly26" to JsonPrimitive(true))).toString())
 
 object CloudOutboxMigration {
     val MIGRATION_2_3 = object : Migration(2, 3) {
@@ -65,7 +72,7 @@ internal class DurableCloudDrain(private val dao: PharmacyLedgerDao,
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 if (firstFailure == null) firstFailure = error
-                if (!error.isCreditBlockedFailure() && ++failures >= 3) break // Bound repeated failures during a shared outage.
+                if (!error.isCreditBlockedFailure() && error !is CloudAreaWriteConflict && ++failures >= 3) break // Bound repeated failures during a shared outage.
             }
         }
         firstFailure?.let { throw it }

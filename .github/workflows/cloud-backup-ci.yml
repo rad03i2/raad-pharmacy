@@ -52,6 +52,8 @@ jobs:
           psql "$SHOPPING_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/credit-control-fixture.sql
           psql "$SHOPPING_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261018030202_medicine_shopping.sql
           psql "$SHOPPING_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261018084444_shopping_recovery_supplier_reports.sql
+          psql "$SHOPPING_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261019190513_customer_area_catalog.sql
           python supabase/tests/shopping-integration.py
           python supabase/tests/shopping-v25-integration.py
+          python supabase/tests/customer-area-v26.py
       # No production credentials, real financial fixtures or backup artifacts.

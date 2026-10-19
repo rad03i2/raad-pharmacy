@@ -89,7 +89,7 @@ class ShoppingScreenTest {
         rule.onNodeWithText("قائمة تستمر معك").assertIsDisplayed()
     }
     @OptIn(SupabaseInternal::class)
-    @Test fun actualAndroidDocumentPickerKeepsPhotoLocalAndAllowsPhotoOnlyMaterial() {
+    @Test fun actualAndroidGalleryPickerKeepsPhotoLocalAndAllowsPhotoOnlyMaterial() {
         val context=ApplicationProvider.getApplicationContext<Context>()
         val client=createCloudClient("http://127.0.0.1:9","fixture-key") {
             autoLoadFromStorage=false;autoSaveToStorage=false;alwaysAutoRefresh=false;autoSetupPlatform=false
@@ -110,11 +110,18 @@ class ShoppingScreenTest {
             val bitmap=Bitmap.createBitmap(800,400,Bitmap.Config.ARGB_8888).apply {eraseColor(android.graphics.Color.rgb(14,165,168))}
             image.outputStream().use {bitmap.compress(Bitmap.CompressFormat.JPEG,90,it)};bitmap.recycle()
             rule.onNodeWithText("من الصور").performClick()
-            rule.runOnIdle {
-                val launched=shadowOf(activity).nextStartedActivityForResult
-                assertEquals(Intent.ACTION_OPEN_DOCUMENT,launched.intent.action)
-                val uri=FileProvider.getUriForFile(context,"${context.packageName}.fileprovider",image)
-                activity.activityResultRegistry.dispatchResult(launched.requestCode,Activity.RESULT_OK,Intent().setData(uri))
+            var delivered=false
+            rule.waitUntil(10_000) {
+                rule.runOnIdle {
+                    val launched=shadowOf(activity).nextStartedActivityForResult
+                    if(launched!=null) {
+                        assertEquals(ShoppingGalleryContract().createIntent(activity,Unit).action,launched.intent.action)
+                        assertNotEquals(Intent.ACTION_OPEN_DOCUMENT,launched.intent.action)
+                        val uri=FileProvider.getUriForFile(context,"${context.packageName}.fileprovider",image)
+                        activity.activityResultRegistry.dispatchResult(launched.requestCode,Activity.RESULT_OK,Intent().setData(uri))
+                        delivered=true
+                    }
+                };delivered
             }
             rule.waitUntil(10_000) {rule.onAllNodesWithText("الصورة محفوظة على هذا الهاتف").fetchSemanticsNodes().isNotEmpty()}
             rule.onNodeWithText("حفظ وإغلاق").assertIsEnabled()
@@ -126,6 +133,39 @@ class ShoppingScreenTest {
             assertTrue(File(root,"drafts").listFiles().orEmpty().isEmpty())
             image.delete()
         } finally {store.local.close();store.suppliers.close();root.deleteRecursively();runBlocking {client.close()}}
+    }
+    @Test fun cardsHaveLargePhotosAndSameDetailsAndListRemainsDefaultWithIndependentAnchors() {
+        var state by mutableStateOf(ShoppingUiState(identity,rows,lastSyncedAt=100))
+        rule.setContent {PharmacyLedgerTheme {ShoppingListContent(state,{},{},{id->state=state.copy(items=state.items.filterNot {it.id==id})},{})}}
+        rule.onNodeWithTag("shopping-list").assertExists()
+        rule.onNodeWithTag("shopping-list").performScrollToIndex(35)
+        rule.onNodeWithContentDescription("عرض البطاقات").performClick()
+        rule.onNodeWithTag("shopping-grid").performScrollToIndex(40)
+        rule.onNodeWithText("علاج رقم 41").assertIsDisplayed()
+        hold("تم شراء علاج رقم 41")
+        rule.onNodeWithText("علاج رقم 42").assertIsDisplayed()
+        rule.onNodeWithContentDescription("عرض القائمة").performClick()
+        rule.onNodeWithText("علاج رقم 36").assertIsDisplayed()
+        rule.onNodeWithText("مشتريات الصيدلية").assertDoesNotExist()
+        rule.onNodeWithText("ما لم تجده اليوم، يبقى للجولة القادمة").assertDoesNotExist()
+        rule.onNodeWithContentDescription("عرض البطاقات").performClick()
+        save("shopping-grid-light.png")
+    }
+    @Test fun sessionRefreshKeepsNavigationAndActiveComposerStateAndSignOutStillRemovesIt() {
+        var phase by mutableIntStateOf(0)
+        var disposed=0
+        rule.setContent {
+            val allow=phase!=3
+            // Read each phase in the parent, as the real auth flow does.
+            key("auth-wrapper") {com.radwan.raadpharmacy.cloud.StableCloudSessionContent(allow,content={
+                var form by remember {mutableStateOf("")}
+                DisposableEffect(Unit) {onDispose {disposed++}}
+                androidx.compose.material3.OutlinedTextField(form,{form=it},Modifier.testTag("retained-form"))
+            },fallback={androidx.compose.material3.Text("login")})}
+        }
+        rule.onNodeWithTag("retained-form").performTextInput("مسودة علاج أثناء المعرض")
+        repeat(3) {n ->rule.runOnIdle {phase=n};rule.onNodeWithText("مسودة علاج أثناء المعرض").assertExists();assertEquals(0,disposed)}
+        rule.runOnIdle {phase=3};rule.onNodeWithText("login").assertExists();assertEquals(1,disposed)
     }
     @Test fun shortPressAndCancelledHoldNeverPurchaseButFullSecondCommitsOnce() {
         var count=0
