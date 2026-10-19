@@ -312,7 +312,7 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
             finally { busy=false }
         }
     }
-    val gallery=rememberLauncherForActivityResult(ShoppingGalleryContract()) { uri ->
+    val gallery=rememberShoppingGalleryLaunch(id) { uri ->
         if(uri!=null) {
             runCatching {context.contentResolver.takePersistableUriPermission(uri,android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)}
             runCatching {persist(uri.toString())}.onFailure {error="تعذر حفظ مسودة الصورة."}
@@ -374,7 +374,7 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(enabled=!busy,onClick={scope.launch {
                     busy=true
-                    try {withContext(Dispatchers.IO) {persist()};gallery.launch(Unit)}
+                    try {withContext(Dispatchers.IO) {persist()};gallery()}
                     catch(cancelled: CancellationException) {throw cancelled}
                     catch(_: Exception) {error="تعذر فتح معرض الصور؛ تحقق من توفر تطبيق للصور على الهاتف."}
                     finally {busy=false}

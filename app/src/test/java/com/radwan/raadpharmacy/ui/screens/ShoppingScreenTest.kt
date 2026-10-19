@@ -143,6 +143,32 @@ class ShoppingScreenTest {
             image.delete()
         } finally {store.local.close();store.suppliers.close();root.deleteRecursively();runBlocking {client.close()}}
     }
+    @Test @Config(sdk=[26,35],qualifiers="w420dp-h1000dp-mdpi")
+    fun photoResultWaitsForTheSameDraftWhenThePinGateRemovesTheComposer() {
+        var visible by mutableStateOf(true)
+        var returned: Uri?=null
+        lateinit var activity: ComponentActivity
+        val id=UUID.randomUUID().toString()
+        rule.setContent {
+            val host=LocalContext.current
+            activity=generateSequence(host) {(it as? ContextWrapper)?.baseContext}.filterIsInstance<ComponentActivity>().first()
+            PharmacyLedgerTheme {
+                if(visible) {
+                    val gallery=rememberShoppingGalleryLaunch(id) {returned=it}
+                    androidx.compose.material3.Button(onClick=gallery) {androidx.compose.material3.Text("open-gallery")}
+                } else androidx.compose.material3.Text("PIN required")
+            }
+        }
+        rule.onNodeWithText("open-gallery").performClick()
+        var code=0
+        rule.runOnIdle {code=shadowOf(activity).nextStartedActivityForResult.requestCode;visible=false}
+        rule.onNodeWithText("PIN required").assertExists()
+        val uri=Uri.parse("content://fixture/pending-photo")
+        rule.runOnIdle {activity.activityResultRegistry.dispatchResult(code,Activity.RESULT_OK,Intent().setData(uri))}
+        assertNull(returned) // The lock is respected; the image callback has no hidden UI bypass.
+        rule.runOnIdle {visible=true}
+        rule.waitUntil {returned!=null};assertEquals(uri,returned)
+    }
     @Test fun cardsHaveLargePhotosAndSameDetailsAndListRemainsDefaultWithIndependentAnchors() {
         var state by mutableStateOf(ShoppingUiState(identity,rows,lastSyncedAt=100))
         rule.setContent {PharmacyLedgerTheme {CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
