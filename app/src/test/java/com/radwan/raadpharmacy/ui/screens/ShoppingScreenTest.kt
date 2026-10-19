@@ -164,10 +164,14 @@ class ShoppingScreenTest {
         rule.runOnIdle {code=shadowOf(activity).nextStartedActivityForResult.requestCode;visible=false}
         rule.onNodeWithText("PIN required").assertExists()
         val uri=Uri.parse("content://fixture/pending-photo")
-        rule.runOnIdle {activity.activityResultRegistry.dispatchResult(code,Activity.RESULT_OK,Intent().setData(uri))}
+        rule.runOnIdle {assertTrue(activity.activityResultRegistry.dispatchResult(code,Activity.RESULT_OK,Intent().setData(uri)))}
         assertNull(returned) // The lock is respected; the image callback has no hidden UI bypass.
         rule.runOnIdle {visible=true}
-        rule.waitUntil {returned!=null};assertEquals(uri,returned)
+        rule.onNodeWithText("open-gallery").assertExists() // Wait for Android/Compose to actually reattach the unlocked UI.
+        rule.runOnIdle {
+            val logs=org.robolectric.shadows.ShadowLog.getLogs().filter {it.tag.contains("ActivityResultRegistry")}.joinToString {it.msg}
+            assertEquals(logs,uri,returned)
+        }
     }
     @Test fun cardsHaveLargePhotosAndSameDetailsAndListRemainsDefaultWithIndependentAnchors() {
         var state by mutableStateOf(ShoppingUiState(identity,rows,lastSyncedAt=100))
