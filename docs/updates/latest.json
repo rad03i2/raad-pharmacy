@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.22.25",
+  "tag_name": "v3.3.22.26",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 93\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.25: التقارير الشهرية بتصميم جديد داخل التقارير مع سجل مستقل لديون المذاخر وتسديداتها. قائمة الشراء في الشريط السفلي، بحث مختصر، إتمام الشراء بالضغط على الصح لمدة ثانية واستعادة خلال 24 ساعة. خيارا مشاركة الصور: إضافة بعنوان وعدد اختياريين، أو حفظ سريع دون تفاصيل. الصور محلية فقط. الحذف عبر إصدار أقدم يبقى نهائياً.",
+  "body": "VersionCode: 94\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.26: إصلاح بقاء شاشة إضافة العلاج أثناء اختيار الصور، وفتح معرض الصور مباشرة مع حفظ المسودة محلياً. عرض اختياري للبطاقات بصور أكبر بجانب عرض القائمة الافتراضي، بطاقة عدد مختصرة وصوت خفيف عند إتمام الشراء. إدارة المناطق وإنشاؤها وتعيين الزبائن جماعياً من الإعدادات الإضافية؛ مزامنة حقل المنطقة فقط مع حماية بقية بيانات الزبون. الصور تبقى محلية.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.22.25.apk",
-      "size": 5709186,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.25/Raad-Pharmacy-v3.3.22.25.apk"
+      "name": "Raad-Pharmacy-v3.3.22.26.apk",
+      "size": 5741954,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.26/Raad-Pharmacy-v3.3.22.26.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.22.25.apk.sha256",
+      "name": "Raad-Pharmacy-v3.3.22.26.apk.sha256",
       "size": 95,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.25/Raad-Pharmacy-v3.3.22.25.apk.sha256"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.26/Raad-Pharmacy-v3.3.22.26.apk.sha256"
     }
   ]
 }
