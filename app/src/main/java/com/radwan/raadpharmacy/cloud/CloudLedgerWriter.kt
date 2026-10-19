@@ -7,6 +7,8 @@ import io.github.jan.supabase.postgrest.from
 import kotlinx.serialization.json.*
 import java.time.OffsetDateTime
 
+internal class CloudAreaWriteConflict : IllegalStateException("تعذر تأكيد منطقة الزبون على السحابة؛ بقي التغيير محفوظاً للمراجعة.")
+
 internal class CloudLedgerWriteConflict : IllegalStateException("تعذر تأكيد السجل؛ هويته أو حالته على الخادم تحتاج مراجعة. بقي الطلب محفوظًا.")
 
 /** Creation metadata belongs to INSERT only. Never replay a millisecond local
@@ -38,6 +40,18 @@ internal class CloudLedgerWriter(private val client: SupabaseClient, private val
         }
         guard()
         if (saved == null || !verify(saved)) throw CloudLedgerWriteConflict()
+    }
+
+    /** Never replay stale financial/name/phone values, never insert a missing customer for an area-only intent. */
+    suspend fun saveArea(id: String,area: String) {
+        guard()
+        val rows=client.from("customers").update(buildJsonObject {put("area",area)}) {
+            select();filter {eq("id",id);eq("pharmacy_id",pharmacy);exact("deleted_at",null)}
+        }.decodeList<CloudCustomerRow>()
+        guard()
+        val saved=rows.singleOrNull()
+        if(saved==null || saved.id!=id || saved.pharmacyId!=pharmacy || saved.deletedAt!=null || saved.area!=area)
+            throw CloudAreaWriteConflict()
     }
 
     suspend fun save(value: CloudCustomerWrite, createFirst: Boolean = false) {

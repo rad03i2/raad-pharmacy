@@ -4,6 +4,10 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.lazy.grid.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.LinearEasing
@@ -30,7 +34,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
@@ -64,7 +67,7 @@ fun MedicineShoppingScreen(onBack: () -> Unit) {
     val store=remember(context) { MedicineShoppingStore.get(context) }
     val state by store.state.collectAsStateWithLifecycle()
     val scope=rememberCoroutineScope()
-    var adding by rememberSaveable { mutableStateOf(false) }
+    var adding by rememberSaveable { mutableStateOf(store.drafts.load(store.identity())!=null) }
     var busy by remember { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     DisposableEffect(store) { store.visible=true; store.start(); store.request(); onDispose { store.visible=false } }
@@ -73,7 +76,7 @@ fun MedicineShoppingScreen(onBack: () -> Unit) {
     if(error!=null) AlertDialog(onDismissRequest={error=null},title={Text("لم تكتمل العملية")},text={Text(error.orEmpty())},
         confirmButton={TextButton(onClick={error=null}){Text("حسناً")}})
     ShoppingListContent(state,onBack,{adding=true},{id -> if(!busy) {busy=true;scope.launch {
-        try {store.purchase(id)} catch(cancelled: CancellationException) {throw cancelled}
+        try {if(store.purchase(id)) ShoppingPurchaseFeedback.play(context)} catch(cancelled: CancellationException) {throw cancelled}
         catch(_: Exception) {error="تعذر حفظ إتمام الشراء. حاول مجدداً."} finally {busy=false}
     }}},{store.request()},photoFile={item -> state.identity?.let { store.photos.file(it.pharmacy,item.id) }},
         onRestore={id -> scope.launch {try {store.restore(id)} catch(cancelled: CancellationException) {throw cancelled}
@@ -84,6 +87,8 @@ fun MedicineShoppingScreen(onBack: () -> Unit) {
 internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: ()->Unit,onPurchase: (String)->Unit,
     onRefresh: ()->Unit,photoFile: (ShoppingItem)->File? = { null },onRestore: (String)->Unit = {}) {
     val colors=MaterialTheme.colorScheme
+    var cards by rememberSaveable { mutableStateOf(false) }
+    val gridScroll=rememberLazyGridState()
     var query by rememberSaveable { mutableStateOf("") }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var trashOpen by rememberSaveable { mutableStateOf(false) }
@@ -128,21 +133,10 @@ internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: 
     }) },floatingActionButton={ ExtendedFloatingActionButton(onClick=onAdd,modifier=Modifier.testTag("shopping-add").semantics {contentDescription="إضافة علاج"},icon={Icon(Icons.Rounded.Add,null)},
         text={Text("إضافة علاج")},expanded=true,containerColor=colors.primary,contentColor=colors.onPrimary) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            Surface(shape=RoundedCornerShape(24.dp),color=colors.primaryContainer) {
-                Row(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(colors.primaryContainer,colors.secondaryContainer)))
-                    .padding(14.dp),verticalAlignment=Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
-                        Text("مشتريات الصيدلية",style=MaterialTheme.typography.labelLarge,color=colors.onPrimaryContainer)
-                        Row(verticalAlignment=Alignment.Bottom,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                            Text(state.items.size.toString(),style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold,color=colors.onPrimaryContainer)
-                            Text("مادة مطلوبة",modifier=Modifier.padding(bottom=7.dp),color=colors.onPrimaryContainer)
-                        }
-                        Text("ما لم تجده اليوم، يبقى للجولة القادمة",style=MaterialTheme.typography.bodySmall,color=colors.onPrimaryContainer)
-                    }
-                    Surface(shape=CircleShape,color=colors.surface.copy(alpha=.6f)) {
-                        Icon(Icons.Rounded.ShoppingBag,null,modifier=Modifier.padding(12.dp).size(26.dp),tint=colors.primary)
-                    }
-                }
+            Surface(shape=RoundedCornerShape(16.dp),color=colors.primaryContainer) {
+                Text("${state.items.size} مادة مطلوبة",style=MaterialTheme.typography.titleMedium,
+                    fontWeight=FontWeight.Bold,color=colors.onPrimaryContainer,
+                    modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=10.dp).testTag("shopping-count"))
             }
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Icon(when {state.pending>0 -> Icons.Rounded.CloudUpload; state.error!=null -> Icons.Rounded.CloudOff; else -> Icons.Rounded.CloudDone},
@@ -171,15 +165,41 @@ internal fun ShoppingListContent(state: ShoppingUiState,onBack: ()->Unit,onAdd: 
             } else {
                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                     Text(if(query.isBlank()) "المواد المطلوبة" else "نتائج البحث • ${shown.size}",style=MaterialTheme.typography.titleSmall,modifier=Modifier.weight(1f))
-                    Text("اضغط ✓ مطولاً لثانية",style=MaterialTheme.typography.labelSmall,color=colors.onSurfaceVariant)
+                    IconToggleButton(checked=!cards,onCheckedChange={cards=false}) { Icon(Icons.Rounded.ViewList,"عرض القائمة") }
+                    IconToggleButton(checked=cards,onCheckedChange={cards=true}) { Icon(Icons.Rounded.GridView,"عرض البطاقات") }
                 }
-                LazyColumn(state=scroll,flingBehavior=rememberLedgerFlingBehavior(),modifier=Modifier.weight(1f).testTag("shopping-list"),
+                if(cards) LazyVerticalGrid(columns=GridCells.Adaptive(150.dp),state=gridScroll,
+                    modifier=Modifier.weight(1f).testTag("shopping-grid"),contentPadding=PaddingValues(bottom=100.dp),
+                    horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                    items(shown,key={it.id},contentType={"shopping-card"}) {item ->
+                        ShoppingGridCard(item,photoFile(item),{viewing=item.id},{onPurchase(item.id)})
+                    }
+                } else LazyColumn(state=scroll,flingBehavior=rememberLedgerFlingBehavior(),modifier=Modifier.weight(1f).testTag("shopping-list"),
                     contentPadding=PaddingValues(bottom=100.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     items(shown,key={it.id},contentType={"shopping-item"}) { item ->
                         // Stable item keys keep the neighbouring row in view, including a purchase confirmed later.
                         ShoppingItemCard(item,photoFile(item),onPhoto={viewing=item.id},onPurchase={onPurchase(item.id)})
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShoppingGridCard(item: ShoppingItem,photo: File?,onPhoto: ()->Unit,onPurchase: ()->Unit) {
+    val colors=MaterialTheme.colorScheme
+    Surface(shape=RoundedCornerShape(20.dp),color=colors.surface,border=BorderStroke(1.dp,colors.outlineVariant)) {
+        Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            ShoppingPhoto(photo,item.hasPhoto,Modifier.fillMaxWidth().height(148.dp).clickable(onClick=onPhoto),large=true)
+            Text(item.title.ifBlank {"علاج بصورة • ${item.id.takeLast(6)}"},style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+            if(item.note.isNotBlank()) Text(item.note,style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+            Text(if(item.pending) "محفوظ • بانتظار الرفع" else "${item.createdBy} • ${shoppingDate(item.createdAt)}",
+                style=MaterialTheme.typography.labelSmall,color=colors.onSurfaceVariant)
+            if(item.hasPhoto) Text("صورة محلية",style=MaterialTheme.typography.labelSmall,color=colors.secondary)
+            if(System.currentTimeMillis()-item.createdAt>7L*24*60*60*1000) Text("متبقية من جولة سابقة",style=MaterialTheme.typography.labelSmall,color=colors.primary)
+            Box(Modifier.fillMaxWidth().padding(top=2.dp),contentAlignment=Alignment.Center) {
+                HoldToPurchase(item.title.ifBlank {"العلاج ${item.id.takeLast(6)}"},onPurchase)
             }
         }
     }
@@ -234,13 +254,13 @@ internal fun HoldToPurchase(title: String,onPurchase: ()->Unit) {
 }
 
 @Composable
-private fun ShoppingPhoto(file: File?,hasPhoto: Boolean,modifier: Modifier,full: Boolean=false) {
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null,file?.path,full) {
+private fun ShoppingPhoto(file: File?,hasPhoto: Boolean,modifier: Modifier,full: Boolean=false,large: Boolean=false) {
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null,file?.path,full,large) {
         value=withContext(Dispatchers.IO) {
             runCatching {
                 if(file?.isFile!=true) return@runCatching null
                 val bounds=BitmapFactory.Options().apply { inJustDecodeBounds=true }; BitmapFactory.decodeFile(file.path,bounds)
-                var sample=1; val side=if(full) 1600 else 160
+                var sample=1; val side=if(full) 1600 else if(large) 480 else 160
                 while(maxOf(bounds.outWidth,bounds.outHeight)/sample>side*2) sample*=2
                 BitmapFactory.decodeFile(file.path,BitmapFactory.Options().apply { inSampleSize=sample })?.asImageBitmap()
             }.getOrNull()
@@ -263,24 +283,55 @@ private fun shoppingDate(time: Long): String = DateTimeFormatter.ofPattern("d / 
 internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Unit) {
     val context=LocalContext.current
     val scope=rememberCoroutineScope()
-    var id by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
-    var title by rememberSaveable { mutableStateOf("") }
-    var note by rememberSaveable { mutableStateOf("") }
-    var photo by rememberSaveable { mutableStateOf(false) }
+    val initial=remember(store) {store.drafts.load(store.identity())}
+    var ownerId by rememberSaveable {mutableStateOf(initial?.owner ?: store.identity()?.owner)}
+    var pharmacyId by rememberSaveable {mutableStateOf(initial?.pharmacy ?: store.identity()?.pharmacy)}
+    fun draftIdentity(): ShoppingIdentity? {
+        if(ownerId==null) {store.identity()?.let {ownerId=it.owner;pharmacyId=it.pharmacy}}
+        return ownerId?.let {owner -> pharmacyId?.let {ShoppingIdentity(owner,it)}}
+    }
+    var id by rememberSaveable { mutableStateOf(initial?.id ?: UUID.randomUUID().toString()) }
+    var title by rememberSaveable { mutableStateOf(initial?.title.orEmpty()) }
+    var note by rememberSaveable { mutableStateOf(initial?.note.orEmpty()) }
+    var photo by rememberSaveable { mutableStateOf(initial?.let {store.photos.draft(it.id).isFile} ?: false) }
     var imageRevision by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var cameraPath by rememberSaveable { mutableStateOf<String?>(null) }
+    fun persist(uri: String? = null) {
+        val owner=draftIdentity() ?: return
+        check(owner==store.identity()) {"تغيّر حساب الصيدلية؛ لم تُنقل المسودة إلى حساب آخر."}
+        store.drafts.save(ShoppingComposerDraft(owner.owner,owner.pharmacy,id,title,note,uri))
+    }
     fun importPhoto(uri: Uri) {
         busy=true; error=null
         scope.launch {
-            try { withContext(Dispatchers.IO) { store.photos.import(id,uri) }; photo=true; imageRevision++ }
+            try { withContext(Dispatchers.IO) {persist(uri.toString());store.photos.import(id,uri);draftIdentity()?.let {store.drafts.imported(it,id)}};photo=true; imageRevision++ }
             catch(cancelled: CancellationException) { throw cancelled }
             catch(errorValue: Exception) { error=errorValue.message ?: "تعذر حفظ الصورة؛ اختر صورة أخرى." }
             finally { busy=false }
         }
     }
-    val gallery=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if(uri!=null) importPhoto(uri) }
+    val gallery=rememberShoppingGalleryLaunch(id) { uri ->
+        if(uri!=null) {
+            runCatching {context.contentResolver.takePersistableUriPermission(uri,android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)}
+            runCatching {persist(uri.toString())}.onFailure {error="تعذر حفظ مسودة الصورة."}
+                .onSuccess {importPhoto(uri)}
+        }
+    }
+    val lifecycle=LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle,id) {
+        val observer=LifecycleEventObserver {_,event -> if(event==Lifecycle.Event.ON_RESUME && !busy) {
+            val held=store.drafts.load(store.identity())
+            if(held?.id==id) {photo=store.photos.draft(id).isFile;held.uri?.let {importPhoto(Uri.parse(it))}}
+        }}
+        lifecycle.addObserver(observer);onDispose {lifecycle.removeObserver(observer)}
+    }
+    LaunchedEffect(id,title,note) {
+        try {withContext(Dispatchers.IO) {persist()}}
+        catch(cancelled: CancellationException) {throw cancelled}
+        catch(_: Exception) {error="تعذر حفظ المسودة؛ تحقق من مساحة الهاتف وأعد المحاولة."}
+    }
     val camera=rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val path=cameraPath
         if(success && path!=null) importPhoto(Uri.fromFile(File(path)))
@@ -293,7 +344,8 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
         busy=true; error=null
         scope.launch {
             try {
-                store.add(id,title,note,photo)
+                store.add(id,title,note,photo,expected=draftIdentity())
+                store.drafts.clear(id)
                 if(another) { id=UUID.randomUUID().toString(); title=""; note=""; photo=false; imageRevision++ }
                 else onDismiss()
             } catch(cancelled: CancellationException) { throw cancelled }
@@ -301,13 +353,13 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
             finally { busy=false }
         }
     }
-    ModalBottomSheet(onDismissRequest={ if(!busy) { store.photos.discardDraft(id); onDismiss() } },
+    ModalBottomSheet(onDismissRequest={ if(!busy) { store.photos.discardDraft(id);store.drafts.clear(id); onDismiss() } },
         sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
         Column(Modifier.fillMaxWidth().testTag("shopping-composer").verticalScroll(rememberScrollState()).imePadding().padding(horizontal=20.dp).padding(bottom=24.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("إضافة علاج للقائمة",style=MaterialTheme.typography.titleLarge)
                     Text("اسم أو صورة • والكمية إن احتجت",style=MaterialTheme.typography.bodySmall) }
-                IconButton(enabled=!busy,onClick={store.photos.discardDraft(id);onDismiss()}) { Icon(Icons.Rounded.Close,"إغلاق الإضافة") }
+                IconButton(enabled=!busy,onClick={store.photos.discardDraft(id);store.drafts.clear(id);onDismiss()}) { Icon(Icons.Rounded.Close,"إغلاق الإضافة") }
             }
             OutlinedTextField(title,{if(it.length<=240) title=it},label={Text("اسم العلاج")},singleLine=true,
                 modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(16.dp),keyboardOptions=KeyboardOptions(imeAction=ImeAction.Next))
@@ -317,10 +369,16 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
                 key(id,imageRevision) { ShoppingPhoto(store.photos.draft(id),true,Modifier.size(76.dp)) }
                 Column(Modifier.weight(1f)) { Text("الصورة محفوظة على هذا الهاتف",style=MaterialTheme.typography.labelMedium)
                     Text("لن تُرفع للسحابة. الاسم والملاحظة يظهران للجميع.",style=MaterialTheme.typography.bodySmall) }
-                IconButton(enabled=!busy,onClick={store.photos.discardDraft(id);photo=false}) { Icon(Icons.Rounded.DeleteOutline,"إزالة الصورة") }
+                IconButton(enabled=!busy,onClick={store.photos.discardDraft(id);draftIdentity()?.let {store.drafts.imported(it,id)};photo=false}) { Icon(Icons.Rounded.DeleteOutline,"إزالة الصورة") }
             }
             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(enabled=!busy,onClick={runCatching { gallery.launch(arrayOf("image/*")) }.onFailure {error="تعذر فتح معرض الصور."}},modifier=Modifier.weight(1f)) {
+                OutlinedButton(enabled=!busy,onClick={scope.launch {
+                    busy=true
+                    try {withContext(Dispatchers.IO) {persist()};gallery()}
+                    catch(cancelled: CancellationException) {throw cancelled}
+                    catch(_: Exception) {error="تعذر فتح معرض الصور؛ تحقق من توفر تطبيق للصور على الهاتف."}
+                    finally {busy=false}
+                }},modifier=Modifier.weight(1f)) {
                     Icon(Icons.Rounded.PhotoLibrary,null,Modifier.size(20.dp)); Spacer(Modifier.width(6.dp)); Text("من الصور") }
                 OutlinedButton(enabled=!busy,onClick={
                     runCatching {

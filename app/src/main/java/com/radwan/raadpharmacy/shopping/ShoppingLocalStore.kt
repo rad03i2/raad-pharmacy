@@ -18,7 +18,7 @@ internal data class ShoppingItem(val id: String, val title: String, val note: St
     val createdAt: Long = 0, val createdBy: String = "", val pending: Boolean = false)
 @Serializable
 internal data class ShoppingSnapshot(val owner: String, val pharmacy: String, val items: List<ShoppingItem>,
-    val trash: List<ShoppingTrash> = emptyList(), val suppliers: List<SupplierEntry> = emptyList(), val serverTime: Long = 0)
+    val trash: List<ShoppingTrash> = emptyList(), val suppliers: List<SupplierEntry> = emptyList(), val serverTime: Long = 0,val areas: List<String> = emptyList())
 @Serializable
 internal data class ShoppingReceipt(val owner: String, val pharmacy: String, val id: String, val active: Boolean)
 @Serializable
@@ -29,13 +29,15 @@ internal data class ShoppingChange(val operation: String,val item: ShoppingItem,
 @Serializable
 internal data class ShoppingChangeReceipt(val owner: String,val pharmacy: String,val id: String,
     val operation: String,val active: Boolean,val trashed: Boolean)
+@Serializable
+internal data class AreaReceipt(val owner: String,val pharmacy: String,val name: String)
 internal data class ShoppingIdentity(val owner: String, val pharmacy: String)
 internal data class ShoppingOperation(val item: ShoppingItem, val deleting: Boolean)
 
 /** A separate database, excluded from Android backup. Never opens or migrates the financial Room database. */
 internal class ShoppingLocalStore(context: Context, directory: File = File(context.noBackupFilesDir,"medicine-shopping"),
     private val clock: ()->Long = System::currentTimeMillis) :
-    SQLiteOpenHelper(context, File(directory.apply { mkdirs() },"shopping.db").absolutePath, null, 2, DatabaseErrorHandler {
+    SQLiteOpenHelper(context, File(directory.apply { mkdirs() },"shopping.db").absolutePath, null, 3, DatabaseErrorHandler {
         // Never let the default Android corruption handler silently delete unsent shopping data.
         throw SQLiteDatabaseCorruptException("تعذر فتح مخزن قائمة الشراء؛ احتُفظ بالملف دون إعادة تهيئته.")
     }) {
@@ -46,8 +48,30 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
             state TEXT NOT NULL CHECK(state IN ('CREATE','SYNCED','DELETE')),PRIMARY KEY(pharmacy,id))""")
         db.execSQL("CREATE INDEX items_scope ON items(pharmacy,state,created_at,id)")
         createRecovery(db)
+        createAreas(db)
     }
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { if(oldVersion<2) createRecovery(db) }
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if(oldVersion<2) createRecovery(db)
+        if(oldVersion<3) createAreas(db)
+    }
+    private fun createAreas(db: SQLiteDatabase) {db.execSQL("CREATE TABLE areas(pharmacy TEXT NOT NULL,name TEXT NOT NULL,owner TEXT NOT NULL,pending INTEGER NOT NULL,PRIMARY KEY(pharmacy,name))")}
+    @Synchronized fun areas(identity: ShoppingIdentity,pendingOnly: Boolean=false): List<String> = readableDatabase.rawQuery(
+        "SELECT name FROM areas WHERE pharmacy=? AND (pending=0 OR owner=?)"+(if(pendingOnly) " AND pending=1" else "")+" ORDER BY name",
+        arrayOf(identity.pharmacy,identity.owner)).use {c -> buildList {while(c.moveToNext()) add(c.getString(0))}}
+    @Synchronized fun addArea(identity: ShoppingIdentity,name: String) {
+        require(name.isNotBlank() && name.length<=160)
+        val db=writableDatabase;db.beginTransaction()
+        try {
+            db.execSQL("INSERT OR IGNORE INTO areas VALUES(?,?,?,1)",arrayOf(identity.pharmacy,name,identity.owner))
+            // An explicit same-name request may be queued by the new account; it never sends another account's hidden drafts.
+            db.execSQL("UPDATE areas SET owner=? WHERE pharmacy=? AND name=? AND pending=1",arrayOf(identity.owner,identity.pharmacy,name))
+            db.setTransactionSuccessful()
+        } finally {db.endTransaction()}
+    }
+    @Synchronized fun acknowledgeArea(identity: ShoppingIdentity,name: String,receipt: AreaReceipt) {
+        check(receipt.owner==identity.owner && receipt.pharmacy==identity.pharmacy && receipt.name==name) {"AREA_RECEIPT_MISMATCH"}
+        writableDatabase.execSQL("UPDATE areas SET pending=0 WHERE pharmacy=? AND owner=? AND name=?",arrayOf(identity.pharmacy,identity.owner,name))
+    }
     private fun createRecovery(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE trash(pharmacy TEXT NOT NULL,id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(pharmacy,id))")
         db.execSQL("CREATE TABLE changes(sequence INTEGER PRIMARY KEY AUTOINCREMENT,pharmacy TEXT NOT NULL,owner TEXT NOT NULL,id TEXT NOT NULL,operation TEXT NOT NULL UNIQUE,payload TEXT NOT NULL)")
@@ -69,8 +93,8 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
         put("pharmacy",pharmacy);put("id",row.item.id);put("payload",Json.encodeToString(row)) },SQLiteDatabase.CONFLICT_REPLACE) }
     private fun putChange(identity: ShoppingIdentity,row: ShoppingChange) { writableDatabase.insertOrThrow("changes",null,ContentValues().apply {
         put("pharmacy",identity.pharmacy);put("owner",identity.owner);put("id",row.item.id);put("operation",row.operation);put("payload",Json.encodeToString(row)) }) }
-    @Synchronized fun purchase(identity: ShoppingIdentity,id: String,now: Long=clock()) {
-        val row=list(identity).firstOrNull {it.id==id} ?: return
+    @Synchronized fun purchase(identity: ShoppingIdentity,id: String,now: Long=clock()): Boolean {
+        val row=list(identity).firstOrNull {it.id==id} ?: return false
         val operation=UUID.randomUUID().toString()
         val db=writableDatabase;db.beginTransaction()
         try {
@@ -78,6 +102,7 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
             putChange(identity,ShoppingChange(operation,row,"TRASH",operation,now))
             db.delete("items","pharmacy=? AND id=?",arrayOf(identity.pharmacy,id));db.setTransactionSuccessful()
         } finally {db.endTransaction()}
+        return true
     }
     @Synchronized fun restore(identity: ShoppingIdentity,id: String,now: Long=clock()) {
         val held=trash(identity,now).firstOrNull {it.item.id==id} ?: error("انتهت مهلة استعادة المادة.")
@@ -184,6 +209,12 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
                 // A stale snapshot may contain an item the user just bought. Never revive a pending delete.
                 if(row.id !in held && (old==null || old.second=="SYNCED")) db.insertWithOnConflict("items",null,
                     values(identity,row,"SYNCED"),SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            snapshot.areas.forEach {name ->
+                require(name.isNotBlank() && name.length<=160)
+                db.execSQL("INSERT OR IGNORE INTO areas VALUES(?,?,?,0)",arrayOf(identity.pharmacy,name,identity.owner))
+                // Name is the complete immutable identity/payload. A scoped authoritative snapshot proves it exists.
+                db.execSQL("UPDATE areas SET pending=0 WHERE pharmacy=? AND name=?",arrayOf(identity.pharmacy,name))
             }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }

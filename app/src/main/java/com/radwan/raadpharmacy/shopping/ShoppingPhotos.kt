@@ -16,7 +16,7 @@ internal class ShoppingPhotos(private val context: Context,
     private fun uuid(value: String): String = UUID.fromString(value).toString()
     fun draft(id: String) = File(File(root,"drafts"),"${uuid(id)}.jpg")
     fun file(pharmacy: String,id: String) = File(File(root,"photos/${uuid(pharmacy)}"),"${uuid(id)}.jpg")
-    fun import(id: String, uri: Uri) {
+    @Synchronized fun import(id: String, uri: Uri) {
         val target=draft(id)
         target.parentFile!!.mkdirs()
         val raw=File(target.parentFile,"${uuid(id)}.source")

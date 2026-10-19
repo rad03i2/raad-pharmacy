@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.radwan.raadpharmacy.shopping.*
@@ -89,7 +90,7 @@ class ShoppingScreenTest {
         rule.onNodeWithText("قائمة تستمر معك").assertIsDisplayed()
     }
     @OptIn(SupabaseInternal::class)
-    @Test fun actualAndroidDocumentPickerKeepsPhotoLocalAndAllowsPhotoOnlyMaterial() {
+    @Test @Config(sdk=[26,35],qualifiers="w420dp-h1000dp-mdpi") fun actualAndroidGalleryPickerKeepsPhotoLocalAndAllowsPhotoOnlyMaterial() {
         val context=ApplicationProvider.getApplicationContext<Context>()
         val client=createCloudClient("http://127.0.0.1:9","fixture-key") {
             autoLoadFromStorage=false;autoSaveToStorage=false;alwaysAutoRefresh=false;autoSetupPlatform=false
@@ -99,8 +100,9 @@ class ShoppingScreenTest {
         val store=MedicineShoppingStore(context,client,root,"composer-fixture",enqueueWork={})
         var dismissed=false
         lateinit var activity: ComponentActivity
+        val restoration=StateRestorationTester(rule)
         try {
-            rule.setContent { PharmacyLedgerTheme(darkTheme=false) {CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+            restoration.setContent { PharmacyLedgerTheme(darkTheme=false) {CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 val host=LocalContext.current
                 activity=generateSequence(host) {(it as? ContextWrapper)?.baseContext}.filterIsInstance<ComponentActivity>().first()
                 ShoppingItemComposer(store,{dismissed=true})
@@ -109,23 +111,102 @@ class ShoppingScreenTest {
             val image=File(context.cacheDir,"shopping_camera/picker-fixture.jpg").apply {parentFile!!.mkdirs()}
             val bitmap=Bitmap.createBitmap(800,400,Bitmap.Config.ARGB_8888).apply {eraseColor(android.graphics.Color.rgb(14,165,168))}
             image.outputStream().use {bitmap.compress(Bitmap.CompressFormat.JPEG,90,it)};bitmap.recycle()
+            rule.onNodeWithText("اسم العلاج").performTextInput("باراسيتامول 500 ملغ")
             rule.onNodeWithText("من الصور").performClick()
+            var requestCode: Int?=null
+            rule.waitUntil(10_000) {
+                rule.runOnIdle {
+                    val launched=shadowOf(activity).nextStartedActivityForResult
+                    if(launched!=null) {
+                        assertEquals(ShoppingGalleryContract().createIntent(activity,Unit).action,launched.intent.action)
+                        assertNotEquals(Intent.ACTION_OPEN_DOCUMENT,launched.intent.action)
+                        requestCode=launched.requestCode
+                    }
+                };requestCode!=null
+            }
+            restoration.emulateSavedInstanceStateRestore()
+            rule.onNodeWithText("باراسيتامول 500 ملغ").assertExists()
             rule.runOnIdle {
-                val launched=shadowOf(activity).nextStartedActivityForResult
-                assertEquals(Intent.ACTION_OPEN_DOCUMENT,launched.intent.action)
                 val uri=FileProvider.getUriForFile(context,"${context.packageName}.fileprovider",image)
-                activity.activityResultRegistry.dispatchResult(launched.requestCode,Activity.RESULT_OK,Intent().setData(uri))
+                activity.activityResultRegistry.dispatchResult(requestCode!!,Activity.RESULT_OK,Intent().setData(uri))
             }
             rule.waitUntil(10_000) {rule.onAllNodesWithText("الصورة محفوظة على هذا الهاتف").fetchSemanticsNodes().isNotEmpty()}
             rule.onNodeWithText("حفظ وإغلاق").assertIsEnabled()
-            rule.onNodeWithText("اسم العلاج").performTextInput("باراسيتامول 500 ملغ")
+            rule.onNodeWithText("باراسيتامول 500 ملغ").assertExists()
             rule.onNodeWithText("الكمية أو ملاحظة (اختياري)").performTextInput("علبتان • بديل اقتصادي")
+            if(android.os.Build.VERSION.SDK_INT>=28) {
             val preview=rule.onNodeWithTag("shopping-composer").captureToImage().asAndroidBitmap()
             File("build/reports/shopping-preview").apply {mkdirs()}.resolve("shopping-add-local-photo.png").outputStream().use {preview.compress(Bitmap.CompressFormat.PNG,100,it)}
+            }
             rule.onNodeWithContentDescription("إغلاق الإضافة").performClick();assertTrue(dismissed)
             assertTrue(File(root,"drafts").listFiles().orEmpty().isEmpty())
             image.delete()
         } finally {store.local.close();store.suppliers.close();root.deleteRecursively();runBlocking {client.close()}}
+    }
+    @Test @Config(sdk=[26,35],qualifiers="w420dp-h1000dp-mdpi")
+    fun photoResultWaitsForTheSameDraftWhenThePinGateRemovesTheComposer() {
+        var visible by mutableStateOf(true)
+        var returned: Uri?=null
+        lateinit var activity: ComponentActivity
+        val id=UUID.randomUUID().toString()
+        rule.setContent {
+            val host=LocalContext.current
+            activity=generateSequence(host) {(it as? ContextWrapper)?.baseContext}.filterIsInstance<ComponentActivity>().first()
+            PharmacyLedgerTheme {
+                if(visible) {
+                    val gallery=rememberShoppingGalleryLaunch(id) {returned=it}
+                    androidx.compose.material3.Button(onClick=gallery) {androidx.compose.material3.Text("open-gallery")}
+                } else androidx.compose.material3.Text("PIN required")
+            }
+        }
+        rule.onNodeWithText("open-gallery").performClick()
+        var code=0
+        rule.runOnIdle {code=shadowOf(activity).nextStartedActivityForResult.requestCode;visible=false}
+        rule.onNodeWithText("PIN required").assertExists()
+        val uri=Uri.parse("content://fixture/pending-photo")
+        rule.runOnIdle {assertTrue(activity.activityResultRegistry.dispatchResult(code,Activity.RESULT_OK,Intent().setData(uri)))}
+        assertNull(returned) // The lock is respected; the image callback has no hidden UI bypass.
+        rule.runOnIdle {visible=true}
+        rule.onNodeWithText("open-gallery").assertExists() // Wait for Android/Compose to actually reattach the unlocked UI.
+        rule.runOnIdle {
+            val logs=org.robolectric.shadows.ShadowLog.getLogs().filter {it.tag.contains("ActivityResultRegistry")}.joinToString {it.msg}
+            assertEquals(logs,uri,returned)
+        }
+    }
+    @Test fun cardsHaveLargePhotosAndSameDetailsAndListRemainsDefaultWithIndependentAnchors() {
+        var state by mutableStateOf(ShoppingUiState(identity,rows,lastSyncedAt=100))
+        rule.setContent {PharmacyLedgerTheme {CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+            Box(Modifier.width(380.dp).testTag("shopping-preview")) {ShoppingListContent(state,{},{},{id->state=state.copy(items=state.items.filterNot {it.id==id})},{})}
+        }}}
+        rule.onNodeWithTag("shopping-list").assertExists()
+        rule.onNodeWithTag("shopping-list").performScrollToIndex(35)
+        rule.onNodeWithContentDescription("عرض البطاقات").performClick()
+        rule.onNodeWithTag("shopping-grid").performScrollToIndex(40)
+        rule.onNodeWithText("علاج رقم 41").assertIsDisplayed()
+        hold("تم شراء علاج رقم 41")
+        rule.onNodeWithText("علاج رقم 42").assertIsDisplayed()
+        rule.onNodeWithContentDescription("عرض القائمة").performClick()
+        rule.onNodeWithText("علاج رقم 36").assertIsDisplayed()
+        rule.onNodeWithText("مشتريات الصيدلية").assertDoesNotExist()
+        rule.onNodeWithText("ما لم تجده اليوم، يبقى للجولة القادمة").assertDoesNotExist()
+        rule.onNodeWithContentDescription("عرض البطاقات").performClick()
+        save("shopping-grid-light.png")
+    }
+    @Test fun sessionRefreshKeepsNavigationAndActiveComposerStateAndSignOutStillRemovesIt() {
+        var phase by mutableIntStateOf(0)
+        var disposed=0
+        rule.setContent {
+            val allow=phase!=3
+            // Read each phase in the parent, as the real auth flow does.
+            key("auth-wrapper") {com.radwan.raadpharmacy.cloud.StableCloudSessionContent(allow,content={
+                var form by remember {mutableStateOf("")}
+                DisposableEffect(Unit) {onDispose {disposed++}}
+                androidx.compose.material3.OutlinedTextField(form,{form=it},Modifier.testTag("retained-form"))
+            },fallback={androidx.compose.material3.Text("login")})}
+        }
+        rule.onNodeWithTag("retained-form").performTextInput("مسودة علاج أثناء المعرض")
+        repeat(3) {n ->rule.runOnIdle {phase=n};rule.onNodeWithText("مسودة علاج أثناء المعرض").assertExists();assertEquals(0,disposed)}
+        rule.runOnIdle {phase=3};rule.onNodeWithText("login").assertExists();assertEquals(1,disposed)
     }
     @Test fun shortPressAndCancelledHoldNeverPurchaseButFullSecondCommitsOnce() {
         var count=0

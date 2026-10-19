@@ -20,6 +20,8 @@ import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 import com.radwan.raadpharmacy.backup.*
 import com.radwan.raadpharmacy.cloud.CloudOutboxEntity
+import com.radwan.raadpharmacy.cloud.areaOnly
+import com.radwan.raadpharmacy.cloud.isAreaOnly
 import com.radwan.raadpharmacy.cloud.CloudOutboxMigration
 import kotlinx.coroutines.flow.Flow
 
@@ -311,6 +313,8 @@ interface PharmacyLedgerDao {
         }
         return seq
     }
+    @Query("SELECT * FROM cloud_outbox WHERE `key` = :key LIMIT 1")
+    suspend fun cloudMutation(key: String): CloudOutboxEntity?
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveCloudMutation(row: CloudOutboxEntity)
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -470,6 +474,26 @@ interface PharmacyLedgerDao {
         if (old == null) insertCustomerRow(customer) else updateCustomerRow(customer)
         appendBackupChange(BackupChangeEntity.customer(customer, origin))
     }
+    /** Atomic bulk metadata edit; fresh rows, existing recovery guards and backup journal remain authoritative. */
+    @Transaction
+    suspend fun assignCustomerAreas(expected: Map<String,String>,area: String): List<CustomerEntity> {
+        require(area.isNotBlank() && area.length<=160)
+        val updated=mutableListOf<CustomerEntity>()
+        for((id,previousArea) in expected) {
+            val current=getCustomerById(id) ?: continue
+            if(current.area!=previousArea || current.area==area) continue
+            val before=cloudMutation("CUSTOMER:$id")
+            val row=current.copy(area=area)
+            insertCustomer(row) // Guarded transaction + full portable backup event.
+            if(before==null || before.isAreaOnly()) {
+                val pending=checkNotNull(cloudMutation("CUSTOMER:$id"))
+                saveCloudMutation(pending.areaOnly())
+            }
+            updated+=row
+        }
+        return updated
+    }
+
     @Transaction
     suspend fun addMissingPhone(id: String, phone: String): CustomerEntity {
         val current = checkNotNull(getCustomerById(id)) { "تعذر العثور على الزبون." }
