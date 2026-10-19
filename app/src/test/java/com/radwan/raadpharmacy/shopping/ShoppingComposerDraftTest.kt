@@ -54,6 +54,21 @@ class ShoppingComposerDraftTest {
         assertNull(contract.parseResult(Activity.RESULT_OK,null))
         assertEquals(Uri.parse("content://fixture/a"),contract.parseResult(Activity.RESULT_OK,Intent().setData(Uri.parse("content://fixture/a"))))
     }
+    @Test fun areaQueueIsAccountScopedAndExplicitSameNameRequestsCanMoveToTheCurrentAccount() {
+        val root=File(context.noBackupFilesDir,"area-scope-${UUID.randomUUID()}")
+        val first=ShoppingIdentity(UUID.randomUUID().toString(),UUID.randomUUID().toString())
+        val peer=first.copy(owner=UUID.randomUUID().toString())
+        val db=ShoppingLocalStore(context,root)
+        try {
+            db.addArea(first,"الكرادة");assertTrue(db.areas(peer).isEmpty());assertTrue(db.areas(peer,true).isEmpty())
+            db.addArea(peer,"الكرادة");assertEquals(listOf("الكرادة"),db.areas(peer,true));assertTrue(db.areas(first,true).isEmpty())
+            db.acknowledgeArea(first,"الكرادة",AreaReceipt(first.owner,first.pharmacy,"الكرادة"))
+            assertEquals(listOf("الكرادة"),db.areas(peer,true))
+            db.merge(peer,ShoppingSnapshot(peer.owner,peer.pharmacy,emptyList(),areas=listOf("الكرادة")))
+            assertTrue(db.areas(peer,true).isEmpty());assertEquals(listOf("الكرادة"),db.areas(first))
+            assertTrue(db.areas(peer.copy(pharmacy=UUID.randomUUID().toString())).isEmpty())
+        } finally {db.close();root.deleteRecursively()}
+    }
     @Test fun v25MetadataDatabaseUpgradesWithoutLosingPendingMaterials() {
         val root=File(context.noBackupFilesDir,"upgrade-${UUID.randomUUID()}")
         val id=ShoppingIdentity(UUID.randomUUID().toString(),UUID.randomUUID().toString())

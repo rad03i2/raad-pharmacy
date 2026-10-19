@@ -60,7 +60,13 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
         arrayOf(identity.pharmacy,identity.owner)).use {c -> buildList {while(c.moveToNext()) add(c.getString(0))}}
     @Synchronized fun addArea(identity: ShoppingIdentity,name: String) {
         require(name.isNotBlank() && name.length<=160)
-        writableDatabase.execSQL("INSERT OR IGNORE INTO areas VALUES(?,?,?,1)",arrayOf(identity.pharmacy,name,identity.owner))
+        val db=writableDatabase;db.beginTransaction()
+        try {
+            db.execSQL("INSERT OR IGNORE INTO areas VALUES(?,?,?,1)",arrayOf(identity.pharmacy,name,identity.owner))
+            // An explicit same-name request may be queued by the new account; it never sends another account's hidden drafts.
+            db.execSQL("UPDATE areas SET owner=? WHERE pharmacy=? AND name=? AND pending=1",arrayOf(identity.owner,identity.pharmacy,name))
+            db.setTransactionSuccessful()
+        } finally {db.endTransaction()}
     }
     @Synchronized fun acknowledgeArea(identity: ShoppingIdentity,name: String,receipt: AreaReceipt) {
         check(receipt.owner==identity.owner && receipt.pharmacy==identity.pharmacy && receipt.name==name) {"AREA_RECEIPT_MISMATCH"}
@@ -207,6 +213,8 @@ internal class ShoppingLocalStore(context: Context, directory: File = File(conte
             snapshot.areas.forEach {name ->
                 require(name.isNotBlank() && name.length<=160)
                 db.execSQL("INSERT OR IGNORE INTO areas VALUES(?,?,?,0)",arrayOf(identity.pharmacy,name,identity.owner))
+                // Name is the complete immutable identity/payload. A scoped authoritative snapshot proves it exists.
+                db.execSQL("UPDATE areas SET pending=0 WHERE pharmacy=? AND name=?",arrayOf(identity.pharmacy,name))
             }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
