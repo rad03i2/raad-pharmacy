@@ -140,7 +140,7 @@ internal class MedicineShoppingStore internal constructor(context: Context,
         request();runCatching {enqueueWork()}
     }
     suspend fun addArea(value: String) = withContext(Dispatchers.IO) {
-        val name=value.trim().replace(Regex("\\s+")," ")
+        val name=value.trim().replace(Regex("[\\s\\p{Z}]+")," ")
         cacheMutex.withLock {val owner=checkNotNull(identity()) {"انتظر فتح حساب الصيدلية أولاً."}
             local.addArea(owner,name);publishLocal(error=null)}
         request();runCatching {enqueueWork()}

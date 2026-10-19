@@ -292,6 +292,30 @@ class CloudHttpIntegrationTest {
         } finally { db.close() }
     }
 
+    @Test fun areaOnlyOutboxSurvivesNetworkFailureAndLostReplyWithoutReplayingServerMoney()=runBlocking {
+        val client=client();login(client);val writer=CloudLedgerWriter(client,pharmacy)
+        seed(customerWrite().copy(name="newer name",openingDebt=9_000_000,area="old"))
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val db=Room.inMemoryDatabaseBuilder<PharmacyLedgerDatabase>(context).setDriver(AndroidSQLiteDriver()).build()
+        try {
+            val dao=db.dao();dao.insertCustomer(Customer(customer,"stale local",area="old",openingDebt=5_000_000,createdAt=100).toEntity())
+            dao.cloudOutbox().forEach {dao.acknowledgeCloudMutation(it.key,it.revision)}
+            dao.assignCustomerAreas(mapOf(customer to "old"),"الكرادة")
+            val queued=dao.cloudMutation("CUSTOMER:$customer")!!;assertTrue(queued.isAreaOnly())
+            val drain=DurableCloudDrain(dao) {row ->val c=BackupJson.parse(row.payload).customers.single();writer.saveArea(c.id,c.area)}
+            rejectWrites.set(true);try {drain.flush();fail("offline must retain queue")} catch(_:Exception) {}
+            assertEquals(queued,dao.cloudMutation(queued.key))
+            rejectWrites.set(false);loseResponse.set(true)
+            try {drain.flush();fail("lost reply must retain queue")} catch(_:Exception) {}
+            assertEquals(queued,dao.cloudMutation(queued.key))
+            drain.flush();assertTrue(dao.cloudOutbox().isEmpty())
+            val remote=JSONObject(customerRows.getValue(customer))
+            assertEquals(9_000_000L,remote.getLong("opening_debt"));assertEquals("newer name",remote.getString("name"))
+            assertEquals("الكرادة",remote.getString("area"));assertTrue(postPaths.isEmpty())
+            assertTrue(patches.all {it.keys().asSequence().toSet()==setOf("area")})
+        } finally {db.close()}
+    }
+
     @Test fun areaOnlyPatchPreservesNewerServerMoneyNamePhoneAndCreationMetadata()=runBlocking {
         val client=client();login(client)
         val current=customerWrite().copy(name="newer server name",openingDebt=9_000_000,phone="07800000000",notes="newer server notes",area="previous")

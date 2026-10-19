@@ -47,6 +47,19 @@ class BulkAreaUpdateTest {
             assertEquals("الثانية",dao.getCustomerById("c")!!.area)
         } finally {db.close()}
     }
+    @Test fun missingServerAreaTargetsDoNotStarveUnrelatedFinancialUploads()=runTest {
+        val db=database();try {
+            val dao=db.dao()
+            repeat(5) {n->dao.insertCustomer(Customer("c$n","اسم",createdAt=n.toLong()).toEntity())}
+            dao.cloudOutbox().forEach {dao.acknowledgeCloudMutation(it.key,it.revision)}
+            dao.assignCustomerAreas((0..4).associate {"c$it" to ""},"الكرادة")
+            dao.insertEntry(LedgerEntry("debt","c0",EntryType.DEBT,100,createdAt=200).toEntity())
+            var uploaded=false
+            try {DurableCloudDrain(dao) {row ->if(row.isAreaOnly()) throw CloudAreaWriteConflict() else uploaded=true}.flush()}
+            catch(_:CloudAreaWriteConflict) {}
+            assertTrue(uploaded);assertEquals(5,dao.cloudOutbox().size);assertTrue(dao.cloudOutbox().all {it.isAreaOnly()})
+        } finally {db.close()}
+    }
     @Test fun recoveryHoldRollsBackTheWholeBulkOperation()=runTest {
         val db=database();try {
             val dao=db.dao();val c=Customer("c","اختبار",area="أ",createdAt=100)

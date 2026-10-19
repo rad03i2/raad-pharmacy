@@ -26,7 +26,7 @@ import com.radwan.raadpharmacy.ui.components.ScreenTopBar
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-internal fun normalizedArea(value: String)=value.trim().replace(Regex("\\s+")," ")
+internal fun normalizedArea(value: String)=value.trim().replace(Regex("[\\s\\p{Z}]+")," ")
 
 @Composable
 internal fun BulkCustomerAreasScreen(vm: PharmacyLedgerViewModel,onBack: ()->Unit) {

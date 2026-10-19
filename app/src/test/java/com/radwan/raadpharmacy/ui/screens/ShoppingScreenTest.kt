@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.radwan.raadpharmacy.shopping.*
@@ -89,7 +90,7 @@ class ShoppingScreenTest {
         rule.onNodeWithText("قائمة تستمر معك").assertIsDisplayed()
     }
     @OptIn(SupabaseInternal::class)
-    @Test fun actualAndroidGalleryPickerKeepsPhotoLocalAndAllowsPhotoOnlyMaterial() {
+    @Test @Config(sdk=[26,35],qualifiers="w420dp-h1000dp-mdpi") fun actualAndroidGalleryPickerKeepsPhotoLocalAndAllowsPhotoOnlyMaterial() {
         val context=ApplicationProvider.getApplicationContext<Context>()
         val client=createCloudClient("http://127.0.0.1:9","fixture-key") {
             autoLoadFromStorage=false;autoSaveToStorage=false;alwaysAutoRefresh=false;autoSetupPlatform=false
@@ -99,8 +100,9 @@ class ShoppingScreenTest {
         val store=MedicineShoppingStore(context,client,root,"composer-fixture",enqueueWork={})
         var dismissed=false
         lateinit var activity: ComponentActivity
+        val restoration=StateRestorationTester(rule)
         try {
-            rule.setContent { PharmacyLedgerTheme(darkTheme=false) {CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+            restoration.setContent { PharmacyLedgerTheme(darkTheme=false) {CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 val host=LocalContext.current
                 activity=generateSequence(host) {(it as? ContextWrapper)?.baseContext}.filterIsInstance<ComponentActivity>().first()
                 ShoppingItemComposer(store,{dismissed=true})
@@ -109,23 +111,28 @@ class ShoppingScreenTest {
             val image=File(context.cacheDir,"shopping_camera/picker-fixture.jpg").apply {parentFile!!.mkdirs()}
             val bitmap=Bitmap.createBitmap(800,400,Bitmap.Config.ARGB_8888).apply {eraseColor(android.graphics.Color.rgb(14,165,168))}
             image.outputStream().use {bitmap.compress(Bitmap.CompressFormat.JPEG,90,it)};bitmap.recycle()
+            rule.onNodeWithText("اسم العلاج").performTextInput("باراسيتامول 500 ملغ")
             rule.onNodeWithText("من الصور").performClick()
-            var delivered=false
+            var requestCode: Int?=null
             rule.waitUntil(10_000) {
                 rule.runOnIdle {
                     val launched=shadowOf(activity).nextStartedActivityForResult
                     if(launched!=null) {
                         assertEquals(ShoppingGalleryContract().createIntent(activity,Unit).action,launched.intent.action)
                         assertNotEquals(Intent.ACTION_OPEN_DOCUMENT,launched.intent.action)
-                        val uri=FileProvider.getUriForFile(context,"${context.packageName}.fileprovider",image)
-                        activity.activityResultRegistry.dispatchResult(launched.requestCode,Activity.RESULT_OK,Intent().setData(uri))
-                        delivered=true
+                        requestCode=launched.requestCode
                     }
-                };delivered
+                };requestCode!=null
+            }
+            restoration.emulateSavedInstanceStateRestore()
+            rule.onNodeWithText("باراسيتامول 500 ملغ").assertExists()
+            rule.runOnIdle {
+                val uri=FileProvider.getUriForFile(context,"${context.packageName}.fileprovider",image)
+                activity.activityResultRegistry.dispatchResult(requestCode!!,Activity.RESULT_OK,Intent().setData(uri))
             }
             rule.waitUntil(10_000) {rule.onAllNodesWithText("الصورة محفوظة على هذا الهاتف").fetchSemanticsNodes().isNotEmpty()}
             rule.onNodeWithText("حفظ وإغلاق").assertIsEnabled()
-            rule.onNodeWithText("اسم العلاج").performTextInput("باراسيتامول 500 ملغ")
+            rule.onNodeWithText("باراسيتامول 500 ملغ").assertExists()
             rule.onNodeWithText("الكمية أو ملاحظة (اختياري)").performTextInput("علبتان • بديل اقتصادي")
             val preview=rule.onNodeWithTag("shopping-composer").captureToImage().asAndroidBitmap()
             File("build/reports/shopping-preview").apply {mkdirs()}.resolve("shopping-add-local-photo.png").outputStream().use {preview.compress(Bitmap.CompressFormat.PNG,100,it)}
@@ -136,7 +143,9 @@ class ShoppingScreenTest {
     }
     @Test fun cardsHaveLargePhotosAndSameDetailsAndListRemainsDefaultWithIndependentAnchors() {
         var state by mutableStateOf(ShoppingUiState(identity,rows,lastSyncedAt=100))
-        rule.setContent {PharmacyLedgerTheme {ShoppingListContent(state,{},{},{id->state=state.copy(items=state.items.filterNot {it.id==id})},{})}}
+        rule.setContent {PharmacyLedgerTheme {CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+            Box(Modifier.width(380.dp).testTag("shopping-preview")) {ShoppingListContent(state,{},{},{id->state=state.copy(items=state.items.filterNot {it.id==id})},{})}
+        }}}
         rule.onNodeWithTag("shopping-list").assertExists()
         rule.onNodeWithTag("shopping-list").performScrollToIndex(35)
         rule.onNodeWithContentDescription("عرض البطاقات").performClick()

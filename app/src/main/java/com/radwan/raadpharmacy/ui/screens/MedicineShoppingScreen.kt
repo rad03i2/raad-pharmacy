@@ -287,6 +287,12 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
     val context=LocalContext.current
     val scope=rememberCoroutineScope()
     val initial=remember(store) {store.drafts.load(store.identity())}
+    var ownerId by rememberSaveable {mutableStateOf(initial?.owner ?: store.identity()?.owner)}
+    var pharmacyId by rememberSaveable {mutableStateOf(initial?.pharmacy ?: store.identity()?.pharmacy)}
+    fun draftIdentity(): ShoppingIdentity? {
+        if(ownerId==null) {store.identity()?.let {ownerId=it.owner;pharmacyId=it.pharmacy}}
+        return ownerId?.let {owner -> pharmacyId?.let {ShoppingIdentity(owner,it)}}
+    }
     var id by rememberSaveable { mutableStateOf(initial?.id ?: UUID.randomUUID().toString()) }
     var title by rememberSaveable { mutableStateOf(initial?.title.orEmpty()) }
     var note by rememberSaveable { mutableStateOf(initial?.note.orEmpty()) }
@@ -296,13 +302,14 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var cameraPath by rememberSaveable { mutableStateOf<String?>(null) }
     fun persist(uri: String? = null) {
-        val owner=store.identity() ?: return
+        val owner=draftIdentity() ?: return
+        check(owner==store.identity()) {"تغيّر حساب الصيدلية؛ لم تُنقل المسودة إلى حساب آخر."}
         store.drafts.save(ShoppingComposerDraft(owner.owner,owner.pharmacy,id,title,note,uri))
     }
     fun importPhoto(uri: Uri) {
         busy=true; error=null
         scope.launch {
-            try { withContext(Dispatchers.IO) {persist(uri.toString());store.photos.import(id,uri);store.identity()?.let {store.drafts.imported(it,id)}};photo=true; imageRevision++ }
+            try { withContext(Dispatchers.IO) {persist(uri.toString());store.photos.import(id,uri);draftIdentity()?.let {store.drafts.imported(it,id)}};photo=true; imageRevision++ }
             catch(cancelled: CancellationException) { throw cancelled }
             catch(errorValue: Exception) { error=errorValue.message ?: "تعذر حفظ الصورة؛ اختر صورة أخرى." }
             finally { busy=false }
@@ -323,7 +330,11 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
         }}
         lifecycle.addObserver(observer);onDispose {lifecycle.removeObserver(observer)}
     }
-    LaunchedEffect(id,title,note) {withContext(Dispatchers.IO) {persist()}}
+    LaunchedEffect(id,title,note) {
+        try {withContext(Dispatchers.IO) {persist()}}
+        catch(cancelled: CancellationException) {throw cancelled}
+        catch(_: Exception) {error="تعذر حفظ المسودة؛ تحقق من مساحة الهاتف وأعد المحاولة."}
+    }
     val camera=rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val path=cameraPath
         if(success && path!=null) importPhoto(Uri.fromFile(File(path)))
@@ -336,7 +347,7 @@ internal fun ShoppingItemComposer(store: MedicineShoppingStore,onDismiss: ()->Un
         busy=true; error=null
         scope.launch {
             try {
-                store.add(id,title,note,photo)
+                store.add(id,title,note,photo,expected=draftIdentity())
                 store.drafts.clear(id)
                 if(another) { id=UUID.randomUUID().toString(); title=""; note=""; photo=false; imageRevision++ }
                 else onDismiss()

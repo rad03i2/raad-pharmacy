@@ -120,7 +120,7 @@ class AppRepository(context: Context, daoOverride: PharmacyLedgerDao? = null,
     }
 
     suspend fun assignCustomerAreas(expected: Map<String,String>,area: String): MutationResult {
-        val name=area.trim().replace(Regex("\\s+")," ")
+        val name=area.trim().replace(Regex("[\\s\\p{Z}]+")," ")
         if(name.isBlank() || name.length>160) return MutationResult(false,"اكتب اسم منطقة من 1 إلى 160 حرفاً.")
         return try {
             val changed=dao.assignCustomerAreas(expected,name).map {it.toModel()}.associateBy {it.id}

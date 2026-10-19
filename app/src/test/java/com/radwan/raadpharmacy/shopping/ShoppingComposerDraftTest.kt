@@ -48,17 +48,19 @@ class ShoppingComposerDraftTest {
         val root=File(context.noBackupFilesDir,"upgrade-${UUID.randomUUID()}")
         val id=ShoppingIdentity(UUID.randomUUID().toString(),UUID.randomUUID().toString())
         try {
-            ShoppingLocalStore(context,root).use {db ->
+            var db=ShoppingLocalStore(context,root)
+            try {
                 db.add(id,ShoppingItem(UUID.randomUUID().toString(),"علاج محفوظ"))
                 db.writableDatabase.execSQL("DROP TABLE areas");db.writableDatabase.version=2
-            }
-            ShoppingLocalStore(context,root).use {db ->
+            } finally {db.close()}
+            db=ShoppingLocalStore(context,root)
+            try {
                 assertEquals("علاج محفوظ",db.list(id).single().title)
                 db.addArea(id,"المنصور");assertEquals(listOf("المنصور"),db.areas(id,true))
                 assertThrows(IllegalStateException::class.java) {db.acknowledgeArea(id,"المنصور",AreaReceipt("other",id.pharmacy,"المنصور"))}
                 assertEquals(1,db.areas(id,true).size)
                 db.acknowledgeArea(id,"المنصور",AreaReceipt(id.owner,id.pharmacy,"المنصور"));assertTrue(db.areas(id,true).isEmpty())
-            }
+            } finally {db.close()}
         } finally {root.deleteRecursively()}
     }
 }
