@@ -3,6 +3,8 @@ package com.radwan.raadpharmacy.followup
 import android.app.Activity
 import android.app.PendingIntent
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.test.core.app.ApplicationProvider
 import com.radwan.raadpharmacy.data.*
 import java.io.File
@@ -91,5 +93,14 @@ class FollowupSmsTest {
         val image=ReadyMessages.messageFor(context,account)
         val sms=ReadyMessages.textOnlyFor(context,account)
         assertTrue(image.contains("نرفق"));assertFalse(sms.contains("نرفق"));assertTrue(sms.contains("900,000"));assertTrue(sms.contains("تسعمئة ألف"))
+    }
+    @Test fun olderPhoneSupportUsesLegacyTelephonyFeatureWhileModernDevicesUseMessagingFeature() {
+        val manager=shadowOf(context.packageManager)
+        manager.setSystemFeature(PackageManager.FEATURE_TELEPHONY,true)
+        manager.setSystemFeature(PackageManager.FEATURE_TELEPHONY_MESSAGING,Build.VERSION.SDK_INT>=33)
+        assertTrue(AndroidSmsPlatform(context).supported())
+        manager.setSystemFeature(PackageManager.FEATURE_TELEPHONY,false)
+        manager.setSystemFeature(PackageManager.FEATURE_TELEPHONY_MESSAGING,false)
+        assertFalse(AndroidSmsPlatform(context).supported())
     }
 }

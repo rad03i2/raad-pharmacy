@@ -42,7 +42,7 @@ internal class SmsRepeatRequired: IllegalStateException("سبق طلب إرسا�
 internal object SmsUpdates {val revision=MutableStateFlow(0L)}
 
 /** Durable callbacks survive Activity/process recreation. No automatic resend of an uncertain SMS. */
-internal class SmsAttemptStore(context: Context,name: String=File(context.noBackupFilesDir,"followup-sms-v27.db").absolutePath): SQLiteOpenHelper(context,name,null,1) {
+internal class SmsAttemptStore(context: Context,name: String=File(context.noBackupFilesDir,"followup-sms-v27.db").absolutePath): SQLiteOpenHelper(context,name,null,1), java.io.Closeable {
     override fun onCreate(db: SQLiteDatabase) {db.execSQL("CREATE TABLE attempts(token TEXT PRIMARY KEY,owner TEXT NOT NULL,pharmacy TEXT NOT NULL,customer TEXT NOT NULL,fingerprint TEXT NOT NULL,parts INTEGER NOT NULL,results TEXT NOT NULL,started INTEGER NOT NULL,sent_at INTEGER,uncertain INTEGER NOT NULL DEFAULT 0)");db.execSQL("CREATE INDEX sms_customer ON attempts(owner,pharmacy,customer,started)")}
     override fun onUpgrade(db: SQLiteDatabase,oldVersion: Int,newVersion: Int)=error("Unsupported SMS status version")
     private fun find(where: String,args: Array<String>): SmsAttempt? = readableDatabase.query("attempts",null,where,args,null,null,"started DESC, rowid DESC","1").use {c->
@@ -152,7 +152,8 @@ internal interface SmsPlatform {
 }
 internal class AndroidSmsPlatform(private val context: Context): SmsPlatform {
     override fun permitted()=FollowupSms.permitted(context)
-    override fun supported()=context.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_MESSAGING)
+    override fun supported()=context.packageManager.hasSystemFeature(if(Build.VERSION.SDK_INT>=33)
+        PackageManager.FEATURE_TELEPHONY_MESSAGING else PackageManager.FEATURE_TELEPHONY)
     override fun sims()=FollowupSms.sims(context)
     private fun manager(subscription: Int): SmsManager = if(Build.VERSION.SDK_INT>=31)
         context.getSystemService(SmsManager::class.java).createForSubscriptionId(subscription)

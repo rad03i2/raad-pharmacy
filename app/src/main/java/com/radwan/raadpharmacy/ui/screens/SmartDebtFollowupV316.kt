@@ -627,7 +627,7 @@ private fun FollowupStat(label: String, value: String, modifier: Modifier = Modi
 }
 
 @Composable
-private fun FollowupAccountCard(
+internal fun FollowupAccountCard(
     record: DebtFollowupEngine.Account,
     hideAmounts: Boolean,
     isSharing: Boolean,

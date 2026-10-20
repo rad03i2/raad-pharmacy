@@ -99,6 +99,7 @@ jobs:
           name: raad-pharmacy-${{ github.sha }}-qa-reports
           path: |
             app/build/reports/navigation-preview/
+            app/build/reports/followup-preview/
             app/build/reports/monthly-preview/
             app/build/reports/shopping-preview/
             app/build/reports/backup-preview/

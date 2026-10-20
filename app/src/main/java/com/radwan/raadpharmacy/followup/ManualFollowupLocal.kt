@@ -25,7 +25,7 @@ internal fun inFollowup(account: DebtFollowupEngine.Account): Boolean = account.
 
 /** Isolated metadata; no Room migrations and no access to financial database files. */
 internal class ManualFollowupLocal(context: Context, name: String=java.io.File(context.noBackupFilesDir,"manual-followup-v27.db").absolutePath):
-    SQLiteOpenHelper(context, name, null, 1) {
+    SQLiteOpenHelper(context, name, null, 1), java.io.Closeable {
     override fun onCreate(db: SQLiteDatabase) {db.execSQL("CREATE TABLE cases(owner TEXT NOT NULL,pharmacy TEXT NOT NULL,customer TEXT NOT NULL,debts TEXT NOT NULL,pending INTEGER NOT NULL,revision TEXT NOT NULL,PRIMARY KEY(owner,pharmacy,customer))")}
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = error("Unsupported follow-up metadata version")
     private fun rows(scope: FollowupIdentity, pending: Boolean=false): List<FollowupPending> = readableDatabase.query("cases",null,
@@ -44,7 +44,8 @@ internal class ManualFollowupLocal(context: Context, name: String=java.io.File(c
         require(cases.isNotEmpty() && cases.all {it.customer.isNotBlank() && it.debts.isNotEmpty()})
         val db=writableDatabase;db.beginTransaction()
         try {val previous=list(scope).associateBy {it.customer}
-            cases.forEach {row->write(scope,row.copy(debts=row.debts+previous[row.customer]?.debts.orEmpty()),true,UUID.randomUUID().toString())}
+            cases.groupBy {it.customer}.forEach {(id,rows)->
+                write(scope,ManualFollowupCase(id,rows.flatMap {it.debts}.toSet()+previous[id]?.debts.orEmpty()),true,UUID.randomUUID().toString())}
             db.setTransactionSuccessful()
         } finally {db.endTransaction()}
     }
