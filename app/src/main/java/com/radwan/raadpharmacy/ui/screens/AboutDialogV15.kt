@@ -52,7 +52,7 @@ fun AboutDialogV15(onDismiss: () -> Unit) {
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Image(
-                        painter = painterResource(R.drawable.ic_app_logo),
+                        painter = painterResource(R.drawable.raad_launcher_artwork),
                         contentDescription = "شعار دفتر صيدلية رعد",
                         modifier = Modifier.padding(8.dp)
                     )

@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Pharmacy bowl, snake and checked receipt for Android themed icons. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M47,20h14v8h7v6h4c7,0 12,6 12,13v31c0,7 -5,13 -12,13h-36c-7,0 -12,-6 -12,-13v-31c0,-7 5,-13 12,-13h4v-7h7z" />
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M26,42H64C63,52 55,58 47,59V73H56V77H33V73H42V59C34,58 27,52 26,42Z" />
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5" android:strokeLineCap="round"
+        android:pathData="M51,31C51,21 37,22 37,31C37,38 45,39 49,42C59,48 54,58 45,60C33,63 39,69 48,70" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M48,30L55,30L52,37Z" />
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M65,47H77Q81,47 80,53L76,80L72,77L68,80L64,77L60,80L56,77L60,52Q61,47 65,47Z M64,53V56H74V53Z M63,59V62H71V59Z M61,69L66,74L75,65L72,62L66,68L64,66Z" />
 </vector>
