@@ -127,6 +127,7 @@ import kotlinx.coroutines.*
     var sims by remember {mutableStateOf<List<SmsSim>>(emptyList())}
     var selected by remember {mutableStateOf(settings.selectedSim())}
     var error by remember {mutableStateOf<String?>(null)}
+    fun select(sim: SmsSim) {runCatching {settings.selectSim(sim);selected=sim.id to sim.slot}.onFailure {error="تعذر حفظ الشريحة."}}
     fun refresh() {runCatching {sims=FollowupSms.sims(context);selected=settings.selectedSim()}.onFailure {error="تعذر قراءة الشرائح. تحقق من إذن الهاتف."}}
     val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {if(it) refresh() else error="لم يُمنح إذن الهاتف. يلزم الإذن لعرض الشريحة الأولى والثانية."}
     val lifecycle=LocalLifecycleOwner.current
@@ -139,8 +140,8 @@ import kotlinx.coroutines.*
         HorizontalDivider()
         Text("شريحة إرسال SMS",style=MaterialTheme.typography.titleSmall)
         Text("SMS نصي فقط. يُرسل زر المتابعة عبر الشريحة المختارة هنا، وفق باقة ورسوم شركة الاتصال.",style=MaterialTheme.typography.bodySmall)
-        sims.forEach {sim->Row(Modifier.fillMaxWidth().clickable {runCatching {settings.selectSim(sim);selected=sim.id to sim.slot}.onFailure {error="تعذر حفظ الشريحة."}},verticalAlignment=Alignment.CenterVertically) {
-            RadioButton(selected==(sim.id to sim.slot),onClick={settings.selectSim(sim);selected=sim.id to sim.slot});Text(sim.label)
+        sims.forEach {sim->Row(Modifier.fillMaxWidth().clickable {select(sim)},verticalAlignment=Alignment.CenterVertically) {
+            RadioButton(selected==(sim.id to sim.slot),onClick={select(sim)});Text(sim.label)
         }}
         if(selected!=null && sims.none {it.id==selected?.first && it.slot==selected?.second}) Text("الشريحة المحفوظة غير متاحة؛ اختر الشريحة من جديد.",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
         TextButton(onClick={permission.launch(android.Manifest.permission.READ_PHONE_STATE)}) {Text(if(sims.isEmpty()) "عرض الشرائح واختيار شريحة SMS" else "تحديث الشرائح")}

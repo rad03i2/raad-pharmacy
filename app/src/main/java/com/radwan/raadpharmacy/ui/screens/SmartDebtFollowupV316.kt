@@ -92,7 +92,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private enum class FollowupFilter(val title: String) {
-    ALL("الكل"), SPECIAL("موعد خاص"), DAYS_30("30 يومًا"), DAY_60("60 يومًا"), OLD("ديون قديمة"), NO_PHONE("بدون رقم هاتف"), REVIEW("مراجعة التاريخ")
+    ALL("الكل"), SPECIAL("موعد خاص"), DAYS_30("30 يومًا + يدوي"), DAY_60("60 يومًا"), OLD("ديون قديمة"), NO_PHONE("بدون رقم هاتف"), REVIEW("مراجعة التاريخ")
 }
 private enum class FollowupSort(val title: String) {
     OLDEST("الأكثر تأخرًا"), HIGHEST("الأعلى دينًا"), LOWEST("الأقل دينًا"),

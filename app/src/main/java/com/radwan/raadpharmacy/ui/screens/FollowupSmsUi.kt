@@ -32,7 +32,11 @@ internal data class FollowupSmsActions(val attempts: Map<String,SmsAttempt>,val 
         if(result.values.isNotEmpty() && result.values.all {it}) permissionTick++
         else {permissionId=null;message="لم يُمنح إذن SMS أو الهاتف. لم تُرسل أي رسالة."}
     }
-    LaunchedEffect(Unit) {while(isActive) {delay(15_000L);now=System.currentTimeMillis()}}
+    LaunchedEffect(attempts,now) {
+        // Callback updates are immediate; only an unresolved send needs a timeout timer.
+        val deadline=attempts.values.filter {it.state(now)==SmsState.SENDING}.minOfOrNull {it.started+120_000L}
+        if(deadline!=null) {delay((deadline-System.currentTimeMillis()).coerceAtLeast(1000L));now=System.currentTimeMillis()}
+    }
     LaunchedEffect(owner,accounts,entries,revision,now) {
         val expected=owner
         attempts=if(expected==null) emptyMap() else withContext(Dispatchers.IO) {

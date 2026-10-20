@@ -83,6 +83,7 @@ class ManualFollowupHttpTest {
     @Test fun aWrongReceiptCannotAcknowledgeWorkEvenWhenAFollowingSnapshotContainsItsRows()=runBlocking {
         val store=device();store.add(owner,listOf(ManualFollowupCase("customer",setOf("entry:debt"))))
         wrong.set(true);assertFalse(store.sync());assertEquals(1,store.state.value.pending)
+        assertFalse(store.sync());assertEquals(1,store.state.value.pending) // A later snapshot alone still cannot ACK it.
         wrong.set(false);assertTrue(store.sync());assertEquals(0,store.state.value.pending)
     }
 }

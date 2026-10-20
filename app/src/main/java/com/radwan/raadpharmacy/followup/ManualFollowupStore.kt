@@ -34,6 +34,7 @@ internal class ManualFollowupStore internal constructor(context: Context,
     private val cache=Mutex()
     private val network=Mutex()
     private val mutable=MutableStateFlow(ManualFollowupState())
+    @Volatile private var lastPulled=0L
     val state=mutable.asStateFlow()
     @Volatile var visible=false
     fun identity(): FollowupIdentity? = if(identityOverride!=null) identityOverride.invoke()
@@ -53,11 +54,19 @@ internal class ManualFollowupStore internal constructor(context: Context,
                 val user=client.auth.currentSessionOrNull()?.user?.id ?: return@collectLatest
                 supervisorScope {
                     val channel=client.channel("raad-manual-followup-$user")
+                    val connected=AtomicBoolean(false)
                     val changes=channel.postgresChangeFlow<PostgresAction>("public") {table="customer_manual_followups"}
                     launch {changes.collect {request()}}
+                    launch {channel.status.collect {status->
+                        connected.set(status==RealtimeChannel.Status.SUBSCRIBED)
+                        if(connected.get()) request()
+                    }}
                     launch {runCatching {withTimeout(12_000L) {channel.subscribe(blockUntilSubscribed=true)}}}
                     request()
-                    try {while(isActive) {delay(if(visible) 6_000L else 60_000L);if(CloudUiEvents.isAppForeground()) request()}}
+                    try {while(isActive) {
+                        delay(if(identity()==null) 3_000L else if(visible) 30_000L else 120_000L)
+                        if(CloudUiEvents.isAppForeground() && (!connected.get() || mutable.value.pending>0 || System.currentTimeMillis()-lastPulled>=600_000L)) request()
+                    }}
                     finally {withContext(NonCancellable) {runCatching {withTimeout(3_000L) {channel.unsubscribe()}}}}
                 }
             }
@@ -75,7 +84,7 @@ internal class ManualFollowupStore internal constructor(context: Context,
             verify(owner)
             suspend fun snapshot()=withTimeout(12_000L) {client.postgrest.rpc("customer_followup_context_v27").decodeAs<ManualFollowupSnapshot>()}
             val first=snapshot()
-            cache.withLock {verify(owner);local.merge(owner,first);publish()}
+            cache.withLock {verify(owner);local.merge(owner,first);lastPulled=System.currentTimeMillis();publish()}
             var failed=false
             val pending=cache.withLock {local.pending(owner).take(40)}
             for(op in pending) {
@@ -88,9 +97,11 @@ internal class ManualFollowupStore internal constructor(context: Context,
                 } catch(cancelled: CancellationException) {throw cancelled}
                 catch(_: Exception) {failed=true} // One unsynced customer must not block the others.
             }
-            val last=snapshot()
-            cache.withLock {verify(owner);local.merge(owner,last);publish(if(failed) "بعض الإضافات محفوظة على الهاتف وتنتظر اكتمال مزامنة الزبون أو الدين." else null)}
-            !failed && cache.withLock {local.pending(owner).isEmpty()}
+            // Exact receipts already contain the merged keys; a second full read would only waste egress.
+            cache.withLock {verify(owner);publish(if(failed) "بعض الإضافات محفوظة على الهاتف وتنتظر اكتمال مزامنة الزبون أو الدين." else null)}
+            val remaining=cache.withLock {local.pending(owner).isNotEmpty()}
+            if(remaining && !failed) request() // Drain large selections in bounded batches without waiting for a poll.
+            !failed && !remaining
         } catch(cancelled: CancellationException) {throw cancelled}
         catch(_: Exception) {cache.withLock {runCatching {publish("الإضافات محفوظة على الهاتف؛ ستُزامن عند عودة الاتصال.")}};false}
     }}
