@@ -56,6 +56,12 @@ object ReadyMessages {
     fun messageFor(context: Context, account: DebtFollowupEngine.Account, amount: Long = account.balance): String =
         render(load(context, kindFor(account)), account.customer.name, amount, account.ageDays)
 
+    /** SMS / text-only shares must not claim a statement image is attached. */
+    fun textOnlyFor(context: Context, account: DebtFollowupEngine.Account, amount: Long = account.balance): String =
+        messageFor(context, account, amount)
+            .replace("نرفق لكم كشف حسابكم لدى صيدلية رعد.", "نذكركم بحسابكم لدى صيدلية رعد.")
+            .lineSequence().filter {it.trim()!="مرفق كشف الحساب."}.joinToString("\n")
+
     fun render(
         template: String,
         customerName: String,

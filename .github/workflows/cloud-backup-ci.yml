@@ -56,4 +56,6 @@ jobs:
           python supabase/tests/shopping-integration.py
           python supabase/tests/shopping-v25-integration.py
           python supabase/tests/customer-area-v26.py
+          psql "$SHOPPING_FIXTURE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261020032856_manual_customer_followups_v27.sql
+          python supabase/tests/manual-followup-v27.py
       # No production credentials, real financial fixtures or backup artifacts.

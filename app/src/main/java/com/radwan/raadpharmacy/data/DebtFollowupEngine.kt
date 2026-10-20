@@ -27,7 +27,9 @@ object DebtFollowupEngine {
         val specialOverdueAmount: Long = 0L,
         val specialReminderDays: Int? = null,
         val specialDueAt: LocalDate? = null,
-        val unpaidEntryIds: Set<String> = emptySet()
+        val unpaidEntryIds: Set<String> = emptySet(),
+        val unpaidDebtKeys: Set<String> = emptySet(),
+        val manuallyFollowed: Boolean = false
     )
 
     private data class Tranche(val createdAt: Long, var remaining: Long, val repaymentDays: Int? = null, val entryId: String? = null)
@@ -143,6 +145,8 @@ object DebtFollowupEngine {
             specialOverdueAmount = specialOverdueAmount,
             specialReminderDays = earliestSpecial?.first?.repaymentDays,
             specialDueAt = earliestSpecial?.second,
-            unpaidEntryIds = unpaid.mapNotNull { it.entryId }.toSet())
+            unpaidEntryIds = unpaid.mapNotNull { it.entryId }.toSet(),
+            unpaidDebtKeys = unpaid.map { lot -> lot.entryId?.let { "entry:$it" }
+                ?: "opening:${customer.createdAt}:${customer.openingDebt}" }.toSet())
     }
 }

@@ -151,7 +151,9 @@ fun StatementScreenV7(
 
     fun statementMessage(): String {
         val account = com.radwan.raadpharmacy.data.DebtFollowupEngine.calculate(customer, entries)
-        return ReadyMessages.messageFor(context, account, snapshot.currentBalance)
+        return if(com.radwan.raadpharmacy.followup.FollowupShareSettings(context).includeImage())
+            ReadyMessages.messageFor(context, account, snapshot.currentBalance)
+            else ReadyMessages.textOnlyFor(context, account, snapshot.currentBalance)
     }
 
     fun shareImage(whatsappOnly: Boolean) {
@@ -164,11 +166,17 @@ fun StatementScreenV7(
         // Capture the entire receipt before rendering: a recomposition/navigation
         // must not mix one customer's image with another customer's recipient/text.
         val receipt = snapshot
+        val attachImage = com.radwan.raadpharmacy.followup.FollowupShareSettings(context).includeImage()
         val caption = statementMessage()
         val recipient = customer.phone.orEmpty()
         working = true
         scope.launch {
             try {
+                if(!attachImage) {
+                    if(whatsappOnly) StatementShare.shareTextToWhatsappContact(context,caption,recipient)
+                    else StatementShare.shareText(context,caption)
+                    return@launch
+                }
                 val file = withContext(Dispatchers.IO) {
                     StatementDocumentRenderer.createPng(context, receipt)
                 }
@@ -200,10 +208,12 @@ fun StatementScreenV7(
     fun shareWhatsappFallback() {
         if (working) return
         val receipt = snapshot
+        val attachImage = com.radwan.raadpharmacy.followup.FollowupShareSettings(context).includeImage()
         val caption = statementMessage()
         working = true
         scope.launch {
             try {
+                if(!attachImage) {StatementShare.shareText(context,caption);return@launch}
                 val file = withContext(Dispatchers.IO) {
                     StatementDocumentRenderer.createPng(context, receipt)
                 }
@@ -228,6 +238,10 @@ fun StatementScreenV7(
         scope.launch {
             working = true
             val result = runCatching {
+                if(!com.radwan.raadpharmacy.followup.FollowupShareSettings(context).includeImage()) {
+                    StatementShare.shareTextToMessages(context, statementMessage(), customer.phone.orEmpty())
+                    return@runCatching
+                }
                 val file = withContext(Dispatchers.IO) {
                     StatementDocumentRenderer.createPng(context, snapshot)
                 }

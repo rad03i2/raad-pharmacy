@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Requested only from SMS settings / a deliberate follow-up SMS tap. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-feature android:name="android.hardware.telephony.messaging" android:required="false" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Only Android 8/9 need a runtime grant for the public backup folder. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
@@ -43,6 +47,7 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <receiver android:name=".followup.FollowupSmsSentReceiver" android:exported="false" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="raad_cloud_alerts_v7_iphone" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_icon"

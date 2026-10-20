@@ -218,6 +218,7 @@ fun CustomerProfileScreenV6(
         ) {
             item { V6AccountHero(customer, balance, security.hideAmounts) }
             item { CustomerCreditControlLine(customer.id, customer.name) }
+            item { CustomerManualFollowupLine(customer, customerEntries) }
 
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
