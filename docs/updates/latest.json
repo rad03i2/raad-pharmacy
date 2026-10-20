@@ -1,18 +1,18 @@
 {
-  "tag_name": "v3.3.22.26",
+  "tag_name": "v3.3.22.27",
   "draft": false,
   "prerelease": false,
-  "body": "VersionCode: 94\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.26: إصلاح بقاء شاشة إضافة العلاج أثناء اختيار الصور، وفتح معرض الصور مباشرة مع حفظ المسودة محلياً. عرض اختياري للبطاقات بصور أكبر بجانب عرض القائمة الافتراضي، بطاقة عدد مختصرة وصوت خفيف عند إتمام الشراء. إدارة المناطق وإنشاؤها وتعيين الزبائن جماعياً من الإعدادات الإضافية؛ مزامنة حقل المنطقة فقط مع حماية بقية بيانات الزبون. الصور تبقى محلية.",
+  "body": "VersionCode: 95\nSigningCertificateSHA256: 506282b5c28fac0f3170ee99eeaf32b763eaa9c1031374574dcee2aec7dd95b6\n\nتحديث 3.3.22.27: اعتماد أيقونة الصيدلية والإيصال في شعار التطبيق وشاشة البداية وأيقونات الهاتف. إضافة الزبائن إلى المتابعة فردياً وجماعياً دون تغيير الديون أو تواريخها، مع مزامنة المتابعة بين أجهزة الصيدلية. زر SMS للإرسال النصي من الشريحة المختارة، وعلامة صح بعد تأكيد النظام إرسال جميع الأجزاء مع حماية من التكرار. اختيار إرفاق صورة الكشف للتطبيقات الداعمة، واختصار شارة الموعد. يرجى اختيار الشريحة ومنح إذن SMS عند الاستخدام؛ علامة الصح تؤكد إرسال النظام ولا تعني وصول الرسالة إلى المستلم.",
   "assets": [
     {
-      "name": "Raad-Pharmacy-v3.3.22.26.apk",
-      "size": 5741954,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.26/Raad-Pharmacy-v3.3.22.26.apk"
+      "name": "Raad-Pharmacy-v3.3.22.27.apk",
+      "size": 6164402,
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.27/Raad-Pharmacy-v3.3.22.27.apk"
     },
     {
-      "name": "Raad-Pharmacy-v3.3.22.26.apk.sha256",
+      "name": "Raad-Pharmacy-v3.3.22.27.apk.sha256",
       "size": 95,
-      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.26/Raad-Pharmacy-v3.3.22.26.apk.sha256"
+      "browser_download_url": "https://github.com/rad03i2/raad-pharmacy/releases/download/v3.3.22.27/Raad-Pharmacy-v3.3.22.27.apk.sha256"
     }
   ]
 }
