@@ -11,6 +11,28 @@ import androidx.core.content.FileProvider
 import java.io.File
 
 object StatementShare {
+    fun shareTextToWhatsappContact(context: Context,message: String,phone: String) {
+        val normalized=validatedIraqiWhatsappPhone(phone) ?: error("رقم الزبون غير صالح لفتح محادثة واتساب.")
+        require(message.isNotBlank())
+        for(pkg in listOf("com.whatsapp","com.whatsapp.w4b")) {
+            val intent=Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/$normalized?text="+Uri.encode(message))).setPackage(pkg)
+            if(!hasActivityContext(context)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if(runCatching {context.startActivity(intent)}.isSuccess) return
+        }
+        error("تعذر فتح واتساب لمشاركة النص.")
+    }
+    fun shareText(context: Context,message: String) {
+        require(message.isNotBlank())
+        val chooser=Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,message),"مشاركة رسالة كشف الحساب")
+        if(!hasActivityContext(context)) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
+    }
+    fun shareTextToMessages(context: Context,message: String,phone: String) {
+        val normalized=validatedIraqiWhatsappPhone(phone) ?: error("رقم الزبون غير صالح.")
+        val intent=Intent(Intent.ACTION_SENDTO,Uri.parse("smsto:+$normalized")).putExtra("sms_body",message)
+        if(!hasActivityContext(context)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    }
     fun shareImage(
         context: Context,
         file: File,

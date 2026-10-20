@@ -98,6 +98,7 @@ fun SettingsScreenV10(
     var showAdditionalSettings by rememberSaveable { mutableStateOf(false) }
     var showMissingPhoneCustomers by rememberSaveable { mutableStateOf(false) }
     var showBulkAreas by rememberSaveable { mutableStateOf(false) }
+    var showBulkFollowup by rememberSaveable { mutableStateOf(false) }
     var showReadyMessages by rememberSaveable { mutableStateOf(false) }
     var showReminderSettings by rememberSaveable { mutableStateOf(false) }
 
@@ -190,6 +191,8 @@ fun SettingsScreenV10(
         return
     }
 
+    if(showBulkFollowup) {BulkManualFollowupScreen(vm,{showBulkFollowup=false});return}
+
     if(showBulkAreas) {BulkCustomerAreasScreen(vm,{showBulkAreas=false});return}
 
     if (showReadyMessages) {
@@ -219,6 +222,8 @@ fun SettingsScreenV10(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item { ShortReminderSetting() }
+                item { FollowupSharingSettings() }
+                item {V8SettingsRow(Icons.Rounded.Info,"إضافة جماعية إلى المتابعة","اختيار عدة حسابات للمطالبة بالدين دون تغيير مبالغها أو تواريخها") {showBulkFollowup=true}}
                 item {V8SettingsRow(Icons.Rounded.LocationOn,"إضافة المنطقة بشكل جماعي","إنشاء المناطق وتعيين عدة زبائن دفعة واحدة") {showBulkAreas=true}}
                 item {
                     V8SettingsRow(

@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFFFF" android:pathData="M9,3h6v6h6v6h-6v6h-6v-6h-6v-6h6z"/>
+<!-- Single-color pharmacy and receipt silhouette required by Android status-bar icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="64" android:viewportHeight="64">
+    <group android:translateX="-21" android:translateY="-20">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M26,42H64C63,52 55,58 47,59V73H56V77H33V73H42V59C34,58 27,52 26,42Z" />
+        <path android:fillColor="@android:color/transparent" android:strokeColor="#FFFFFFFF" android:strokeWidth="5" android:strokeLineCap="round" android:pathData="M51,31C51,21 37,22 37,31C37,38 45,39 49,42C59,48 54,58 45,60C33,63 39,69 48,70" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M48,30L55,30L52,37Z" />
+        <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M65,47H77Q81,47 80,53L76,80L72,77L68,80L64,77L60,80L56,77L60,52Q61,47 65,47Z M64,53V56H74V53Z M63,59V62H71V59Z M61,69L66,74L75,65L72,62L66,68L64,66Z" />
+    </group>
 </vector>

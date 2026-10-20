@@ -27,7 +27,7 @@ class FollowupReminderUiTest {
         }
         composeRule.onNodeWithText("لم أرسل").performClick()
         composeRule.runOnIdle { assertEquals(0, sent); assertEquals(1, canceled) }
-        composeRule.onNodeWithText("مشاركة بديلة بالصورة والنص").performClick()
+        composeRule.onNodeWithText("مشاركة بديلة").performClick()
         composeRule.runOnIdle { assertEquals(0, sent); assertEquals(1, alternative) }
         composeRule.onNodeWithText("نعم، تم الإرسال").performClick()
         composeRule.runOnIdle { assertEquals(1, sent) }

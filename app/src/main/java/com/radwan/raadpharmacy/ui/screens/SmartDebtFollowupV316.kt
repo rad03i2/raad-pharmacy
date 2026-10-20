@@ -26,6 +26,8 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Sms
+import com.radwan.raadpharmacy.followup.*
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
@@ -90,7 +92,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private enum class FollowupFilter(val title: String) {
-    ALL("الكل"), SPECIAL("موعد خاص"), DAYS_30("30 يومًا"), DAY_60("60 يومًا"), OLD("ديون قديمة"), NO_PHONE("بدون رقم هاتف"), REVIEW("مراجعة التاريخ")
+    ALL("الكل"), SPECIAL("موعد خاص"), DAYS_30("30 يومًا + يدوي"), DAY_60("60 يومًا"), OLD("ديون قديمة"), NO_PHONE("بدون رقم هاتف"), REVIEW("مراجعة التاريخ")
 }
 private enum class FollowupSort(val title: String) {
     OLDEST("الأكثر تأخرًا"), HIGHEST("الأعلى دينًا"), LOWEST("الأقل دينًا"),
@@ -138,6 +140,11 @@ fun SmartDebtFollowupV316(
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var missingPhoneFor by remember { mutableStateOf<String?>(null) }
     var lastSharedId by remember { mutableStateOf<String?>(null) }
+    val manualStore = remember(context) { ManualFollowupStore.get(context) }
+    val manualState by manualStore.state.collectAsStateWithLifecycle()
+    LaunchedEffect(manualStore) { manualStore.start(); manualStore.request() }
+    DisposableEffect(manualStore) { manualStore.visible=true; onDispose { manualStore.visible=false } }
+    val sms = rememberFollowupSmsActions(records, movements, manualState.identity)
     val reminderStore = remember(context) { FollowupReminderStore(context) }
     var reminderRevision by remember { mutableIntStateOf(0) }
     var reminderConfirmation by remember { mutableStateOf(reminderStore.confirmation()) }
@@ -173,12 +180,12 @@ fun SmartDebtFollowupV316(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(customers, movements, today, refreshTick) {
+    LaunchedEffect(customers, movements, today, refreshTick, manualState.cases) {
         // Keep existing keyed rows mounted during recalculation, including a
         // return from WhatsApp. Removing them clamps the saved scroll to zero.
         loading = records.isEmpty()
         records = withContext(Dispatchers.Default) {
-            DebtFollowupEngine.build(customers, movements, today)
+            applyManualFollowups(DebtFollowupEngine.build(customers, movements, today), manualState.cases)
         }
         loading = false
     }
@@ -186,7 +193,7 @@ fun SmartDebtFollowupV316(
     val overdue = remember(records) {
         records.filter {
             (it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE &&
-                it.bucket != DebtFollowupEngine.Bucket.NEEDS_REVIEW) || it.specialOverdueAmount > 0L
+                it.bucket != DebtFollowupEngine.Bucket.NEEDS_REVIEW) || it.specialOverdueAmount > 0L || it.manuallyFollowed
         }
     }
     val specialOverdue = remember(records) { records.filter { it.specialOverdueAmount > 0L } }
@@ -194,7 +201,7 @@ fun SmartDebtFollowupV316(
     // This filter is intentionally limited to accounts already in follow-up, not every customer.
     val noPhoneFollowup = remember(records) {
         records.filter {
-            (it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE || it.specialOverdueAmount > 0L) &&
+            inFollowup(it) &&
                 it.customer.phone.isNullOrBlank()
         }
     }
@@ -204,9 +211,9 @@ fun SmartDebtFollowupV316(
     val overdueOld = remember(overdue) { overdue.count { it.bucket == DebtFollowupEngine.Bucket.OVER_60 } }
     val shown = remember(records, filter, sort, query) {
         val source = when (filter) {
-            FollowupFilter.ALL -> records.filter { it.bucket != DebtFollowupEngine.Bucket.NOT_OVERDUE || it.specialOverdueAmount > 0L }
+            FollowupFilter.ALL -> records.filter(::inFollowup)
             FollowupFilter.SPECIAL -> specialOverdue
-            FollowupFilter.DAYS_30 -> overdue.filter { it.bucket == DebtFollowupEngine.Bucket.DAYS_30_TO_59 }
+            FollowupFilter.DAYS_30 -> overdue.filter { it.bucket == DebtFollowupEngine.Bucket.DAYS_30_TO_59 || it.manuallyFollowed }
             FollowupFilter.DAY_60 -> overdue.filter { it.bucket == DebtFollowupEngine.Bucket.DAY_60 }
             FollowupFilter.OLD -> overdue.filter { it.bucket == DebtFollowupEngine.Bucket.OVER_60 }
             FollowupFilter.NO_PHONE -> noPhoneFollowup
@@ -235,7 +242,7 @@ fun SmartDebtFollowupV316(
             // Header count varies with search/sort; use the actual laid-out stable key when available.
             val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == returnKey }
             val customerIndex = shown.indexOfFirst { it.customer.id == returnKey }
-            val headerCount = 3 + (if (showSearch) 1 else 0) + (if (showSort) 1 else 0)
+            val headerCount = 3 + (if(manualState.pending>0) 1 else 0) + (if (showSearch) 1 else 0) + (if (showSort) 1 else 0)
             listState.scrollToItem(item?.index ?: if (customerIndex >= 0) customerIndex + headerCount
                 else returnIndex.coerceAtMost((shown.size + headerCount - 1).coerceAtLeast(0)), returnOffset)
             restoreReturn = false
@@ -272,17 +279,21 @@ fun SmartDebtFollowupV316(
                     totalDebts = customer.openingDebt + ownMovements.filter { it.type == EntryType.DEBT }.sumOf { it.amount },
                     totalPaid = ownMovements.filter { it.type == EntryType.PAYMENT }.sumOf { it.amount }
                 )
-                val caption = ReadyMessages.messageFor(context, account)
+                val attachImage = FollowupShareSettings(context).includeImage()
+                val caption = if(attachImage) ReadyMessages.messageFor(context, account) else ReadyMessages.textOnlyFor(context, account)
                 val reminderCase = FollowupReminderStore.caseFor(account, ownMovements)
-                val file = withContext(Dispatchers.Default) {
+                val file = if(attachImage) withContext(Dispatchers.Default) {
                     StatementDocumentRenderer.createPng(context, snapshot)
-                }
+                } else null
                 check(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                     "ارجع إلى شاشة المتابعة واضغط مشاركة الوصل مرة أخرى."
                 }
                 val request = reminderStore.stage(reminderCase)
                 pending = request
-                if (useSystemChooser) {
+                if(file==null) {
+                    if(useSystemChooser) StatementShare.shareText(context, caption)
+                    else StatementShare.shareTextToWhatsappContact(context, caption, digits.orEmpty())
+                } else if (useSystemChooser) {
                     StatementShare.shareImageToWhatsappPicker(context, file, caption)
                 } else {
                     StatementShare.shareImageToWhatsappContact(context, file, caption, digits.orEmpty())
@@ -338,7 +349,7 @@ fun SmartDebtFollowupV316(
                     TextButton(onClick = {
                         statusMessage = null
                         share(id, useSystemChooser = true)
-                    }) { Text("مشاركة بديلة بالصورة والنص") }
+                    }) { Text("مشاركة بديلة") }
                 }
             }
         )
@@ -363,6 +374,7 @@ fun SmartDebtFollowupV316(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(13.dp)
         ) {
+            if(manualState.pending>0) item(key="manual-pending") {Text("${manualState.pending} إضافة متابعة محفوظة على الهاتف وتنتظر المزامنة",style=MaterialTheme.typography.labelSmall)}
             item(key = "followup-title") {
                 Surface(
                     shape = MaterialTheme.shapes.extraLarge,
@@ -540,6 +552,10 @@ fun SmartDebtFollowupV316(
                         isBusy = sharing != null,
                         remindedAt = remindedAt,
                         onShare = { share(item.customer.id) },
+                        smsAttempt = sms.attempts[item.customer.id],
+                        smsBusy = sms.busy != null,
+                        smsNow = sms.now,
+                        onSms = { sms.send(item.customer.id) },
                         onOpen = { onCustomer(item.customer.id) }
                     )
                 }
@@ -567,8 +583,8 @@ internal fun FollowupReminderConfirmation(
         title = { Text("تأكيد التذكير") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("هل أرسلت الوصل والرسالة إلى $customerName عبر واتساب؟")
-                TextButton(onClick = onAlternative) { Text("مشاركة بديلة بالصورة والنص") }
+                Text("هل أرسلت الكشف أو الرسالة إلى $customerName عبر واتساب؟")
+                TextButton(onClick = onAlternative) { Text("مشاركة بديلة") }
             }
         },
         confirmButton = { TextButton(onClick = onSent) { Text("نعم، تم الإرسال") } },
@@ -611,12 +627,16 @@ private fun FollowupStat(label: String, value: String, modifier: Modifier = Modi
 }
 
 @Composable
-private fun FollowupAccountCard(
+internal fun FollowupAccountCard(
     record: DebtFollowupEngine.Account,
     hideAmounts: Boolean,
     isSharing: Boolean,
     isBusy: Boolean,
     remindedAt: Long?,
+    smsAttempt: SmsAttempt?,
+    smsBusy: Boolean,
+    smsNow: Long,
+    onSms: () -> Unit,
     onShare: () -> Unit,
     onOpen: () -> Unit
 ) {
@@ -628,11 +648,11 @@ private fun FollowupAccountCard(
         DebtFollowupEngine.Bucket.NOT_OVERDUE -> if (record.specialOverdueAmount > 0L) orange else MaterialTheme.colorScheme.primary
     }
     val stateText = if (record.specialOverdueAmount > 0L && record.specialReminderDays != null) {
-        "تجاوز موعد التسديد المتفق عليه (${com.radwan.raadpharmacy.data.RepaymentTerms.label(record.specialReminderDays)})"
+        com.radwan.raadpharmacy.data.RepaymentTerms.label(record.specialReminderDays)
     } else when (record.bucket) {
-        DebtFollowupEngine.Bucket.OVER_60 -> "دين قديم — ${record.ageDays} يومًا"
+        DebtFollowupEngine.Bucket.OVER_60 -> "${record.ageDays} يومًا"
         DebtFollowupEngine.Bucket.NEEDS_REVIEW -> "التاريخ يحتاج مراجعة"
-        else -> "متأخر ${record.ageDays} يومًا"
+        else -> "${record.ageDays ?: 0} يومًا"
     }
     val dateText = record.oldestUnpaidAt?.let {
         runCatching {
@@ -671,6 +691,7 @@ private fun FollowupAccountCard(
                         color = shade, style = MaterialTheme.typography.labelSmall)
                 }
             }
+            if(record.manuallyFollowed) Text("أضيف للمتابعة يدويًا", style=MaterialTheme.typography.labelSmall, color=MaterialTheme.colorScheme.primary)
             FollowupReminderBadge(remindedAt)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -680,21 +701,32 @@ private fun FollowupAccountCard(
                         style = MaterialTheme.typography.titleMedium)
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("المبلغ المتأخر", style = MaterialTheme.typography.labelSmall,
+                    Text(if(record.manuallyFollowed && record.overdueAmount==0L) "المبلغ المطلوب" else "المبلغ المتأخر", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (record.hasUnknownDates && record.specialOverdueAmount == 0L) "يحتاج مراجعة"
-                        else if (hideAmounts) "•••• د.ع" else formatMoney(record.overdueAmount),
+                        else if (hideAmounts) "•••• د.ع" else formatMoney(if(record.manuallyFollowed && record.overdueAmount==0L) record.balance else record.overdueAmount),
                         style = MaterialTheme.typography.titleMedium, color = shade)
                 }
             }
             if (record.specialDueAt != null) {
-                val overdueDays = java.time.temporal.ChronoUnit.DAYS.between(record.specialDueAt, LocalDate.now(DebtFollowupEngine.IRAQ_ZONE))
-                Text("موعد التسديد المتفق عليه: ${record.specialDueAt.format(clockFormat)} • تجاوز الموعد بـ $overdueDays يوم",
+                Text("موعد التسديد: ${record.specialDueAt.format(clockFormat)}",
                     style = MaterialTheme.typography.bodySmall, color = shade)
             }
             Text("أقدم دين غير مسدد: $dateText   •   آخر تحصيل: $lastPaymentText",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val smsState=smsAttempt?.state(smsNow)
+            if(smsState==SmsState.FAILED || smsState==SmsState.UNCERTAIN) Text(
+                if(smsState==SmsState.FAILED) "تعذر إرسال كل أجزاء SMS؛ تحقق قبل إعادة الإرسال." else "نتيجة SMS غير مؤكدة؛ تحقق من الرسائل قبل إعادة الإرسال.",
+                style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.error)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick=onSms,enabled=!smsBusy && smsState!=SmsState.SENDING,modifier=Modifier.weight(1f)) {
+                    if(smsState==SmsState.SENDING) CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp)
+                    else Icon(if(smsState==SmsState.SENT) Icons.Rounded.CheckCircle else Icons.Rounded.Sms,null,Modifier.size(17.dp))
+                    Spacer(Modifier.size(5.dp));Text(if(smsState==SmsState.SENT) "SMS ✓" else "SMS")
+                }
+                OutlinedButton(onClick = onOpen,modifier=Modifier.weight(1f)) {Text("عرض الحساب")}
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = onShare,
@@ -706,10 +738,6 @@ private fun FollowupAccountCard(
                     ) else Icon(if (remindedAt != null) Icons.Rounded.CheckCircle else Icons.Rounded.Send, null, modifier = Modifier.size(17.dp))
                     Spacer(Modifier.size(6.dp))
                     Text(if (remindedAt != null) "تم الإرسال • إعادة إرسال" else "إرسال كشف الحساب", maxLines = 1)
-                }
-                OutlinedButton(onClick = onOpen) {
-                    Text("عرض الحساب")
-                    Icon(Icons.Rounded.ChevronLeft, null, modifier = Modifier.size(17.dp))
                 }
             }
         }

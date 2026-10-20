@@ -52,6 +52,24 @@ class WhatsappReceiptLaunchTest {
         }
     }
 
+    @Test fun textOnlyPreferenceRoutesWithoutCreatingOrAttachingAnImage() {
+        val activity=Robolectric.buildActivity(Activity::class.java).setup().get()
+        val context=RecordingContext(activity)
+        try {
+            StatementShare.shareTextToWhatsappContact(context,"رسالة بلا صورة","07701234567")
+            val whatsapp=context.launched.single()
+            assertEquals(Intent.ACTION_VIEW,whatsapp.action)
+            assertEquals("9647701234567",whatsapp.data!!.lastPathSegment)
+            assertEquals("رسالة بلا صورة",whatsapp.data!!.getQueryParameter("text"))
+            assertFalse(whatsapp.hasExtra(Intent.EXTRA_STREAM));assertTrue(context.grants.isEmpty())
+            context.launched.clear()
+            StatementShare.shareTextToMessages(context,"SMS نصي","07701234567")
+            val sms=context.launched.single()
+            assertEquals(Intent.ACTION_SENDTO,sms.action);assertEquals("smsto:+9647701234567",sms.data.toString())
+            assertEquals("SMS نصي",sms.getStringExtra("sms_body"));assertFalse(sms.hasExtra(Intent.EXTRA_STREAM))
+        } finally {activity.finish()}
+    }
+
     @Test fun actualLaunchRetainsEachRecipientsReadableImageAndCaptionAcrossThreeShares() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val context = RecordingContext(activity)
